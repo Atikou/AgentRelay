@@ -1,0 +1,27 @@
+{
+  "workspaceRoot": ".",
+  "models": {
+    "default": "local-qwen35",
+    "clients": [
+      {
+        "name": "local-qwen35",
+        "provider": "ollama",
+        "location": "local",
+        "baseUrl": "http://localhost:11434",
+        "model": "qwen3.5:0.8b"
+      },
+      {
+        "name": "local-lmstudio",
+        "provider": "openai-compatible",
+        "location": "local",
+        "baseUrl": "http://localhost:1234/v1",
+        "apiKey": "lm-studio",
+        "model": "local-model"
+      }
+    ]
+  },
+  "routing": {
+    "strategy": "privacy-first",
+    "fallback": true
+  }
+}

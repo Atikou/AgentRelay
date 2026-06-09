@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>AgentRelay</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="app">
+      <!-- 侧边栏：把项目里“有什么功能”做成按钮 -->
+      <aside class="sidebar">
+        <div class="brand">
+          <span class="brand-dot"></span>
+          <span class="brand-name">AgentRelay</span>
+        </div>
+
+        <button class="primary-btn" data-action="new-chat">＋ 新会话</button>
+        <a class="primary-btn doc-entry" href="/docs">说明文档 ↗</a>
+
+        <nav class="nav-group">
+          <div class="nav-title">已实现 · 模型接入与路由</div>
+          <button class="nav-btn" data-action="view-config">查看配置</button>
+          <button class="nav-btn" data-action="check-models">检测模型可用性</button>
+          <button class="nav-btn" data-action="refresh-models">刷新模型列表</button>
+          <button class="nav-btn" data-action="metrics">调用统计</button>
+        </nav>
+
+        <nav class="nav-group">
+          <div class="nav-title">已实现 · 工具系统</div>
+          <button class="nav-btn" data-action="tools">工具系统</button>
+        </nav>
+
+        <nav class="nav-group">
+          <div class="nav-title">规划中 · 后续里程碑</div>
+          <button class="nav-btn" disabled title="即将实现">后台任务</button>
+          <button class="nav-btn" disabled title="即将实现">通知队列</button>
+          <button class="nav-btn" disabled title="即将实现">定时触发</button>
+          <button class="nav-btn" disabled title="即将实现">子 Agent</button>
+        </nav>
+
+        <div class="sidebar-foot">
+          <span id="profile-tag">profile: -</span>
+        </div>
+      </aside>
+
+      <!-- 主区：对话 / 输出 -->
+      <main class="main">
+        <header class="main-head">
+          <div class="status">
+            <span id="status-dot" class="status-dot"></span>
+            <span id="status-text">未连接</span>
+          </div>
+        </header>
+
+        <section id="feed" class="feed">
+          <div class="welcome">
+            <h1>准备好了，随时开始</h1>
+            <p>左侧按钮可测试已实现功能；下方可直接与模型对话。</p>
+          </div>
+        </section>
+
+        <footer class="composer">
+          <div class="composer-row meta-row">
+            <label class="field">
+              <span>模式</span>
+              <select id="mode-select">
+                <option value="chat">对话</option>
+                <option value="plan">计划</option>
+                <option value="agent">智能体</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>模型</span>
+              <select id="model-select">
+                <option value="__default__">自动（默认）</option>
+              </select>
+            </label>
+            <input id="system-input" class="system-input" placeholder="系统提示（可选）" />
+            <label class="field sensitive-field" title="勾选后仅使用本地模型">
+              <input type="checkbox" id="sensitive-input" />
+              <span>敏感（仅本地）</span>
+            </label>
+            <label class="field sensitive-field" title="智能体模式下允许执行写文件/命令等副作用工具">
+              <input type="checkbox" id="autoconfirm-input" />
+              <span>允许改动（写/命令）</span>
+            </label>
+          </div>
+          <div class="composer-row input-row">
+            <textarea id="message-input" rows="1" placeholder="向模型提问，回车发送，Shift+回车换行"></textarea>
+            <button id="send-btn" class="send-btn" title="发送">发送</button>
+          </div>
+        </footer>
+      </main>
+    </div>
+
+    <script src="/app.js"></script>
+  </body>
+</html>

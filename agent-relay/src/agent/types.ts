@@ -1,0 +1,78 @@
+import { z } from "zod";
+
+import { ALL_PERMISSIONS } from "./permissions.js";
+
+export const StepStatusSchema = z.enum([
+  "pending",
+  "running",
+  "blocked",
+  "completed",
+  "failed",
+  "cancelled",
+]);
+export type StepStatus = z.infer<typeof StepStatusSchema>;
+
+export const ToolPermissionSchema = z.enum(
+  ALL_PERMISSIONS as [string, ...string[]],
+);
+
+export const PlanStepSchema = z.object({
+  id: z.string(),
+  title: z.string(),
+  description: z.string().default(""),
+  requiredPermissions: z.array(ToolPermissionSchema).default(["read"]),
+  needsConfirmation: z.boolean().default(false),
+  acceptance: z.string().optional(),
+  /** 可选：该步骤绑定的工具名（提供时任务模式会真实执行该工具）。 */
+  tool: z.string().optional(),
+  /** 可选：传给绑定工具的入参。 */
+  toolInput: z.record(z.unknown()).optional(),
+  status: StepStatusSchema.default("pending"),
+  result: z.string().optional(),
+  error: z.string().optional(),
+});
+export type PlanStep = z.infer<typeof PlanStepSchema>;
+
+export const PlanSchema = z.object({
+  goal: z.string(),
+  scope: z
+    .object({
+      inScope: z.array(z.string()).default([]),
+      outOfScope: z.array(z.string()).default([]),
+    })
+    .default({ inScope: [], outOfScope: [] }),
+  risks: z.array(z.string()).default([]),
+  dependencies: z.array(z.string()).default([]),
+  steps: z.array(PlanStepSchema).default([]),
+});
+export type Plan = z.infer<typeof PlanSchema>;
+
+/**
+ * 模型返回的原始计划 schema（较宽松：steps 里允许缺省字段，由我们补全 id/status）。
+ */
+export const RawPlanSchema = z.object({
+  goal: z.string().optional(),
+  scope: z
+    .object({
+      inScope: z.array(z.string()).optional(),
+      outOfScope: z.array(z.string()).optional(),
+    })
+    .optional(),
+  risks: z.array(z.string()).optional(),
+  dependencies: z.array(z.string()).optional(),
+  steps: z
+    .array(
+      z.object({
+        id: z.string().optional(),
+        title: z.string(),
+        description: z.string().optional(),
+        requiredPermissions: z.array(ToolPermissionSchema).optional(),
+        needsConfirmation: z.boolean().optional(),
+        acceptance: z.string().optional(),
+        tool: z.string().optional(),
+        toolInput: z.record(z.unknown()).optional(),
+      }),
+    )
+    .optional(),
+});
+export type RawPlan = z.infer<typeof RawPlanSchema>;

@@ -1,0 +1,33 @@
+{
+  "name": "agent-relay",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "AgentRelay — 本地优先的 Agent 编排后端，支持模型路由、工具系统、计划/任务与自主对话循环。",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "dev": "tsx src/cli/main.ts",
+    "serve": "tsx src/server/server.ts",
+    "models:check": "tsx src/cli/check-models.ts",
+    "test:router": "tsx tests/router.test.ts",
+    "test:agent": "tsx tests/agent.test.ts",
+    "test:tools": "tsx tests/tools.test.ts",
+    "test:loop": "tsx tests/loop.test.ts",
+    "test": "tsx tests/router.test.ts && tsx tests/agent.test.ts && tsx tests/tools.test.ts && tsx tests/loop.test.ts",
+    "docs:screenshots": "node scripts/capture-docs.mjs"
+  },
+  "dependencies": {
+    "openai": "^4.67.3",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^22.7.5",
+    "puppeteer": "^25.1.0",
+    "tsx": "^4.19.1",
+    "typescript": "^5.6.3"
+  }
+}

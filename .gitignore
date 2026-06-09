@@ -1,0 +1,25 @@
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# Secrets（切勿提交）
+.env
+.env.*
+!.env.example
+**/.env
+!**/.env.example
+
+# Node / 构建（agent-relay）
+agent-relay/node_modules/
+agent-relay/dist/
+
+# 运行时数据
+agent-relay/data/logs/
+agent-relay/data/traces/
+agent-relay/data/*.db

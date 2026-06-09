@@ -1,0 +1,58 @@
+{
+  "workspaceRoot": ".",
+  "models": {
+    "default": "local-qwen35",
+    "clients": [
+      {
+        "name": "local-qwen35",
+        "provider": "ollama",
+        "location": "local",
+        "baseUrl": "http://localhost:11434",
+        "model": "qwen3.5:0.8b"
+      },
+      {
+        "name": "local-lmstudio",
+        "provider": "openai-compatible",
+        "location": "local",
+        "baseUrl": "http://localhost:1234/v1",
+        "apiKey": "lm-studio",
+        "model": "local-model"
+      },
+      {
+        "name": "cloud-openai",
+        "provider": "openai-compatible",
+        "location": "remote",
+        "baseUrl": "https://api.openai.com/v1",
+        "apiKeyEnv": "OPENAI_API_KEY",
+        "model": "gpt-4o-mini",
+        "pricePer1kInputUsd": 0.00015,
+        "pricePer1kOutputUsd": 0.0006
+      },
+      {
+        "name": "cloud-deepseek",
+        "provider": "openai-compatible",
+        "location": "remote",
+        "baseUrl": "https://api.deepseek.com/v1",
+        "apiKeyEnv": "OPENAI_API_KEY",
+        "model": "deepseek-chat",
+        "pricePer1kInputUsd": 0.00027,
+        "pricePer1kOutputUsd": 0.0011
+      },
+      {
+        "name": "cloud-anthropic",
+        "provider": "anthropic",
+        "location": "remote",
+        "baseUrl": "https://api.anthropic.com",
+        "apiKeyEnv": "ANTHROPIC_API_KEY",
+        "model": "claude-3-5-sonnet-latest",
+        "maxTokens": 4096,
+        "pricePer1kInputUsd": 0.003,
+        "pricePer1kOutputUsd": 0.015
+      }
+    ]
+  },
+  "routing": {
+    "strategy": "local-first",
+    "fallback": true
+  }
+}
