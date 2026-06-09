@@ -21,7 +21,7 @@ function scrollToBottom() {
   feed.scrollTop = feed.scrollHeight;
 }
 
-function addMessage(role, content, meta) {
+function addMessage(role, content, meta, opts) {
   clearWelcome();
   const wrap = document.createElement("div");
   wrap.className = `msg ${role}`;
@@ -37,7 +37,11 @@ function addMessage(role, content, meta) {
     wrap.appendChild(m);
   }
   feed.appendChild(wrap);
-  scrollToBottom();
+  if (opts?.scroll === "start") {
+    wrap.scrollIntoView({ block: "start", behavior: "smooth" });
+  } else {
+    scrollToBottom();
+  }
   return wrap;
 }
 
@@ -454,6 +458,16 @@ function renderAgentRun(result) {
     card.appendChild(stepsWrap);
   }
 
+  if (result.notifications && result.notifications.length) {
+    const notes = document.createElement("div");
+    notes.className = "plan-step-desc";
+    notes.style.marginBottom = "8px";
+    notes.innerHTML = `<strong>安全点消费的通知</strong><br>${result.notifications
+      .map((n) => escapeHtml(`[${n.source}] ${n.message}`))
+      .join("<br>")}`;
+    card.appendChild(notes);
+  }
+
   const ans = document.createElement("div");
   ans.className = "plan-goal";
   ans.style.marginTop = result.steps && result.steps.length ? "12px" : "0";
@@ -471,6 +485,152 @@ function renderAgentRun(result) {
 
 function truncate(s, n) {
   return s.length > n ? s.slice(0, n) + "…" : s;
+}
+
+async function handleBackground() {
+  clearWelcome();
+  const panel = document.createElement("div");
+  panel.className = "tool-panel";
+
+  const row = document.createElement("div");
+  row.className = "tool-row";
+  const input = document.createElement("input");
+  input.className = "system-input";
+  input.placeholder = '后台命令，如 node -v 或 npm run typecheck';
+  input.style.flex = "1";
+  const startBtn = document.createElement("button");
+  startBtn.className = "action-btn";
+  startBtn.textContent = "后台启动";
+  const refreshBtn = document.createElement("button");
+  refreshBtn.className = "action-btn";
+  refreshBtn.textContent = "刷新列表";
+  row.appendChild(input);
+  row.appendChild(startBtn);
+  row.appendChild(refreshBtn);
+  panel.appendChild(row);
+
+  const list = document.createElement("div");
+  list.className = "tool-result";
+  list.style.display = "block";
+  panel.appendChild(list);
+
+  const renderTasks = (tasks) => {
+    if (!tasks.length) {
+      list.textContent = "暂无后台任务。";
+      return;
+    }
+    list.innerHTML = tasks
+      .map((t) => {
+        const tail = truncate((t.stdout || t.stderr || "").trim(), 120);
+        return `<div class="plan-step" style="margin-top:8px">
+          <div class="plan-step-head">
+            <span class="status status-${t.status === "completed" ? "completed" : t.status === "running" ? "running" : "failed"}">${escapeHtml(t.status)}</span>
+            <span class="plan-step-title">${escapeHtml(t.command)}</span>
+            ${t.status === "running" ? `<button type="button" class="action-btn cancel-bg" data-id="${escapeHtml(t.id)}">取消</button>` : ""}
+          </div>
+          <div class="plan-step-desc">id: ${escapeHtml(t.id)} · pid: ${t.pid ?? "-"} · exit: ${t.exitCode ?? "-"}</div>
+          ${tail ? `<div class="plan-step-desc">${escapeHtml(tail)}</div>` : ""}
+        </div>`;
+      })
+      .join("");
+    list.querySelectorAll(".cancel-bg").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        try {
+          await api(`/api/background/${btn.dataset.id}/cancel`, { method: "POST" });
+          await loadTasks();
+        } catch (err) {
+          addSystemError(String(err.message || err));
+        }
+      });
+    });
+  };
+
+  const loadTasks = async () => {
+    try {
+      const data = await api("/api/background");
+      renderTasks(data.tasks || []);
+    } catch (err) {
+      list.textContent = String(err.message || err);
+    }
+  };
+
+  startBtn.addEventListener("click", async () => {
+    const command = input.value.trim();
+    if (!command) return;
+    startBtn.disabled = true;
+    try {
+      await api("/api/background/start", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ command }),
+      });
+      input.value = "";
+      await loadTasks();
+    } catch (err) {
+      addSystemError(String(err.message || err));
+    } finally {
+      startBtn.disabled = false;
+    }
+  });
+
+  refreshBtn.addEventListener("click", loadTasks);
+  addMessage("system", panel);
+  await loadTasks();
+}
+
+async function handleNotifications() {
+  clearWelcome();
+  const panel = document.createElement("div");
+  panel.className = "tool-panel";
+  const row = document.createElement("div");
+  row.className = "tool-row";
+  const refreshBtn = document.createElement("button");
+  refreshBtn.className = "action-btn";
+  refreshBtn.textContent = "刷新待处理";
+  const consumeBtn = document.createElement("button");
+  consumeBtn.className = "action-btn";
+  consumeBtn.textContent = "手动消费（安全点）";
+  row.appendChild(refreshBtn);
+  row.appendChild(consumeBtn);
+  panel.appendChild(row);
+
+  const list = document.createElement("div");
+  list.className = "tool-result";
+  list.style.display = "block";
+  panel.appendChild(list);
+
+  const load = async (pendingOnly) => {
+    try {
+      const data = await api(`/api/notifications${pendingOnly ? "?pending=1" : ""}`);
+      const notes = data.notifications || [];
+      if (!notes.length) {
+        list.textContent = pendingOnly ? "暂无待处理通知。" : "暂无通知记录。";
+        return;
+      }
+      list.innerHTML = notes
+        .map(
+          (n) =>
+            `<div class="plan-step-desc">[${escapeHtml(n.source)}/${escapeHtml(n.level)}] ${escapeHtml(n.timestamp)} — ${escapeHtml(n.message)}${n.consumed ? " (已消费)" : ""}</div>`,
+        )
+        .join("");
+    } catch (err) {
+      list.textContent = String(err.message || err);
+    }
+  };
+
+  refreshBtn.addEventListener("click", () => load(true));
+  consumeBtn.addEventListener("click", async () => {
+    try {
+      const data = await api("/api/notifications/consume", { method: "POST" });
+      addMessage("system", `已消费 ${(data.consumed || []).length} 条通知。`);
+      await load(true);
+    } catch (err) {
+      addSystemError(String(err.message || err));
+    }
+  });
+
+  addMessage("system", panel);
+  await load(true);
 }
 
 async function handleAgent(message) {
@@ -583,6 +743,24 @@ document.querySelector(".sidebar").addEventListener("click", async (e) => {
     await handleMetrics();
   } else if (action === "tools") {
     await handleTools();
+  } else if (action === "test-cases") {
+    if (typeof window.openTestCasesPanel === "function") {
+      await window.openTestCasesPanel(
+        {
+          feed,
+          clearWelcome,
+          addMessage,
+          escapeHtml,
+        },
+        btn.dataset.feature || undefined,
+      );
+    } else {
+      addSystemError("测试运行器未加载，请硬刷新页面。");
+    }
+  } else if (action === "background") {
+    await handleBackground();
+  } else if (action === "notifications") {
+    await handleNotifications();
   } else if (action === "refresh-models") {
     const rows = await refreshModels();
     if (rows) {

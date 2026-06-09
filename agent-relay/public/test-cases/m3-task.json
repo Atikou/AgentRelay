@@ -1,0 +1,20 @@
+{
+  "milestone": "M3",
+  "feature": "任务模式",
+  "featureId": "m3-task",
+  "summary": "验证 TaskRunner dry-run 入口对 PlanSchema 的校验。",
+  "cases": [
+    {
+      "id": "m3-task-invalid-plan",
+      "title": "非法 plan 格式返回 400",
+      "purpose": "确认任务模式在计划 JSON 不符合 zod Schema 时立即 400，不进入状态机执行。",
+      "method": "POST",
+      "path": "/api/task/dry-run",
+      "input": { "plan": { "not": "a plan" } },
+      "expect": {
+        "status": 400,
+        "bodyHasKeys": ["error"]
+      }
+    }
+  ]
+}

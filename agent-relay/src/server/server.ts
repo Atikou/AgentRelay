@@ -14,6 +14,7 @@ import { createModelClient } from "../model/ModelFactory.js";
 import { MetricsRegistry } from "../model/MetricsRegistry.js";
 import { ModelRouter, type ClientPricing } from "../model/ModelRouter.js";
 import type { ModelClient } from "../model/types.js";
+import { BackgroundTaskManager, NotificationQueue } from "../background/index.js";
 import { Planner } from "../agent/Planner.js";
 import { DryRunExecutor, TaskRunner } from "../agent/TaskRunner.js";
 import { ToolStepExecutor } from "../agent/ToolStepExecutor.js";
@@ -49,6 +50,10 @@ for (const c of config.models.clients) {
 
 const metrics = new MetricsRegistry();
 const trace = new TraceLogger(path.join(projectRoot, "data", "traces", "trace.jsonl"));
+const notificationQueue = new NotificationQueue(
+  path.join(projectRoot, "data", "notifications", "notifications.jsonl"),
+);
+const backgroundTasks = new BackgroundTaskManager(workspaceRoot, notificationQueue, trace);
 const router = new ModelRouter([...clientMap.values()], {
   strategy: config.routing.strategy,
   fallback: config.routing.fallback,
@@ -258,6 +263,7 @@ async function handleAgent(body: unknown) {
     sensitive: payload.sensitive,
     maxIterations: payload.maxIterations,
     trace,
+    notificationQueue,
   });
 
   try {
@@ -266,6 +272,47 @@ async function handleAgent(body: unknown) {
   } catch (error) {
     return { status: 502, body: { error: `Agent 循环失败：${String(error)}` } };
   }
+}
+
+/** 启动后台命令（spawn，不阻塞 HTTP）。 */
+function handleBackgroundStart(body: unknown) {
+  const payload = (body ?? {}) as { command?: string; cwd?: string };
+  const command = (payload.command ?? "").trim();
+  if (!command) return { status: 400, body: { error: "command 不能为空" } };
+  try {
+    const task = backgroundTasks.start(command, payload.cwd);
+    return { status: 200, body: { task } };
+  } catch (error) {
+    return { status: 400, body: { error: String(error) } };
+  }
+}
+
+function handleBackgroundList() {
+  return { tasks: backgroundTasks.list() };
+}
+
+function handleBackgroundGet(id: string) {
+  const task = backgroundTasks.get(id);
+  if (!task) return { status: 404, body: { error: "任务不存在" } };
+  return { status: 200, body: { task } };
+}
+
+function handleBackgroundCancel(id: string) {
+  const task = backgroundTasks.cancel(id);
+  if (!task) return { status: 404, body: { error: "任务不存在或已结束" } };
+  return { status: 200, body: { task } };
+}
+
+function handleNotificationsList(pendingOnly: boolean) {
+  const notifications = pendingOnly
+    ? notificationQueue.listPending()
+    : notificationQueue.listAll();
+  return { notifications };
+}
+
+function handleNotificationsConsume() {
+  const notifications = notificationQueue.drain();
+  return { consumed: notifications };
 }
 
 /** 列出已注册工具。 */
@@ -399,6 +446,38 @@ const server = createServer((req, res) => {
         const result = await handleAgent(await readBody(req));
         sendJson(res, result.status, result.body);
         return;
+      }
+      if (pathname === "/api/background" && method === "GET") {
+        sendJson(res, 200, handleBackgroundList());
+        return;
+      }
+      if (pathname === "/api/background/start" && method === "POST") {
+        const result = handleBackgroundStart(await readBody(req));
+        sendJson(res, result.status, result.body);
+        return;
+      }
+      if (pathname === "/api/notifications" && method === "GET") {
+        const pendingOnly = url.searchParams.get("pending") === "1";
+        sendJson(res, 200, handleNotificationsList(pendingOnly));
+        return;
+      }
+      if (pathname === "/api/notifications/consume" && method === "POST") {
+        sendJson(res, 200, handleNotificationsConsume());
+        return;
+      }
+      if (pathname.startsWith("/api/background/") && pathname !== "/api/background/start") {
+        const id = decodeURIComponent(pathname.slice("/api/background/".length));
+        if (method === "GET") {
+          const result = handleBackgroundGet(id);
+          sendJson(res, result.status, result.body);
+          return;
+        }
+        if (method === "POST" && id.endsWith("/cancel")) {
+          const taskId = decodeURIComponent(id.slice(0, -"/cancel".length));
+          const result = handleBackgroundCancel(taskId);
+          sendJson(res, result.status, result.body);
+          return;
+        }
       }
       if (pathname === "/api/tools" && method === "GET") {
         sendJson(res, 200, handleToolsList());

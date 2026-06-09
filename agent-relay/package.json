@@ -17,7 +17,8 @@
     "test:agent": "tsx tests/agent.test.ts",
     "test:tools": "tsx tests/tools.test.ts",
     "test:loop": "tsx tests/loop.test.ts",
-    "test": "tsx tests/router.test.ts && tsx tests/agent.test.ts && tsx tests/tools.test.ts && tsx tests/loop.test.ts",
+    "test:background": "tsx tests/background.test.ts",
+    "test": "tsx tests/router.test.ts && tsx tests/agent.test.ts && tsx tests/tools.test.ts && tsx tests/loop.test.ts && tsx tests/background.test.ts",
     "docs:screenshots": "node scripts/capture-docs.mjs"
   },
   "dependencies": {

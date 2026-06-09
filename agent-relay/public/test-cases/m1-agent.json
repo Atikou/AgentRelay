@@ -1,0 +1,20 @@
+{
+  "milestone": "M1",
+  "feature": "智能体对话循环",
+  "featureId": "m1-agent",
+  "summary": "验证 AgentLoop 入口 /api/agent 的参数校验（不依赖在线模型即可测的部分）。",
+  "cases": [
+    {
+      "id": "m1-agent-empty",
+      "title": "空 message 返回 400",
+      "purpose": "确认智能体接口拒绝空用户消息，避免无意义模型调用与空循环。",
+      "method": "POST",
+      "path": "/api/agent",
+      "input": { "message": "" },
+      "expect": {
+        "status": 400,
+        "bodyHasKeys": ["error"]
+      }
+    }
+  ]
+}

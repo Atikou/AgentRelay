@@ -28,6 +28,7 @@ AgentRelay/
       ├─ config/                  # zod 配置类型 + 加载器
       ├─ model/                   # 模型层：clients / ModelRouter / MetricsRegistry / ModelFactory
       ├─ agent/                   # Agent：AgentLoop(主循环) / Planner / TaskRunner / ToolStepExecutor / permissions / types
+      ├─ background/              # M4：BackgroundTaskManager / NotificationQueue
       ├─ tools/                   # 工具系统：ToolRegistry / 文件工具 / shell_run / 风险与路径沙箱
       ├─ trace/                   # TraceLogger（JSONL 事件日志）
       ├─ server/                  # 测试台后端（Node http，无框架）
@@ -60,10 +61,11 @@ npm run serve          # 启动后端与测试台 http://localhost:18787
 - 工具系统（todolist 第 3/10 节）：`ToolRegistry`（zod 校验/权限边界/超时/trace）+ 内置工具 `read_file`/`list_files`/`search_text`/`write_file`/`shell_run`；路径沙箱 + 命令风险分级拦截 + 确认门；`ToolStepExecutor` 让任务模式真实执行。
 - M1 主对话循环（todolist 第 11/19 节）：`AgentLoop` 用可移植的 ReAct JSON 协议让模型自主决定工具调用，迭代到最终答案；含权限/确认/迭代上限。接口 `POST /api/agent`，测试台「智能体」模式。
 - 文档站：`/docs` 自动渲染 `docs/*.md`（Mermaid + 截图，ChatGPT 配色 + 深色模式）。
-- 多 profile 配置、测试台网页（配置 / 可用性 / 调用统计 / 敏感开关 / 对话 / 计划 / 智能体 / 工具系统）。
-- 自检：`npm test`（路由 + Agent 模式 + 工具系统 + 对话循环，36 项）。
+- 多 profile 配置、测试台网页（配置 / 可用性 / 调用统计 / 敏感开关 / 对话 / 计划 / 智能体 / **测试用例** / 工具系统）。
+- M4 后台任务与通知队列：`BackgroundTaskManager`（spawn/查询/取消）+ `NotificationQueue`（JSONL 持久化）；`AgentLoop` 在安全点消费通知；`/api/background/*`、`/api/notifications/*`；测试台「后台任务」「通知队列」面板。
+- 自检：`npm test`（路由 + Agent 模式 + 工具系统 + 对话循环 + 后台/通知，41 项）。
 
-**未实现**（按里程碑推进，勿提前堆叠）：单任务多模型协作、流式逐步推送、后台任务、通知队列、定时触发、子 Agent、上下文压缩、安全审计。
+**未实现**（按里程碑推进，勿提前堆叠）：单任务多模型协作、流式逐步推送、通知去重/合并、定时触发、子 Agent、上下文压缩、安全审计增强。
 
 ## 关键约定（务必遵守）
 
@@ -74,6 +76,11 @@ npm run serve          # 启动后端与测试台 http://localhost:18787
 - **MVP 纪律**：先保证最小闭环稳定，再扩展；不要提前引入向量库、子 Agent、复杂调度（理由见实现指南第 2 节）。
 - **安全默认**：高风险操作（删除文件、覆盖配置、安装依赖、`git push`、部署、联网执行脚本）默认需要确认，不可自动执行。
 - **验证**：改完代码必须 `npm run typecheck` 通过；涉及模型/网页时用 `npm run models:check` 或 `npm run serve` 自测。
+- **测试用例（强制，双轨）**：每实现一块功能，除 `tests/*.test.ts` 外，必须在对应**功能页 JSON**中 **新增不少于 2 条**网页用例（见 `agent-relay/public/test-cases/`）：
+  - **一功能一页**：`index.json` 按里程碑顺序登记；文件如 `m1-tools.json`，**禁止**全部塞进单文件。
+  - 每条必填：`id`、`title`、**`purpose`（测试目的）**、`method`、`path`、`input`、`expect`；格式见 `test-cases/SCHEMA.md`。
+  - 测试台：侧栏按 M0→M4 进入各功能页；每页底部 **手动输入验证**（自选/自定义 API、运行看结果）；可 **复制单条/复制本页**。
+  - 优先覆盖正常路径 + 边界/4xx/安全拦截；详 `docs/测试用例.md`。
 - **文档同步（强制）**：**每次变更都必须同步更新对应文档**，与代码在同一次改动内完成，不得拖延。对照清单：
   - 改架构 / 新增模块 / 调整分层或调用链路 → 更新 `docs/项目整体架构.md`（含其中的图与目录树）。
   - 改使用方式 / 配置 / 接入流程 → 更新 `docs/` 下对应专题文档（如「接入本地模型」），新增专题时在 `docs/README.md` 文档列表登记。
@@ -91,5 +98,5 @@ npm run serve          # 启动后端与测试台 http://localhost:18787
 - 不确定时，以 `Agent_TS_实现指南_修订版.md` 为准。
 - **任何改动都要同步对应文档**（见「关键约定 · 文档同步」），把它当作 Definition of Done 的一部分。
 - **结束任务前必做自审核**并追加到 `docs/自审核记录.md`（见「关键约定 · 自审核」）。
-- 添加新功能时，同步更新 `agent-todolist.md` 勾选项与本文件「当前进度」。
+- 添加新功能时，同步更新 `agent-todolist.md`、`public/test-cases/` 对应功能页（≥2 条，含 `purpose`）与 `index.json`（新功能页时），并更新本文件「当前进度」。
 - 测试台网页的「规划中」按钮是占位，随对应里程碑落地再点亮。

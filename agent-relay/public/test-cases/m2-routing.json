@@ -1,0 +1,33 @@
+{
+  "milestone": "M2",
+  "feature": "模型路由与指标",
+  "featureId": "m2-routing",
+  "summary": "验证 ModelRouter 相关 HTTP：模型可用性探测与 MetricsRegistry 快照。",
+  "cases": [
+    {
+      "id": "m2-models-check",
+      "title": "模型可用性检测返回数组",
+      "purpose": "确认各配置客户端探测结果以数组返回，测试台下拉框「检测模型可用性」依赖此结构。",
+      "method": "GET",
+      "path": "/api/models/check",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyType": "array",
+        "itemHasKeys": ["name", "available", "model"]
+      }
+    },
+    {
+      "id": "m2-metrics",
+      "title": "调用统计含 stats 对象",
+      "purpose": "验证模型调用后指标可经 /api/metrics 查询，含聚合 stats 与近期 recent 列表。",
+      "method": "GET",
+      "path": "/api/metrics",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyHasKeys": ["stats", "recent"]
+      }
+    }
+  ]
+}

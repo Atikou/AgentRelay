@@ -1,0 +1,33 @@
+{
+  "milestone": "M4",
+  "feature": "后台任务",
+  "featureId": "m4-background",
+  "summary": "验证 BackgroundTaskManager：列表、后台 spawn 启动与状态字段。",
+  "cases": [
+    {
+      "id": "m4-bg-list",
+      "title": "后台任务列表为数组",
+      "purpose": "确认 GET /api/background 始终返回 tasks 数组，便于测试台轮询与展示。",
+      "method": "GET",
+      "path": "/api/background",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyHasKeys": ["tasks"],
+        "bodyPaths": { "tasks": "array" }
+      }
+    },
+    {
+      "id": "m4-bg-start",
+      "title": "后台启动 node -v 状态为 running",
+      "purpose": "验证 POST /api/background/start 立即返回 running 任务且不阻塞 HTTP；短命令随后会自行结束。",
+      "method": "POST",
+      "path": "/api/background/start",
+      "input": { "command": "node -v" },
+      "expect": {
+        "status": 200,
+        "bodyPaths": { "task.status": "running", "task.command": "node -v" }
+      }
+    }
+  ]
+}

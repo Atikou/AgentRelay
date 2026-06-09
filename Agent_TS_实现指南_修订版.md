@@ -433,13 +433,13 @@ cancelled
 
 ### 必做任务
 
-- [ ] 使用 `execa` 或 `child_process.spawn` 启动后台任务。
-- [ ] 记录 stdout / stderr。
-- [ ] 支持查询状态。
-- [ ] 支持取消任务。
-- [ ] 命令完成后写入通知队列。
-- [ ] 主 Agent 在安全点消费通知。
-- [ ] 通知持久化到 SQLite 或 JSONL。
+- [x] 使用 `execa` 或 `child_process.spawn` 启动后台任务。（`child_process.spawn` + shell）
+- [x] 记录 stdout / stderr。
+- [x] 支持查询状态。
+- [x] 支持取消任务。
+- [x] 命令完成后写入通知队列。
+- [x] 主 Agent 在安全点消费通知。
+- [x] 通知持久化到 SQLite 或 JSONL。（JSONL：`data/notifications/`）
 
 ### 安全点定义
 
@@ -1053,11 +1053,11 @@ export class ModelRouter {
 
 ## M4 验收
 
-- [ ] 后台任务运行时可以继续输入其他命令。
-- [ ] 可以查询后台任务状态。
-- [ ] 可以取消后台任务。
-- [ ] 任务完成后通知队列收到消息。
-- [ ] Agent 在安全点消费通知。
+- [x] 后台任务运行时可以继续输入其他命令。
+- [x] 可以查询后台任务状态。
+- [x] 可以取消后台任务。
+- [x] 任务完成后通知队列收到消息。
+- [x] Agent 在安全点消费通知。
 
 ## M5 验收
 

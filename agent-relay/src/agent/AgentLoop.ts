@@ -1,3 +1,5 @@
+import type { AgentNotification } from "../background/types.js";
+import type { NotificationQueue } from "../background/NotificationQueue.js";
 import type { ChatMessage, ChatRequest, ModelResponse } from "../model/types.js";
 import type { ToolRegistry } from "../tools/ToolRegistry.js";
 import type { TraceLogger } from "../trace/TraceLogger.js";
@@ -27,6 +29,8 @@ export interface AgentRunResult {
   iterations: number;
   /** 因达到迭代上限而未给出 final 答案时为 true。 */
   reachedLimit: boolean;
+  /** 本轮在安全点消费的系统通知（如后台任务完成）。 */
+  notifications?: AgentNotification[];
 }
 
 export interface AgentLoopOptions {
@@ -42,6 +46,8 @@ export interface AgentLoopOptions {
   trace?: TraceLogger;
   /** 每发生一步工具调用时回调（便于流式回显）。 */
   onStep?: (step: AgentToolStep) => void;
+  /** 通知队列：仅在安全点 drain 后注入上下文。 */
+  notificationQueue?: NotificationQueue;
 }
 
 interface ToolAction {
@@ -78,6 +84,16 @@ export class AgentLoop {
       { role: "user", content: userMessage },
     ];
     const steps: AgentToolStep[] = [];
+    const consumedNotifications: AgentNotification[] = [];
+
+    const injectNotifications = () => {
+      const notes = this.drainNotifications();
+      if (notes.length === 0) return;
+      consumedNotifications.push(...notes);
+      messages.push({ role: "user", content: renderNotifications(notes) });
+    };
+
+    injectNotifications();
 
     for (let iteration = 1; iteration <= this.maxIterations; iteration += 1) {
       const response = await this.options.chat(
@@ -96,7 +112,13 @@ export class AgentLoop {
       }
 
       if (action.action === "final") {
-        return { answer: action.answer, steps, iterations: iteration, reachedLimit: false };
+        return {
+          answer: action.answer,
+          steps,
+          iterations: iteration,
+          reachedLimit: false,
+          notifications: consumedNotifications.length ? consumedNotifications : undefined,
+        };
       }
 
       // 工具调用
@@ -104,6 +126,7 @@ export class AgentLoop {
       steps.push(step);
       this.options.onStep?.(step);
       messages.push({ role: "user", content: this.renderToolResult(step) });
+      injectNotifications();
     }
 
     return {
@@ -111,7 +134,12 @@ export class AgentLoop {
       steps,
       iterations: this.maxIterations,
       reachedLimit: true,
+      notifications: consumedNotifications.length ? consumedNotifications : undefined,
     };
+  }
+
+  private drainNotifications(): AgentNotification[] {
+    return this.options.notificationQueue?.drain() ?? [];
   }
 
   private async runToolAction(action: ToolAction, iteration: number): Promise<AgentToolStep> {
@@ -190,6 +218,18 @@ export class AgentLoop {
       extra ? `\n补充要求：${extra}` : "",
     ].join("\n");
   }
+}
+
+/** 将安全点消费的通知格式化为可回灌给模型的用户消息。 */
+export function renderNotifications(notes: AgentNotification[]): string {
+  const lines = notes.map(
+    (n) => `- [${n.source}/${n.level}] ${n.timestamp}: ${n.message}`,
+  );
+  return [
+    "系统通知（后台任务等，已在安全点注入，请勿打断当前工具链）：",
+    ...lines,
+    "请酌情纳入下一步推理；若与当前任务无关可忽略。",
+  ].join("\n");
 }
 
 /** 从模型输出中提取第一个平衡的 JSON 对象并解析为动作。 */

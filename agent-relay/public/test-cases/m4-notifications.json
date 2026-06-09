@@ -1,0 +1,34 @@
+{
+  "milestone": "M4",
+  "feature": "通知队列",
+  "featureId": "m4-notifications",
+  "summary": "验证 NotificationQueue：待处理查询与安全点 consume。",
+  "cases": [
+    {
+      "id": "m4-nq-pending",
+      "title": "待处理通知列表可查询",
+      "purpose": "确认 GET /api/notifications?pending=1 返回 notifications 数组，供测试台与 Agent 安全点消费前查看。",
+      "method": "GET",
+      "path": "/api/notifications?pending=1",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyHasKeys": ["notifications"],
+        "bodyPaths": { "notifications": "array" }
+      }
+    },
+    {
+      "id": "m4-nq-consume",
+      "title": "消费通知返回 consumed 数组",
+      "purpose": "验证 POST /api/notifications/consume 在安全点 drain 未读通知并返回 consumed 列表（可为空）。",
+      "method": "POST",
+      "path": "/api/notifications/consume",
+      "input": {},
+      "expect": {
+        "status": 200,
+        "bodyHasKeys": ["consumed"],
+        "bodyPaths": { "consumed": "array" }
+      }
+    }
+  ]
+}

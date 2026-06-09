@@ -1,0 +1,61 @@
+{
+  "version": 2,
+  "features": [
+    {
+      "featureId": "m0-config",
+      "milestone": "M0",
+      "title": "配置与连通",
+      "file": "m0-config.json",
+      "order": 0
+    },
+    {
+      "featureId": "m1-tools",
+      "milestone": "M1",
+      "title": "工具系统",
+      "file": "m1-tools.json",
+      "order": 1
+    },
+    {
+      "featureId": "m1-agent",
+      "milestone": "M1",
+      "title": "智能体对话循环",
+      "file": "m1-agent.json",
+      "order": 2
+    },
+    {
+      "featureId": "m2-routing",
+      "milestone": "M2",
+      "title": "模型路由与指标",
+      "file": "m2-routing.json",
+      "order": 3
+    },
+    {
+      "featureId": "m3-plan",
+      "milestone": "M3",
+      "title": "计划模式",
+      "file": "m3-plan.json",
+      "order": 4
+    },
+    {
+      "featureId": "m3-task",
+      "milestone": "M3",
+      "title": "任务模式",
+      "file": "m3-task.json",
+      "order": 5
+    },
+    {
+      "featureId": "m4-background",
+      "milestone": "M4",
+      "title": "后台任务",
+      "file": "m4-background.json",
+      "order": 6
+    },
+    {
+      "featureId": "m4-notifications",
+      "milestone": "M4",
+      "title": "通知队列",
+      "file": "m4-notifications.json",
+      "order": 7
+    }
+  ]
+}

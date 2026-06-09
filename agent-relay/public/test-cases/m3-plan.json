@@ -1,0 +1,20 @@
+{
+  "milestone": "M3",
+  "feature": "计划模式",
+  "featureId": "m3-plan",
+  "summary": "验证 Planner 入口 /api/plan 的请求校验（仅测不依赖模型的错误路径）。",
+  "cases": [
+    {
+      "id": "m3-plan-empty-goal",
+      "title": "空 goal 返回 400",
+      "purpose": "确认计划模式必须提供非空目标，防止向模型发送无效请求。",
+      "method": "POST",
+      "path": "/api/plan",
+      "input": { "goal": "" },
+      "expect": {
+        "status": 400,
+        "bodyHasKeys": ["error"]
+      }
+    }
+  ]
+}

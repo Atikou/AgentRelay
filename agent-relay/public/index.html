@@ -27,14 +27,23 @@
         </nav>
 
         <nav class="nav-group">
+          <div class="nav-title">已实现 · 测试</div>
+          <button class="nav-btn" data-action="test-cases">测试用例</button>
+        </nav>
+
+        <nav class="nav-group">
           <div class="nav-title">已实现 · 工具系统</div>
           <button class="nav-btn" data-action="tools">工具系统</button>
         </nav>
 
         <nav class="nav-group">
+          <div class="nav-title">已实现 · 后台与通知 (M4)</div>
+          <button class="nav-btn" data-action="background">后台任务</button>
+          <button class="nav-btn" data-action="notifications">通知队列</button>
+        </nav>
+
+        <nav class="nav-group">
           <div class="nav-title">规划中 · 后续里程碑</div>
-          <button class="nav-btn" disabled title="即将实现">后台任务</button>
-          <button class="nav-btn" disabled title="即将实现">通知队列</button>
           <button class="nav-btn" disabled title="即将实现">定时触发</button>
           <button class="nav-btn" disabled title="即将实现">子 Agent</button>
         </nav>
@@ -94,6 +103,7 @@
       </main>
     </div>
 
+    <script src="/test-runner.js"></script>
     <script src="/app.js"></script>
   </body>
 </html>

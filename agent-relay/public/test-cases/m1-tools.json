@@ -1,0 +1,77 @@
+{
+  "milestone": "M1",
+  "feature": "工具系统",
+  "featureId": "m1-tools",
+  "summary": "验证 ToolRegistry 暴露的 5 个内置工具、只读/写/命令执行与危险命令拦截。",
+  "cases": [
+    {
+      "id": "m1-tools-list",
+      "title": "工具列表包含 5 个内置工具",
+      "purpose": "确认注册表完整暴露 read/list/search/write/shell 五类工具，智能体与任务模式依赖此列表。",
+      "method": "GET",
+      "path": "/api/tools",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyPaths": { "tools.length": 5 },
+        "bodyContainsNames": ["read_file", "write_file", "shell_run", "list_files", "search_text"]
+      }
+    },
+    {
+      "id": "m1-tools-read",
+      "title": "read_file 读取 package.json",
+      "purpose": "验证只读工具能在工作区内读取已知文件并返回 ok=true，路径沙箱允许 agent-relay 根目录内文件。",
+      "method": "POST",
+      "path": "/api/tools/run",
+      "input": { "name": "read_file", "input": { "path": "package.json" } },
+      "expect": {
+        "status": 200,
+        "bodyPaths": { "ok": true, "output.name": "read_file" }
+      }
+    },
+    {
+      "id": "m1-tools-shell-confirm",
+      "title": "shell_run 未确认时返回 needsConfirmation",
+      "purpose": "验证副作用命令默认走确认门，未传 confirm 时不执行，防止误跑 shell。",
+      "method": "POST",
+      "path": "/api/tools/run",
+      "input": { "name": "shell_run", "input": { "command": "node -v" } },
+      "expect": {
+        "status": 200,
+        "bodyPaths": { "needsConfirmation": true, "tool": "shell_run" }
+      }
+    },
+    {
+      "id": "m1-tools-shell-ok",
+      "title": "shell_run 确认后 node -v 退出码 0",
+      "purpose": "确认用户显式 confirm 后安全命令可执行且退出码为 0。",
+      "method": "POST",
+      "path": "/api/tools/run",
+      "input": {
+        "name": "shell_run",
+        "input": { "command": "node -v" },
+        "confirm": true
+      },
+      "expect": {
+        "status": 200,
+        "bodyPaths": { "ok": true, "output.exitCode": 0 }
+      }
+    },
+    {
+      "id": "m1-tools-dangerous",
+      "title": "危险命令 rm -rf 被拦截",
+      "purpose": "验证风险分级拦截 dangerous 命令，即使 confirm=true 也不得执行。",
+      "method": "POST",
+      "path": "/api/tools/run",
+      "input": {
+        "name": "shell_run",
+        "input": { "command": "rm -rf /" },
+        "confirm": true
+      },
+      "expect": {
+        "status": 400,
+        "bodyPaths": { "ok": false }
+      }
+    }
+  ]
+}

@@ -1,0 +1,21 @@
+{
+  "milestone": "M0",
+  "feature": "配置与连通",
+  "featureId": "m0-config",
+  "summary": "验证多 profile 配置能经 HTTP 正确暴露，供测试台与 CLI 读取。",
+  "cases": [
+    {
+      "id": "m0-config-profile",
+      "title": "读取配置含 profile 与 workspaceRoot",
+      "purpose": "确认 GET /api/config 返回当前 profile、工作区路径与默认模型，测试台「查看配置」依赖此接口。",
+      "method": "GET",
+      "path": "/api/config",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyPaths": { "profile": "string", "workspaceRoot": "string", "defaultModel": "string" },
+        "bodyHasKeys": ["clients", "routing"]
+      }
+    }
+  ]
+}

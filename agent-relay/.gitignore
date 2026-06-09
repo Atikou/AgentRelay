@@ -2,6 +2,7 @@ node_modules/
 dist/
 data/logs/
 data/traces/
+data/notifications/
 data/*.db
 *.local
 .env
