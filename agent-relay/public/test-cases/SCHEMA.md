@@ -30,6 +30,8 @@
 | `input` | object \| null | POST body；GET 写 `null` |
 | `expect` | object | 期望，见下表 |
 
+> **模型**：测试台面板顶部可选当前可用模型；对 `/api/chat`、`/api/agent`、`/api/plan`、`/api/subagent/*` 会自动注入 `clientName`（`input` 已含 `clientName` 时优先用 JSON）。
+
 ## expect 常用断言
 
 | 键 | 说明 |
@@ -37,7 +39,8 @@
 | `status` | HTTP 状态码，如 `200`、`400` |
 | `body` | 与响应 body 深度部分匹配 |
 | `bodyHasKeys` | body 必须包含的顶层字段名数组 |
-| `bodyPaths` | 点路径断言，如 `"task.status": "running"`；类型用 `"string"` / `"array"` / `"number"` |
+| `bodyPaths` | 点路径断言，如 `"task.status": "running"`；类型用 `"string"` / `"array"` / `"number"` / `"object"` |
+| `contentTypeIncludes` | 响应 `Content-Type` 须包含的子串，如 `"text/html"`（非 JSON 接口） |
 | `bodyType` | 响应 body 根类型，如 `"array"`（用于直接返回数组的接口） |
 | `itemHasKeys` | body 为数组时，首项须含的字段 |
 | `bodyContainsNames` | `body.tools[].name` 须包含的工具名列表 |

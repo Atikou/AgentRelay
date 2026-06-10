@@ -1,0 +1,75 @@
+{
+  "milestone": "M7",
+  "feature": "安全与审计",
+  "featureId": "m7-security",
+  "summary": "验证 trace 导出 API 与脱敏后的审计事件结构。",
+  "cases": [
+    {
+      "id": "m7-trace-recent",
+      "title": "最近 trace 事件为数组",
+      "purpose": "确认 GET /api/trace/recent 返回脱敏后的 events 数组，供测试台审计面板展示。",
+      "method": "GET",
+      "path": "/api/trace/recent?limit=10",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyHasKeys": ["events", "count", "redacted"],
+        "bodyPaths": {
+          "events": "array",
+          "redacted": true
+        }
+      }
+    },
+    {
+      "id": "m7-trace-export",
+      "title": "trace 导出含 exportedAt",
+      "purpose": "验证 GET /api/trace/export 可导出近期审计事件，且标记 redacted=true。",
+      "method": "GET",
+      "path": "/api/trace/export?limit=20",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyHasKeys": ["exportedAt", "events", "count", "redacted"],
+        "bodyPaths": {
+          "events": "array",
+          "redacted": true
+        }
+      }
+    },
+    {
+      "id": "m7-trace-replay",
+      "title": "审计回放仅含工具链路事件",
+      "purpose": "验证 GET /api/trace/replay 过滤 model_call 噪声，返回 replay=true 的审计时间线。",
+      "method": "GET",
+      "path": "/api/trace/replay?limit=20",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyHasKeys": ["events", "count", "replay", "redacted"],
+        "bodyPaths": {
+          "events": "array",
+          "replay": true,
+          "redacted": true
+        }
+      }
+    },
+    {
+      "id": "m7-shell-danger-blocked",
+      "title": "危险 shell 命令被拦截",
+      "purpose": "回归 M7 命令 denylist：rm -rf 应被 shell_run 拦截，不实际执行。",
+      "method": "POST",
+      "path": "/api/tools/run",
+      "input": {
+        "name": "shell_run",
+        "input": { "command": "rm -rf /" }
+      },
+      "expect": {
+        "status": 200,
+        "bodyHasKeys": ["ok"],
+        "bodyPaths": {
+          "ok": false
+        }
+      }
+    }
+  ]
+}

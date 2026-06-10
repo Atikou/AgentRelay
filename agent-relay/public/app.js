@@ -11,6 +11,18 @@ const statusText = document.getElementById("status-text");
 const profileTag = document.getElementById("profile-tag");
 
 let appConfig = null;
+const ACTIVE_SESSION_KEY = "agentrelay.activeSessionId";
+let activeSessionId = localStorage.getItem(ACTIVE_SESSION_KEY) || undefined;
+
+function setActiveSessionId(sessionId) {
+  activeSessionId = sessionId || undefined;
+  if (activeSessionId) localStorage.setItem(ACTIVE_SESSION_KEY, activeSessionId);
+  else localStorage.removeItem(ACTIVE_SESSION_KEY);
+}
+
+function sessionMeta() {
+  return activeSessionId ? ` · session ${activeSessionId.slice(0, 8)}…` : "";
+}
 
 function clearWelcome() {
   const welcome = feed.querySelector(".welcome");
@@ -294,7 +306,7 @@ async function handlePlan(goal) {
     const data = await api("/api/plan", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ goal }),
+      body: JSON.stringify({ goal, clientName: modelSelect.value }),
     });
     thinking.remove();
     renderPlan(data.plan);
@@ -479,7 +491,7 @@ function renderAgentRun(result) {
   answer.textContent = result.answer;
   card.appendChild(answer);
 
-  const meta = `迭代 ${result.iterations} 步 · 工具调用 ${result.steps ? result.steps.length : 0} 次${result.reachedLimit ? " · 已达上限" : ""}`;
+  const meta = `迭代 ${result.iterations} 步 · 工具调用 ${result.steps ? result.steps.length : 0} 次${result.reachedLimit ? " · 已达上限" : ""}${sessionMeta()}`;
   addMessage("assistant", card, meta);
 }
 
@@ -633,6 +645,516 @@ async function handleNotifications() {
   await load(true);
 }
 
+async function handleScheduler() {
+  clearWelcome();
+  const panel = document.createElement("div");
+  panel.className = "tool-panel";
+  panel.innerHTML =
+    "<h3>定时与事件触发 (M8)</h3><p>触发器到期后写入通知队列（需主 Agent 安全点消费），不直接执行工具。</p>";
+
+  const row = document.createElement("div");
+  row.className = "tool-row";
+  const refreshBtn = document.createElement("button");
+  refreshBtn.className = "action-btn";
+  refreshBtn.textContent = "刷新列表";
+  const onceBtn = document.createElement("button");
+  onceBtn.className = "action-btn";
+  onceBtn.textContent = "注册一次性（+2分钟）";
+  row.appendChild(refreshBtn);
+  row.appendChild(onceBtn);
+  panel.appendChild(row);
+
+  const list = document.createElement("div");
+  list.className = "tool-result";
+  list.style.display = "block";
+  panel.appendChild(list);
+
+  const queueTitle = document.createElement("h4");
+  queueTitle.textContent = "待办队列（scheduler 通知）";
+  queueTitle.style.marginTop = "12px";
+  panel.appendChild(queueTitle);
+
+  const queue = document.createElement("div");
+  queue.className = "tool-result";
+  queue.style.display = "block";
+  panel.appendChild(queue);
+
+  const loadQueue = async () => {
+    try {
+      const data = await api("/api/notifications?pending=1");
+      const notes = (data.notifications || []).filter((n) => n.source === "scheduler");
+      if (!notes.length) {
+        queue.textContent = "暂无 scheduler 待办。";
+        return;
+      }
+      queue.innerHTML = notes
+        .map(
+          (n) =>
+            `<div class="plan-step-desc">${escapeHtml(n.timestamp)} — ${escapeHtml(n.message)}${n.payload?.requiresConfirmation === false ? " <em>(无人值守)</em>" : ""}</div>`,
+        )
+        .join("");
+    } catch (err) {
+      queue.textContent = String(err.message || err);
+    }
+  };
+
+  const load = async () => {
+    try {
+      const data = await api("/api/scheduler/triggers");
+      const triggers = data.triggers || [];
+      if (!triggers.length) {
+        list.textContent = "暂无触发器。";
+      } else {
+        list.innerHTML = triggers
+          .map(
+            (t) =>
+              `<div class="plan-step-desc"><strong>${escapeHtml(t.name)}</strong> [${escapeHtml(t.kind)}/${escapeHtml(t.status)}] · 触发 ${t.fireCount} 次 · ${escapeHtml(t.goal)}</div>`,
+          )
+          .join("");
+      }
+      await loadQueue();
+    } catch (err) {
+      list.textContent = String(err.message || err);
+    }
+  };
+
+  onceBtn.addEventListener("click", async () => {
+    try {
+      const at = new Date(Date.now() + 2 * 60 * 1000).toISOString();
+      await api("/api/scheduler/triggers", {
+        method: "POST",
+        body: JSON.stringify({
+          name: `网页一次性 ${at.slice(11, 19)}`,
+          kind: "once",
+          goal: "检查测试台调度是否工作",
+          at,
+        }),
+      });
+      addMessage("system", `已注册一次性触发器，将于 ${at} 写入通知。`);
+      await load();
+    } catch (err) {
+      addSystemError(String(err.message || err));
+    }
+  });
+
+  refreshBtn.addEventListener("click", () => load());
+  addMessage("system", panel);
+  await load();
+}
+
+async function handleSecurity() {
+  clearWelcome();
+  const panel = document.createElement("div");
+  panel.className = "tool-panel";
+  panel.innerHTML = "<h3>安全与审计 (M7)</h3><p>查看脱敏后的 trace 审计事件。</p>";
+
+  const recentBtn = document.createElement("button");
+  recentBtn.className = "action-btn";
+  recentBtn.textContent = "最近 trace (10)";
+  panel.appendChild(recentBtn);
+
+  const exportBtn = document.createElement("button");
+  exportBtn.className = "action-btn";
+  exportBtn.style.marginLeft = "8px";
+  exportBtn.textContent = "导出 trace (50)";
+  panel.appendChild(exportBtn);
+
+  const replayBtn = document.createElement("button");
+  replayBtn.className = "action-btn";
+  replayBtn.style.marginLeft = "8px";
+  replayBtn.textContent = "审计回放 (50)";
+  panel.appendChild(replayBtn);
+
+  const result = document.createElement("div");
+  result.className = "tool-result";
+  result.style.display = "none";
+  panel.appendChild(result);
+
+  recentBtn.addEventListener("click", async () => {
+    result.style.display = "block";
+    result.classList.remove("err");
+    try {
+      const data = await api("/api/trace/recent?limit=10");
+      result.textContent = JSON.stringify(data, null, 2);
+    } catch (err) {
+      result.classList.add("err");
+      result.textContent = String(err.message || err);
+    }
+  });
+
+  exportBtn.addEventListener("click", async () => {
+    result.style.display = "block";
+    result.classList.remove("err");
+    try {
+      const data = await api("/api/trace/export?limit=50");
+      result.textContent = JSON.stringify(data, null, 2);
+    } catch (err) {
+      result.classList.add("err");
+      result.textContent = String(err.message || err);
+    }
+  });
+
+  replayBtn.addEventListener("click", async () => {
+    result.style.display = "block";
+    result.classList.remove("err");
+    try {
+      const data = await api("/api/trace/replay?limit=50");
+      result.textContent = JSON.stringify(data, null, 2);
+    } catch (err) {
+      result.classList.add("err");
+      result.textContent = String(err.message || err);
+    }
+  });
+
+  addMessage("system", panel);
+}
+
+async function handleContext() {
+  clearWelcome();
+  const panel = document.createElement("div");
+  panel.className = "tool-panel";
+
+  const title = document.createElement("div");
+  title.className = "tool-desc";
+  title.textContent = "M6 上下文：SQLite 持久化、历史摘要、记忆检索（FTS5 + LanceDB）。";
+  panel.appendChild(title);
+
+  const row = document.createElement("div");
+  row.className = "tool-row";
+  const refreshBtn = document.createElement("button");
+  refreshBtn.className = "action-btn";
+  refreshBtn.textContent = "刷新会话列表";
+  const createBtn = document.createElement("button");
+  createBtn.className = "action-btn";
+  createBtn.textContent = "新建会话";
+  row.appendChild(refreshBtn);
+  row.appendChild(createBtn);
+  panel.appendChild(row);
+
+  const sessionList = document.createElement("div");
+  sessionList.className = "tool-result";
+  sessionList.style.display = "block";
+  sessionList.style.maxHeight = "160px";
+  sessionList.style.overflow = "auto";
+  panel.appendChild(sessionList);
+
+  const memTitle = document.createElement("div");
+  memTitle.className = "tool-desc";
+  memTitle.style.marginTop = "12px";
+  memTitle.textContent = "写入记忆（global / preference）";
+  panel.appendChild(memTitle);
+
+  const memInput = document.createElement("textarea");
+  memInput.className = "tool-input";
+  memInput.style.minHeight = "60px";
+  memInput.placeholder = "例如：用户偏好使用中文回复与 TypeScript";
+  panel.appendChild(memInput);
+
+  const memBtn = document.createElement("button");
+  memBtn.className = "action-btn";
+  memBtn.style.marginTop = "8px";
+  memBtn.textContent = "保存记忆";
+  panel.appendChild(memBtn);
+
+  const searchInput = document.createElement("input");
+  searchInput.className = "system-input";
+  searchInput.style.width = "100%";
+  searchInput.style.marginTop = "12px";
+  searchInput.placeholder = "关键词检索（FTS + 向量）";
+  panel.appendChild(searchInput);
+
+  const searchBtn = document.createElement("button");
+  searchBtn.className = "action-btn";
+  searchBtn.style.marginTop = "8px";
+  searchBtn.textContent = "检索";
+  panel.appendChild(searchBtn);
+
+  const deactivateInput = document.createElement("input");
+  deactivateInput.className = "system-input";
+  deactivateInput.style.width = "100%";
+  deactivateInput.style.marginTop = "12px";
+  deactivateInput.placeholder = "记忆 ID（停用）";
+  panel.appendChild(deactivateInput);
+
+  const deactivateBtn = document.createElement("button");
+  deactivateBtn.className = "action-btn";
+  deactivateBtn.style.marginTop = "8px";
+  deactivateBtn.textContent = "停用记忆";
+  panel.appendChild(deactivateBtn);
+
+  const result = document.createElement("div");
+  result.className = "tool-result";
+  result.style.display = "none";
+  panel.appendChild(result);
+
+  async function loadSessions() {
+    sessionList.textContent = "加载中…";
+    try {
+      const data = await api("/api/context/sessions");
+      const sessions = data.sessions || [];
+      if (sessions.length === 0) {
+        sessionList.textContent = "（暂无会话）";
+        return;
+      }
+      sessionList.innerHTML = sessions
+        .map(
+          (s) =>
+            `<div style="margin:4px 0"><strong>${escapeHtml(s.title)}</strong> <code>${escapeHtml(s.id.slice(0, 8))}…</code> <button type="button" class="action-btn" data-restore="${escapeHtml(s.id)}">恢复预览</button></div>`,
+        )
+        .join("");
+      sessionList.querySelectorAll("[data-restore]").forEach((btn) => {
+        btn.addEventListener("click", async () => {
+          const id = btn.getAttribute("data-restore");
+          result.style.display = "block";
+          result.textContent = "恢复中…";
+          try {
+            const data = await api(`/api/context/sessions/${id}/restore`);
+            result.textContent = JSON.stringify(
+              {
+                phase: data.phase,
+                contextPackage: data.contextPackage,
+                renderedPrompt: data.renderedPrompt,
+              },
+              null,
+              2,
+            );
+          } catch (err) {
+            result.classList.add("err");
+            result.textContent = String(err.message || err);
+          }
+        });
+      });
+    } catch (err) {
+      sessionList.textContent = String(err.message || err);
+    }
+  }
+
+  refreshBtn.addEventListener("click", loadSessions);
+  createBtn.addEventListener("click", async () => {
+    try {
+      await api("/api/context/sessions", {
+        method: "POST",
+        body: JSON.stringify({ title: `会话 ${new Date().toLocaleString()}` }),
+      });
+      await loadSessions();
+    } catch (err) {
+      addSystemError(String(err.message || err));
+    }
+  });
+  memBtn.addEventListener("click", async () => {
+    const value = memInput.value.trim();
+    if (!value) return;
+    result.style.display = "block";
+    result.classList.remove("err");
+    try {
+      const data = await api("/api/context/memories", {
+        method: "POST",
+        body: JSON.stringify({
+          scope: "global",
+          memoryType: "preference",
+          value,
+          summary: value.slice(0, 40),
+        }),
+      });
+      const mid = data.memory?.id || "";
+      result.textContent = mid ? `已保存记忆：${mid}` : "已保存记忆";
+      if (mid) deactivateInput.value = mid;
+    } catch (err) {
+      result.classList.add("err");
+      result.textContent = String(err.message || err);
+    }
+  });
+  deactivateBtn.addEventListener("click", async () => {
+    const id = deactivateInput.value.trim();
+    if (!id) return;
+    result.style.display = "block";
+    result.classList.remove("err");
+    try {
+      const data = await api(`/api/context/memories/${encodeURIComponent(id)}/deactivate`, {
+        method: "POST",
+        body: JSON.stringify({ reason: "test-bench" }),
+      });
+      result.textContent = JSON.stringify(data, null, 2);
+    } catch (err) {
+      result.classList.add("err");
+      result.textContent = String(err.message || err);
+    }
+  });
+  searchBtn.addEventListener("click", async () => {
+    const q = searchInput.value.trim();
+    if (!q) return;
+    result.style.display = "block";
+    result.classList.remove("err");
+    try {
+      const data = await api(`/api/context/search?q=${encodeURIComponent(q)}`);
+      result.textContent = JSON.stringify(data.hits, null, 2);
+    } catch (err) {
+      result.classList.add("err");
+      result.textContent = String(err.message || err);
+    }
+  });
+
+  addMessage("system", panel);
+  await loadSessions();
+}
+
+async function handleSubAgent() {
+  clearWelcome();
+  let rolesData;
+  try {
+    rolesData = await api("/api/subagent/roles");
+  } catch (err) {
+    addSystemError(String(err.message || err));
+    return;
+  }
+  const roles = rolesData.roles || [];
+
+  const panel = document.createElement("div");
+  panel.className = "tool-panel";
+
+  const modeRow = document.createElement("div");
+  modeRow.className = "tool-row";
+  const modeSelect = document.createElement("select");
+  modeSelect.innerHTML = `
+    <option value="single">单个子 Agent</option>
+    <option value="batch">并行派生（多角色）</option>`;
+  modeRow.appendChild(modeSelect);
+  panel.appendChild(modeRow);
+
+  const roleRow = document.createElement("div");
+  roleRow.className = "tool-row";
+  roleRow.style.flexWrap = "wrap";
+  roleRow.style.gap = "8px";
+  const roleChecks = roles.map((r) => {
+    const label = document.createElement("label");
+    label.className = "field sensitive-field";
+    label.style.fontSize = "13px";
+    const cb = document.createElement("input");
+    cb.type = "checkbox";
+    cb.value = r.id;
+    cb.dataset.singleDefault = r.id === "code_review" ? "1" : "";
+    if (r.id === "code_review") cb.checked = true;
+    label.appendChild(cb);
+    label.appendChild(document.createTextNode(` ${r.title}`));
+    roleRow.appendChild(label);
+    return cb;
+  });
+  panel.appendChild(roleRow);
+
+  const desc = document.createElement("div");
+  desc.className = "tool-desc";
+  panel.appendChild(desc);
+
+  const taskInput = document.createElement("textarea");
+  taskInput.className = "tool-input";
+  taskInput.style.minHeight = "80px";
+  taskInput.placeholder = "交给子 Agent 的任务描述，例如：审查 src/agent/AgentLoop.ts 的错误处理";
+  panel.appendChild(taskInput);
+
+  const ctxInput = document.createElement("input");
+  ctxInput.className = "system-input";
+  ctxInput.style.width = "100%";
+  ctxInput.style.marginTop = "8px";
+  ctxInput.placeholder = "附加上下文（可选，来自父 Agent）";
+  panel.appendChild(ctxInput);
+
+  const runBtn = document.createElement("button");
+  runBtn.className = "action-btn";
+  runBtn.style.marginTop = "10px";
+  runBtn.textContent = "运行子 Agent";
+  panel.appendChild(runBtn);
+
+  const result = document.createElement("div");
+  result.className = "tool-result";
+  result.style.display = "none";
+  panel.appendChild(result);
+
+  const syncDesc = () => {
+    const checked = roleChecks.filter((c) => c.checked);
+    const lines = checked
+      .map((c) => roles.find((r) => r.id === c.value))
+      .filter(Boolean)
+      .map((r) => `${r.title}：${r.description}（权限 ${r.allowedPermissions.join(", ")}）`);
+    desc.textContent = lines.join(" · ") || "请至少选择一个角色";
+  };
+
+  modeSelect.addEventListener("change", () => {
+    const single = modeSelect.value === "single";
+    roleChecks.forEach((c) => {
+      c.disabled = single;
+      if (single) c.checked = c.dataset.singleDefault === "1";
+    });
+    syncDesc();
+  });
+  roleChecks.forEach((c) => c.addEventListener("change", syncDesc));
+  syncDesc();
+
+  runBtn.addEventListener("click", async () => {
+    const task = taskInput.value.trim();
+    if (!task) {
+      result.style.display = "block";
+      result.classList.add("err");
+      result.textContent = "请填写任务描述";
+      return;
+    }
+    const selectedRoles = roleChecks.filter((c) => c.checked).map((c) => c.value);
+    if (selectedRoles.length === 0) {
+      result.style.display = "block";
+      result.classList.add("err");
+      result.textContent = "请至少选择一个角色";
+      return;
+    }
+    runBtn.disabled = true;
+    runBtn.textContent = "运行中…";
+    result.style.display = "block";
+    result.classList.remove("err");
+    result.textContent = "子 Agent 执行中（只读，可能需要模型）…";
+    try {
+      const primaryRole = roles.find((r) => r.id === selectedRoles[0]);
+      const body = {
+        task,
+        context: ctxInput.value.trim() || undefined,
+        sensitive: sensitiveInput.checked,
+        maxIterations: primaryRole?.defaultMaxIterations ?? 12,
+        timeoutMs: primaryRole?.defaultTimeoutMs ?? 180000,
+      };
+      let data;
+      if (modeSelect.value === "batch") {
+        data = await api("/api/subagent/batch", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            ...body,
+            roles: selectedRoles,
+            maxIterations: Math.max(
+              ...selectedRoles.map(
+                (id) => roles.find((r) => r.id === id)?.defaultMaxIterations ?? 10,
+              ),
+            ),
+          }),
+        });
+        result.textContent = `父任务 ${data.parentTaskId} · ${data.durationMs}ms\n\n${data.summary}`;
+      } else {
+        data = await api("/api/subagent/run", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ...body, role: selectedRoles[0] }),
+        });
+        const r = data.result;
+        result.textContent = `[${r.role}] ${r.status} · ${r.durationMs}ms · 权限 ${r.grantedPermissions.join(",")}\n\n${r.answer}${r.error ? `\n\n错误：${r.error}` : ""}`;
+      }
+    } catch (err) {
+      result.classList.add("err");
+      result.textContent = String(err.message || err);
+    } finally {
+      runBtn.disabled = false;
+      runBtn.textContent = "运行子 Agent";
+    }
+  });
+
+  addMessage("system", panel);
+}
+
 async function handleAgent(message) {
   addMessage("user", message);
   messageInput.value = "";
@@ -645,12 +1167,15 @@ async function handleAgent(message) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         message,
+        clientName: modelSelect.value,
+        sessionId: activeSessionId,
         system: systemInput.value,
         sensitive: sensitiveInput.checked,
         autoConfirm: autoConfirmInput.checked,
       }),
     });
     thinking.remove();
+    if (data.sessionId) setActiveSessionId(data.sessionId);
     renderAgentRun(data);
   } catch (err) {
     thinking.remove();
@@ -698,12 +1223,14 @@ async function handleSend() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         clientName: modelSelect.value,
+        sessionId: activeSessionId,
         system: systemInput.value,
         sensitive: sensitiveInput.checked,
         message,
       }),
     });
     thinking.remove();
+    if (data.sessionId) setActiveSessionId(data.sessionId);
     const usage = data.usage
       ? ` · token in=${data.usage.inputTokens ?? "?"}/out=${data.usage.outputTokens ?? "?"}`
       : "";
@@ -711,7 +1238,7 @@ async function handleSend() {
     addMessage(
       "assistant",
       data.content || "(空响应)",
-      `${data.clientName}${routed} · ${data.modelName}（${data.location}） · ${data.latencyMs}ms${usage}`,
+      `${data.clientName}${routed} · ${data.modelName}（${data.location}） · ${data.latencyMs}ms${usage}${sessionMeta()}`,
     );
   } catch (err) {
     thinking.remove();
@@ -732,6 +1259,7 @@ document.querySelector(".sidebar").addEventListener("click", async (e) => {
   if (!btn) return;
   const action = btn.dataset.action;
   if (action === "new-chat") {
+    setActiveSessionId(undefined);
     feed.innerHTML =
       '<div class="welcome"><h1>准备好了，随时开始</h1><p>左侧按钮可测试已实现功能；下方可直接与模型对话。</p></div>';
   } else if (action === "view-config") {
@@ -761,6 +1289,14 @@ document.querySelector(".sidebar").addEventListener("click", async (e) => {
     await handleBackground();
   } else if (action === "notifications") {
     await handleNotifications();
+  } else if (action === "subagent") {
+    await handleSubAgent();
+  } else if (action === "context") {
+    await handleContext();
+  } else if (action === "security") {
+    await handleSecurity();
+  } else if (action === "scheduler") {
+    await handleScheduler();
   } else if (action === "refresh-models") {
     const rows = await refreshModels();
     if (rows) {

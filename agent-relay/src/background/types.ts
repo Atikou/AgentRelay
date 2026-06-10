@@ -16,7 +16,7 @@ export interface BackgroundTaskRecord {
 }
 
 export type NotificationLevel = "info" | "warn" | "error";
-export type NotificationSource = "background_task" | "system";
+export type NotificationSource = "background_task" | "system" | "scheduler";
 
 export interface AgentNotification {
   id: string;

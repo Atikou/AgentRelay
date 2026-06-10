@@ -1,8 +1,10 @@
 import type { AgentNotification } from "../background/types.js";
 import type { NotificationQueue } from "../background/NotificationQueue.js";
+import type { ContextManager } from "../context/ContextManager.js";
 import type { ChatMessage, ChatRequest, ModelResponse } from "../model/types.js";
 import type { ToolRegistry } from "../tools/ToolRegistry.js";
 import type { TraceLogger } from "../trace/TraceLogger.js";
+import { wrapUntrustedToolOutput } from "../util/injection.js";
 import { CONFIRMATION_REQUIRED, MODE_PERMISSIONS, type ToolPermission } from "./permissions.js";
 
 export type LoopChatFn = (
@@ -31,6 +33,10 @@ export interface AgentRunResult {
   reachedLimit: boolean;
   /** 本轮在安全点消费的系统通知（如后台任务完成）。 */
   notifications?: AgentNotification[];
+  /** M6：持久化会话 id（启用 ContextManager 时返回）。 */
+  sessionId?: string;
+  /** M6：本轮是否触发了历史压缩。 */
+  compressed?: boolean;
 }
 
 export interface AgentLoopOptions {
@@ -48,6 +54,10 @@ export interface AgentLoopOptions {
   onStep?: (step: AgentToolStep) => void;
   /** 通知队列：仅在安全点 drain 后注入上下文。 */
   notificationQueue?: NotificationQueue;
+  /** M6：上下文压缩与持久化（可选）。 */
+  contextManager?: ContextManager;
+  /** M6：已有会话 id；未提供时自动创建。 */
+  sessionId?: string;
 }
 
 interface ToolAction {
@@ -79,10 +89,25 @@ export class AgentLoop {
   }
 
   async run(userMessage: string, system?: string): Promise<AgentRunResult> {
-    const messages: ChatMessage[] = [
-      { role: "system", content: this.buildSystemPrompt(system) },
-      { role: "user", content: userMessage },
-    ];
+    const ctx = this.options.contextManager;
+    let sessionId = this.options.sessionId;
+    if (ctx && !sessionId) {
+      sessionId = ctx.createSession().id;
+    }
+    if (ctx && sessionId) {
+      ctx.saveUserMessage(sessionId, userMessage);
+    }
+
+    const messages: ChatMessage[] = ctx && sessionId
+      ? ctx.buildChatMessages(
+          await ctx.restoreContextPackage(sessionId, userMessage),
+          this.buildSystemPrompt(system),
+          { phase: "pre_call", currentUser: userMessage },
+        )
+      : [
+          { role: "system", content: this.buildSystemPrompt(system) },
+          { role: "user", content: userMessage },
+        ];
     const steps: AgentToolStep[] = [];
     const consumedNotifications: AgentNotification[] = [];
 
@@ -101,6 +126,9 @@ export class AgentLoop {
         { sensitive: this.options.sensitive },
       );
       messages.push({ role: "assistant", content: response.content });
+      if (ctx && sessionId) {
+        ctx.saveAssistantMessage(sessionId, response.content);
+      }
 
       const action = parseAction(response.content);
       if (!action) {
@@ -112,29 +140,65 @@ export class AgentLoop {
       }
 
       if (action.action === "final") {
-        return {
+        return await this.finishRun({
           answer: action.answer,
           steps,
           iterations: iteration,
           reachedLimit: false,
-          notifications: consumedNotifications.length ? consumedNotifications : undefined,
-        };
+          consumedNotifications,
+          sessionId,
+          userMessage,
+        });
       }
 
       // 工具调用
       const step = await this.runToolAction(action, iteration);
       steps.push(step);
       this.options.onStep?.(step);
-      messages.push({ role: "user", content: this.renderToolResult(step) });
+      const toolText = this.renderToolResult(step);
+      messages.push({ role: "user", content: toolText });
+      if (ctx && sessionId) {
+        ctx.saveToolMessage(sessionId, toolText);
+      }
       injectNotifications();
     }
 
-    return {
+    return await this.finishRun({
       answer: "（已达到最大迭代步数，未得到最终答案）",
       steps,
       iterations: this.maxIterations,
       reachedLimit: true,
-      notifications: consumedNotifications.length ? consumedNotifications : undefined,
+      consumedNotifications,
+      sessionId,
+      userMessage,
+    });
+  }
+
+  private async finishRun(input: {
+    answer: string;
+    steps: AgentToolStep[];
+    iterations: number;
+    reachedLimit: boolean;
+    consumedNotifications: AgentNotification[];
+    sessionId?: string;
+    userMessage: string;
+  }): Promise<AgentRunResult> {
+    const ctx = this.options.contextManager;
+    let compressed = false;
+    if (ctx && input.sessionId) {
+      const result = await ctx.finalizeTurn(input.sessionId, input.userMessage);
+      compressed = result.compressed !== null;
+    }
+    return {
+      answer: input.answer,
+      steps: input.steps,
+      iterations: input.iterations,
+      reachedLimit: input.reachedLimit,
+      notifications: input.consumedNotifications.length
+        ? input.consumedNotifications
+        : undefined,
+      sessionId: input.sessionId,
+      compressed: compressed || undefined,
     };
   }
 
@@ -176,7 +240,10 @@ export class AgentLoop {
     });
 
     if (result.ok) {
-      return { ...base, ok: true, output: result.output, durationMs: result.durationMs };
+      const output =
+        this.options.contextManager?.compactToolOutput(action.tool, result.output) ??
+        result.output;
+      return { ...base, ok: true, output, durationMs: result.durationMs };
     }
     return { ...base, error: `[${result.code}] ${result.error}`, durationMs: result.durationMs };
   }
@@ -188,7 +255,10 @@ export class AgentLoop {
     if (!step.ok) {
       return `工具「${step.tool}」执行失败：${step.error}。请据此调整下一步。`;
     }
-    const json = JSON.stringify(step.output);
+    const compacted =
+      this.options.contextManager?.compactToolOutput(step.tool, step.output) ?? step.output;
+    const wrapped = wrapUntrustedToolOutput(step.tool, compacted);
+    const json = JSON.stringify(wrapped);
     const body = json.length > 4000 ? `${json.slice(0, 4000)}…(已截断)` : json;
     return `工具「${step.tool}」执行结果（JSON）：\n${body}`;
   }
@@ -232,9 +302,19 @@ export function renderNotifications(notes: AgentNotification[]): string {
   ].join("\n");
 }
 
+/** 去掉思考块、围栏等噪声，便于从小模型输出中提取 JSON。 */
+export function stripModelNoise(content: string): string {
+  let s = content;
+  s = s.replace(/<think>[\s\S]*?<\/think>/gi, "");
+  s = s.replace(/<redacted_reasoning>[\s\S]*?<\/redacted_reasoning>/gi, "");
+  const fenced = s.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  if (fenced?.[1]) return fenced[1].trim();
+  return s.trim();
+}
+
 /** 从模型输出中提取第一个平衡的 JSON 对象并解析为动作。 */
 export function parseAction(content: string): AgentAction | null {
-  const obj = extractFirstJsonObject(content);
+  const obj = extractFirstJsonObject(stripModelNoise(content));
   if (!obj) return null;
   let parsed: unknown;
   try {

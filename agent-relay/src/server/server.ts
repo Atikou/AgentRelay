@@ -18,11 +18,18 @@ import { BackgroundTaskManager, NotificationQueue } from "../background/index.js
 import { Planner } from "../agent/Planner.js";
 import { DryRunExecutor, TaskRunner } from "../agent/TaskRunner.js";
 import { ToolStepExecutor } from "../agent/ToolStepExecutor.js";
-import { AgentLoop } from "../agent/AgentLoop.js";
+import { AgentLoop, type LoopChatFn } from "../agent/AgentLoop.js";
 import { ALL_PERMISSIONS, CONFIRMATION_REQUIRED } from "../agent/permissions.js";
 import { PlanSchema } from "../agent/types.js";
+import { ContextManager } from "../context/index.js";
+import type { MemoryScope, MemoryType } from "../context/index.js";
+import { SubAgentCoordinator, getSubAgentRole, listSubAgentRoles } from "../subagent/index.js";
+import type { SubAgentRoleId } from "../subagent/index.js";
+import type { ToolPermission } from "../agent/permissions.js";
 import { createDefaultRegistry } from "../tools/index.js";
 import { TraceLogger } from "../trace/TraceLogger.js";
+import { readRecentTraceEvents, readReplayTraceEvents } from "../trace/traceReader.js";
+import { Scheduler, CreateTriggerInputSchema } from "../scheduler/index.js";
 import { loadEnvFile } from "../util/env.js";
 
 loadEnvFile();
@@ -49,11 +56,42 @@ for (const c of config.models.clients) {
 }
 
 const metrics = new MetricsRegistry();
-const trace = new TraceLogger(path.join(projectRoot, "data", "traces", "trace.jsonl"));
+const traceFile = path.join(projectRoot, "data", "traces", "trace.jsonl");
+const trace = new TraceLogger(traceFile);
 const notificationQueue = new NotificationQueue(
   path.join(projectRoot, "data", "notifications", "notifications.jsonl"),
 );
-const backgroundTasks = new BackgroundTaskManager(workspaceRoot, notificationQueue, trace);
+const schedCfg = config.scheduler;
+const scheduler = new Scheduler(
+  path.join(projectRoot, "data", "scheduler", "triggers.jsonl"),
+  notificationQueue,
+  trace,
+  {
+    workspaceRoot,
+    unattendedGoalPatterns: schedCfg?.unattendedGoalPatterns ?? [],
+    gitPollIntervalMs: schedCfg?.gitPollIntervalMs ?? 5000,
+    defaultCronMissPolicy: schedCfg?.cronMissPolicy ?? "skip",
+  },
+);
+const backgroundTasks = new BackgroundTaskManager(
+  workspaceRoot,
+  notificationQueue,
+  trace,
+  (record) => scheduler.handleBackgroundCompleted(record),
+);
+scheduler.start();
+if (schedCfg?.dailySummaryCron && schedCfg.dailySummaryGoal) {
+  const hasDaily = scheduler.list().some((t) => t.name === "__daily_summary__");
+  if (!hasDaily) {
+    scheduler.register({
+      name: "__daily_summary__",
+      kind: "cron",
+      goal: schedCfg.dailySummaryGoal,
+      cron: schedCfg.dailySummaryCron,
+      cronMissPolicy: schedCfg.cronMissPolicy ?? "skip",
+    });
+  }
+}
 const router = new ModelRouter([...clientMap.values()], {
   strategy: config.routing.strategy,
   fallback: config.routing.fallback,
@@ -64,6 +102,16 @@ const router = new ModelRouter([...clientMap.values()], {
 
 const planner = new Planner((request, opts) => router.chat(request, opts));
 const registry = createDefaultRegistry(trace);
+const subAgentCoordinator = new SubAgentCoordinator({
+  chat: (req, opts) => router.chat(req, opts),
+  registry,
+  workspaceRoot,
+  trace,
+});
+const contextManager = new ContextManager({
+  dataDir: path.join(projectRoot, "data"),
+  useLanceDb: true,
+});
 
 function sendJson(res: ServerResponse, status: number, body: unknown): void {
   const data = JSON.stringify(body);
@@ -96,6 +144,7 @@ const CONTENT_TYPES: Record<string, string> = {
   ".gif": "image/gif",
   ".webp": "image/webp",
   ".md": "text/markdown; charset=utf-8",
+  ".json": "application/json; charset=utf-8",
 };
 
 async function serveStatic(res: ServerResponse, urlPath: string): Promise<void> {
@@ -118,6 +167,33 @@ async function serveStatic(res: ServerResponse, urlPath: string): Promise<void> 
   }
 }
 
+/** 解析请求中的 clientName；`__default__` 或未传则走路由策略。 */
+function resolveForceClient(clientName?: string): { forceClient?: string; error?: string } {
+  if (!clientName || clientName === "__default__") return {};
+  if (!clientMap.has(clientName)) {
+    return { error: `未找到模型客户端：${clientName}` };
+  }
+  return { forceClient: clientName };
+}
+
+function makeChatFn(forceClient?: string): LoopChatFn {
+  return (req, opts) =>
+    router.chat(req, {
+      sensitive: opts?.sensitive,
+      ...(forceClient ? { forceClient } : {}),
+    });
+}
+
+function getSubAgentCoordinatorFor(forceClient?: string): SubAgentCoordinator {
+  if (!forceClient) return subAgentCoordinator;
+  return new SubAgentCoordinator({
+    chat: makeChatFn(forceClient),
+    registry,
+    workspaceRoot,
+    trace,
+  });
+}
+
 function getConfigPayload() {
   return {
     profile,
@@ -130,6 +206,14 @@ function getConfigPayload() {
       location: c.location,
       model: c.model,
     })),
+    /** 已注册的 API 能力（供测试台探测后端是否为当前版本）。 */
+    capabilities: {
+      traceAudit: true,
+      contextPersistence: true,
+      subAgent: true,
+      scheduler: true,
+      traceReplay: true,
+    },
   };
 }
 
@@ -148,18 +232,13 @@ async function handleChat(body: unknown) {
     message?: string;
     system?: string;
     sensitive?: boolean;
+    sessionId?: string;
+    persist?: boolean;
   };
   const message = (payload.message ?? "").trim();
   if (!message) {
     return { status: 400, body: { error: "message 不能为空" } };
   }
-
-  const messages = [
-    ...(payload.system && payload.system.trim()
-      ? [{ role: "system" as const, content: payload.system.trim() }]
-      : []),
-    { role: "user" as const, content: message },
-  ];
 
   // 指定具体客户端则强制该客户端；否则走路由「自主选择」+ 失败降级。
   const forceClient =
@@ -169,11 +248,35 @@ async function handleChat(body: unknown) {
     return { status: 404, body: { error: `未找到模型客户端：${forceClient}` } };
   }
 
+  const persist = payload.persist !== false;
+  const sessionId = persist ? ensureContextSession(payload.sessionId, "网页对话") : undefined;
+  if (persist && sessionId) {
+    contextManager.saveUserMessage(sessionId, message);
+  }
+
+  const systemBase = payload.system?.trim() ?? "";
+  const messages =
+    persist && sessionId
+      ? contextManager.buildChatMessages(
+          await contextManager.restoreContextPackage(sessionId, message),
+          systemBase,
+          { phase: "pre_call", currentUser: message },
+        )
+      : [
+          ...(systemBase ? [{ role: "system" as const, content: systemBase }] : []),
+          { role: "user" as const, content: message },
+        ];
+
   try {
     const response = await router.chat(
       { messages, temperature: 0.3 },
       { forceClient, sensitive: payload.sensitive },
     );
+    if (persist && sessionId) {
+      contextManager.saveAssistantMessage(sessionId, response.content);
+    }
+    const finalized =
+      persist && sessionId ? await contextManager.finalizeTurn(sessionId, message) : undefined;
     return {
       status: 200,
       body: {
@@ -185,6 +288,11 @@ async function handleChat(body: unknown) {
         usage: response.usage,
         content: response.content,
         toolCalls: response.toolCalls,
+        sessionId,
+        compressed: finalized?.compressed ? true : undefined,
+        phase: finalized?.postCall.phase,
+        contextPackage: finalized?.postCall.contextPackage,
+        renderedPrompt: finalized?.postCall.renderedPrompt,
       },
     };
   } catch (error) {
@@ -196,15 +304,47 @@ function handleMetrics() {
   return { stats: metrics.snapshot(), recent: metrics.recentCalls().slice(0, 20) };
 }
 
+function handleTraceRecent(url: URL) {
+  const raw = Number(url.searchParams.get("limit") ?? 50);
+  const limit = Number.isFinite(raw) ? Math.min(Math.max(1, raw), 200) : 50;
+  const events = readRecentTraceEvents(traceFile, { limit, redact: true });
+  return { status: 200, body: { events, count: events.length, redacted: true } };
+}
+
+function handleTraceExport(url: URL) {
+  const raw = Number(url.searchParams.get("limit") ?? 500);
+  const limit = Number.isFinite(raw) ? Math.min(Math.max(1, raw), 2000) : 500;
+  const events = readRecentTraceEvents(traceFile, { limit, redact: true });
+  return {
+    status: 200,
+    body: { exportedAt: new Date().toISOString(), count: events.length, redacted: true, events },
+  };
+}
+
+function handleTraceReplay(url: URL) {
+  const raw = Number(url.searchParams.get("limit") ?? 100);
+  const limit = Number.isFinite(raw) ? Math.min(Math.max(1, raw), 500) : 100;
+  const events = readReplayTraceEvents(traceFile, { limit, redact: true });
+  return { status: 200, body: { events, count: events.length, redacted: true, replay: true } };
+}
+
+function ensureContextSession(sessionId: string | undefined, title: string): string {
+  if (sessionId && contextManager.getSession(sessionId)) return sessionId;
+  return contextManager.createSession(title).id;
+}
+
 /** 计划模式：根据目标生成结构化计划（只读）。 */
 async function handlePlan(body: unknown) {
-  const payload = (body ?? {}) as { goal?: string; context?: string };
+  const payload = (body ?? {}) as { goal?: string; context?: string; clientName?: string };
   const goal = (payload.goal ?? "").trim();
   if (!goal) {
     return { status: 400, body: { error: "goal 不能为空" } };
   }
+  const { forceClient, error } = resolveForceClient(payload.clientName);
+  if (error) return { status: 404, body: { error } };
   try {
-    const plan = await planner.generatePlan(goal, payload.context);
+    const activePlanner = forceClient ? new Planner(makeChatFn(forceClient)) : planner;
+    const plan = await activePlanner.generatePlan(goal, payload.context);
     return { status: 200, body: { plan } };
   } catch (error) {
     return { status: 502, body: { error: `生成计划失败：${String(error)}` } };
@@ -251,12 +391,20 @@ async function handleAgent(body: unknown) {
     autoConfirm?: boolean;
     sensitive?: boolean;
     maxIterations?: number;
+    sessionId?: string;
+    persist?: boolean;
+    clientName?: string;
   };
   const message = (payload.message ?? "").trim();
   if (!message) return { status: 400, body: { error: "message 不能为空" } };
 
+  const { forceClient, error } = resolveForceClient(payload.clientName);
+  if (error) return { status: 404, body: { error } };
+
+  const persist = payload.persist !== false;
+  const sessionId = persist ? ensureContextSession(payload.sessionId, "智能体会话") : undefined;
   const loop = new AgentLoop({
-    chat: (req, opts) => router.chat(req, opts),
+    chat: makeChatFn(forceClient),
     registry,
     workspaceRoot,
     autoConfirm: payload.autoConfirm ?? false,
@@ -264,6 +412,8 @@ async function handleAgent(body: unknown) {
     maxIterations: payload.maxIterations,
     trace,
     notificationQueue,
+    contextManager: persist ? contextManager : undefined,
+    sessionId,
   });
 
   try {
@@ -313,6 +463,231 @@ function handleNotificationsList(pendingOnly: boolean) {
 function handleNotificationsConsume() {
   const notifications = notificationQueue.drain();
   return { consumed: notifications };
+}
+
+function handleSchedulerList() {
+  return { triggers: scheduler.list() };
+}
+
+function handleSchedulerCreate(body: unknown) {
+  const parsed = CreateTriggerInputSchema.safeParse(body);
+  if (!parsed.success) {
+    return {
+      status: 400,
+      body: { error: parsed.error.issues.map((i) => i.message).join("; ") },
+    };
+  }
+  try {
+    const trigger = scheduler.register(parsed.data);
+    return { status: 200, body: { trigger } };
+  } catch (error) {
+    return { status: 400, body: { error: String(error) } };
+  }
+}
+
+function handleSchedulerPause(id: string) {
+  const trigger = scheduler.pause(id);
+  if (!trigger) return { status: 404, body: { error: "触发器不存在" } };
+  return { status: 200, body: { trigger } };
+}
+
+function handleSchedulerResume(id: string) {
+  const trigger = scheduler.resume(id);
+  if (!trigger) return { status: 404, body: { error: "触发器不存在" } };
+  return { status: 200, body: { trigger } };
+}
+
+function handleSchedulerCancel(id: string) {
+  const trigger = scheduler.cancel(id);
+  if (!trigger) return { status: 404, body: { error: "触发器不存在" } };
+  return { status: 200, body: { trigger } };
+}
+
+function handleSubAgentRoles() {
+  return { roles: listSubAgentRoles() };
+}
+
+async function handleSubAgentRun(body: unknown) {
+  const payload = (body ?? {}) as {
+    role?: SubAgentRoleId;
+    task?: string;
+    context?: string;
+    parentTaskId?: string;
+    grantedPermissions?: string[];
+    maxIterations?: number;
+    timeoutMs?: number;
+    sensitive?: boolean;
+    clientName?: string;
+  };
+  const task = (payload.task ?? "").trim();
+  if (!payload.role) return { status: 400, body: { error: "role 不能为空" } };
+  if (!task) return { status: 400, body: { error: "task 不能为空" } };
+
+  const { forceClient, error } = resolveForceClient(payload.clientName);
+  if (error) return { status: 404, body: { error } };
+
+  try {
+    const roleDef = getSubAgentRole(payload.role);
+    const coord = getSubAgentCoordinatorFor(forceClient);
+    const result = await coord.run({
+      role: payload.role,
+      task,
+      context: payload.context,
+      parentTaskId: payload.parentTaskId,
+      grantedPermissions: payload.grantedPermissions as ToolPermission[] | undefined,
+      maxIterations: payload.maxIterations ?? roleDef.defaultMaxIterations,
+      timeoutMs: payload.timeoutMs ?? roleDef.defaultTimeoutMs,
+      sensitive: payload.sensitive,
+    });
+    return { status: 200, body: { result } };
+  } catch (error) {
+    return { status: 400, body: { error: String(error) } };
+  }
+}
+
+function handleContextSessionsList() {
+  return { sessions: contextManager.listSessions() };
+}
+
+function handleContextSessionCreate(body: unknown) {
+  const payload = (body ?? {}) as { title?: string; projectId?: string };
+  const session = contextManager.createSession(payload.title, payload.projectId);
+  return { status: 200, body: { session } };
+}
+
+function handleContextSessionGet(id: string) {
+  const session = contextManager.getSession(id);
+  if (!session) return { status: 404, body: { error: "会话不存在" } };
+  const messages = contextManager.messages.listBySession(id);
+  const summaries = contextManager.summaries.listBySession(id);
+  return { status: 200, body: { session, messages, summaries } };
+}
+
+async function handleContextSessionRestore(
+  id: string,
+  query?: string,
+  phase: "pre_call" | "post_call" = "pre_call",
+) {
+  const session = contextManager.getSession(id);
+  if (!session) return { status: 404, body: { error: "会话不存在" } };
+  const snapshot = await contextManager.buildContextSnapshot(id, {
+    phase,
+    userInput: query,
+    currentUser: phase === "pre_call" ? query : undefined,
+  });
+  return { status: 200, body: { session, ...snapshot } };
+}
+
+async function handleContextSessionCompress(id: string) {
+  const session = contextManager.getSession(id);
+  if (!session) return { status: 404, body: { error: "会话不存在" } };
+  const compressed = await contextManager.summaryManager.compressIfNeeded(id);
+  contextManager.summaryManager.ensureSessionSummary(id);
+  return { status: 200, body: { compressed, needsCompression: contextManager.summaryManager.needsCompression(id) } };
+}
+
+async function handleContextSearch(url: URL) {
+  const q = (url.searchParams.get("q") ?? "").trim();
+  if (!q) return { status: 400, body: { error: "q 不能为空" } };
+  const scope = url.searchParams.get("scope") as MemoryScope | null;
+  const scopeId = url.searchParams.get("scopeId") ?? undefined;
+  try {
+    const hits = await contextManager.search(q, scope ?? undefined, scopeId);
+    return { status: 200, body: { hits } };
+  } catch (error) {
+    return {
+      status: 200,
+      body: {
+        hits: [],
+        warning: `向量检索暂不可用，已降级为仅 FTS：${String(error)}`,
+      },
+    };
+  }
+}
+
+function handleContextMemoriesList(url: URL) {
+  const scope = url.searchParams.get("scope") as MemoryScope | null;
+  const scopeId = url.searchParams.get("scopeId") ?? undefined;
+  const memories = contextManager.listMemories(scope ?? undefined, scopeId);
+  return { status: 200, body: { memories } };
+}
+
+function handleContextMemoryDeactivate(id: string, body: unknown) {
+  const memory = contextManager.getMemory(id);
+  if (!memory) return { status: 404, body: { error: "记忆不存在" } };
+  const payload = (body ?? {}) as { reason?: string };
+  const reason = payload.reason?.trim() || "manual";
+  const ok = contextManager.deactivateMemory(id, reason);
+  if (!ok) return { status: 404, body: { error: "记忆不存在或已停用" } };
+  return { status: 200, body: { memoryId: id, deactivated: true, reason } };
+}
+
+function handleContextMemoryCreate(body: unknown) {
+  const payload = (body ?? {}) as {
+    scope?: MemoryScope;
+    scopeId?: string;
+    memoryType?: MemoryType;
+    key?: string;
+    value?: string;
+    summary?: string;
+    importance?: number;
+  };
+  if (!payload.scope) return { status: 400, body: { error: "scope 不能为空" } };
+  if (!payload.memoryType) return { status: 400, body: { error: "memoryType 不能为空" } };
+  if (!payload.value?.trim()) return { status: 400, body: { error: "value 不能为空" } };
+  const memory = contextManager.upsertMemory({
+    scope: payload.scope,
+    scopeId: payload.scopeId,
+    memoryType: payload.memoryType,
+    key: payload.key,
+    value: payload.value.trim(),
+    summary: payload.summary,
+    importance: payload.importance,
+  });
+  return { status: 200, body: { memory } };
+}
+
+async function handleSubAgentBatch(body: unknown) {
+  const payload = (body ?? {}) as {
+    roles?: SubAgentRoleId[];
+    task?: string;
+    context?: string;
+    parentTaskId?: string;
+    grantedPermissions?: string[];
+    maxIterations?: number;
+    timeoutMs?: number;
+    sensitive?: boolean;
+    clientName?: string;
+  };
+  const task = (payload.task ?? "").trim();
+  if (!task) return { status: 400, body: { error: "task 不能为空" } };
+  if (!payload.roles?.length) return { status: 400, body: { error: "roles 不能为空" } };
+
+  const { forceClient, error } = resolveForceClient(payload.clientName);
+  if (error) return { status: 404, body: { error } };
+
+  try {
+    const maxIterations =
+      payload.maxIterations ??
+      Math.max(...payload.roles.map((r) => getSubAgentRole(r).defaultMaxIterations));
+    const timeoutMs =
+      payload.timeoutMs ??
+      Math.max(...payload.roles.map((r) => getSubAgentRole(r).defaultTimeoutMs));
+    const coord = getSubAgentCoordinatorFor(forceClient);
+    const batch = await coord.runBatch({
+      roles: payload.roles,
+      task,
+      context: payload.context,
+      parentTaskId: payload.parentTaskId,
+      grantedPermissions: payload.grantedPermissions as ToolPermission[] | undefined,
+      maxIterations,
+      timeoutMs,
+      sensitive: payload.sensitive,
+    });
+    return { status: 200, body: batch };
+  } catch (error) {
+    return { status: 400, body: { error: String(error) } };
+  }
 }
 
 /** 列出已注册工具。 */
@@ -427,6 +802,21 @@ const server = createServer((req, res) => {
         sendJson(res, 200, handleMetrics());
         return;
       }
+      if (pathname === "/api/trace/recent" && method === "GET") {
+        const result = handleTraceRecent(url);
+        sendJson(res, result.status, result.body);
+        return;
+      }
+      if (pathname === "/api/trace/export" && method === "GET") {
+        const result = handleTraceExport(url);
+        sendJson(res, result.status, result.body);
+        return;
+      }
+      if (pathname === "/api/trace/replay" && method === "GET") {
+        const result = handleTraceReplay(url);
+        sendJson(res, result.status, result.body);
+        return;
+      }
       if (pathname === "/api/plan" && method === "POST") {
         const result = await handlePlan(await readBody(req));
         sendJson(res, result.status, result.body);
@@ -465,6 +855,36 @@ const server = createServer((req, res) => {
         sendJson(res, 200, handleNotificationsConsume());
         return;
       }
+      if (pathname === "/api/scheduler/triggers" && method === "GET") {
+        sendJson(res, 200, handleSchedulerList());
+        return;
+      }
+      if (pathname === "/api/scheduler/triggers" && method === "POST") {
+        const result = handleSchedulerCreate(await readBody(req));
+        sendJson(res, result.status, result.body);
+        return;
+      }
+      if (pathname.startsWith("/api/scheduler/triggers/")) {
+        const rest = decodeURIComponent(pathname.slice("/api/scheduler/triggers/".length));
+        if (rest.endsWith("/pause") && method === "POST") {
+          const id = rest.slice(0, -"/pause".length);
+          const result = handleSchedulerPause(id);
+          sendJson(res, result.status, result.body);
+          return;
+        }
+        if (rest.endsWith("/resume") && method === "POST") {
+          const id = rest.slice(0, -"/resume".length);
+          const result = handleSchedulerResume(id);
+          sendJson(res, result.status, result.body);
+          return;
+        }
+        if (rest.endsWith("/cancel") && method === "POST") {
+          const id = rest.slice(0, -"/cancel".length);
+          const result = handleSchedulerCancel(id);
+          sendJson(res, result.status, result.body);
+          return;
+        }
+      }
       if (pathname.startsWith("/api/background/") && pathname !== "/api/background/start") {
         const id = decodeURIComponent(pathname.slice("/api/background/".length));
         if (method === "GET") {
@@ -475,6 +895,78 @@ const server = createServer((req, res) => {
         if (method === "POST" && id.endsWith("/cancel")) {
           const taskId = decodeURIComponent(id.slice(0, -"/cancel".length));
           const result = handleBackgroundCancel(taskId);
+          sendJson(res, result.status, result.body);
+          return;
+        }
+      }
+      if (pathname === "/api/subagent/roles" && method === "GET") {
+        sendJson(res, 200, handleSubAgentRoles());
+        return;
+      }
+      if (pathname === "/api/subagent/run" && method === "POST") {
+        const result = await handleSubAgentRun(await readBody(req));
+        sendJson(res, result.status, result.body);
+        return;
+      }
+      if (pathname === "/api/subagent/batch" && method === "POST") {
+        const result = await handleSubAgentBatch(await readBody(req));
+        sendJson(res, result.status, result.body);
+        return;
+      }
+      if (pathname === "/api/context/sessions" && method === "GET") {
+        sendJson(res, 200, handleContextSessionsList());
+        return;
+      }
+      if (pathname === "/api/context/sessions" && method === "POST") {
+        const result = handleContextSessionCreate(await readBody(req));
+        sendJson(res, result.status, result.body);
+        return;
+      }
+      if (pathname === "/api/context/search" && method === "GET") {
+        const result = await handleContextSearch(url);
+        sendJson(res, result.status, result.body);
+        return;
+      }
+      if (pathname === "/api/context/memories" && method === "GET") {
+        sendJson(res, 200, handleContextMemoriesList(url));
+        return;
+      }
+      if (pathname === "/api/context/memories" && method === "POST") {
+        const result = handleContextMemoryCreate(await readBody(req));
+        sendJson(res, result.status, result.body);
+        return;
+      }
+      if (pathname.startsWith("/api/context/memories/")) {
+        const rest = decodeURIComponent(pathname.slice("/api/context/memories/".length));
+        if (rest.endsWith("/deactivate") && method === "POST") {
+          const id = rest.slice(0, -"/deactivate".length);
+          const result = handleContextMemoryDeactivate(id, await readBody(req));
+          sendJson(res, result.status, result.body);
+          return;
+        }
+      }
+      if (pathname.startsWith("/api/context/sessions/")) {
+        const rest = decodeURIComponent(pathname.slice("/api/context/sessions/".length));
+        if (rest.endsWith("/restore") && method === "GET") {
+          const id = rest.slice(0, -"/restore".length);
+          const phase =
+            url.searchParams.get("phase") === "post_call" ? "post_call" : "pre_call";
+          const result = await handleContextSessionRestore(
+            id,
+            url.searchParams.get("q") ?? undefined,
+            phase,
+          );
+          sendJson(res, result.status, result.body);
+          return;
+        }
+        if (rest.endsWith("/compress") && method === "POST") {
+          const id = rest.slice(0, -"/compress".length);
+          const result = await handleContextSessionCompress(id);
+          sendJson(res, result.status, result.body);
+          return;
+        }
+        if (method === "GET" && rest) {
+          const result = handleContextSessionGet(rest);
           sendJson(res, result.status, result.body);
           return;
         }
@@ -509,6 +1001,10 @@ const server = createServer((req, res) => {
         await serveStatic(res, "/docs.html");
         return;
       }
+      if (pathname === "/api-docs" || pathname === "/api-docs/") {
+        await serveStatic(res, "/api-docs.html");
+        return;
+      }
       await serveStatic(res, pathname);
     } catch (error) {
       sendJson(res, 500, { error: String(error) });
@@ -518,4 +1014,13 @@ const server = createServer((req, res) => {
 
 server.listen(PORT, () => {
   console.log(`测试台已启动：http://localhost:${PORT}  (profile=${profile})`);
+});
+
+process.on("SIGINT", () => {
+  scheduler.stop();
+  void trace.close().finally(() => process.exit(0));
+});
+process.on("SIGTERM", () => {
+  scheduler.stop();
+  void trace.close().finally(() => process.exit(0));
 });

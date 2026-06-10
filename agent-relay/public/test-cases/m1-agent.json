@@ -15,6 +15,18 @@
         "status": 400,
         "bodyHasKeys": ["error"]
       }
+    },
+    {
+      "id": "m1-agent-unknown-client",
+      "title": "未知模型客户端返回 404",
+      "purpose": "确认智能体接口在指定不存在的 clientName 时立即拒绝，避免进入路由或模型调用。",
+      "method": "POST",
+      "path": "/api/agent",
+      "input": { "message": "ping", "clientName": "missing-client" },
+      "expect": {
+        "status": 404,
+        "bodyHasKeys": ["error"]
+      }
     }
   ]
 }

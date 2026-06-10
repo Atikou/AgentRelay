@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>AgentRelay API 参考</title>
+    <link rel="stylesheet" href="/api-docs.css" />
+  </head>
+  <body>
+    <header class="api-topbar">
+      <div class="api-topbar-left">
+        <span class="logo-dot"></span>
+        <span class="logo-text">AgentRelay API</span>
+        <span class="badge">OpenAPI 3.1</span>
+      </div>
+      <div class="api-topbar-right">
+        <a class="topbar-link" href="/openapi.json" target="_blank" rel="noopener">openapi.json</a>
+        <a class="topbar-link" href="/docs">说明文档</a>
+        <a class="topbar-link" href="/">测试台</a>
+      </div>
+    </header>
+    <div id="api-reference"></div>
+    <script src="https://cdn.jsdelivr.net/npm/@scalar/api-reference"></script>
+    <script>
+      Scalar.createApiReference("#api-reference", {
+        url: "/openapi.json",
+        theme: "default",
+        layout: "modern",
+        darkMode: window.matchMedia("(prefers-color-scheme: dark)").matches,
+        metaData: { title: "AgentRelay API" },
+        searchHotKey: "k",
+        defaultHttpClient: {
+          targetKey: "javascript",
+          clientKey: "fetch",
+        },
+        hiddenClients: ["c", "clojure", "csharp", "go", "http", "java", "kotlin", "node", "objc", "ocaml", "php", "powershell", "python", "r", "ruby", "shell", "swift"],
+      });
+    </script>
+  </body>
+</html>

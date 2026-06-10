@@ -18,10 +18,20 @@
     "test:tools": "tsx tests/tools.test.ts",
     "test:loop": "tsx tests/loop.test.ts",
     "test:background": "tsx tests/background.test.ts",
-    "test": "tsx tests/router.test.ts && tsx tests/agent.test.ts && tsx tests/tools.test.ts && tsx tests/loop.test.ts && tsx tests/background.test.ts",
+    "test:subagent": "tsx tests/subagent.test.ts",
+    "test:context": "tsx tests/context.test.ts",
+    "test:security": "tsx tests/security.test.ts",
+    "test:m7-integration": "tsx tests/m7-integration.test.ts",
+    "test:scheduler": "tsx tests/scheduler.test.ts",
+    "test:integration": "tsx tests/integration.test.ts",
+    "test:openapi": "tsx tests/openapi.test.ts",
+    "test": "tsx tests/router.test.ts && tsx tests/agent.test.ts && tsx tests/tools.test.ts && tsx tests/loop.test.ts && tsx tests/background.test.ts && tsx tests/subagent.test.ts && tsx tests/context.test.ts && tsx tests/security.test.ts && tsx tests/m7-integration.test.ts && tsx tests/scheduler.test.ts && tsx tests/integration.test.ts && tsx tests/openapi.test.ts",
     "docs:screenshots": "node scripts/capture-docs.mjs"
   },
   "dependencies": {
+    "@lancedb/lancedb": "^0.30.0",
+    "chokidar": "^5.0.0",
+    "croner": "^10.0.1",
     "openai": "^4.67.3",
     "zod": "^3.23.8"
   },

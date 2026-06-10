@@ -1,0 +1,61 @@
+{
+  "milestone": "M5",
+  "feature": "子 Agent",
+  "featureId": "m5-subagent",
+  "summary": "验证只读子 Agent 角色列表、参数校验与权限边界（运行单条需模型，此处不测成功路径）。",
+  "cases": [
+    {
+      "id": "m5-roles-list",
+      "title": "子 Agent 角色列表含两个只读角色",
+      "purpose": "确认 GET /api/subagent/roles 暴露 code_review 与 test_analyze，且权限均为 read。",
+      "method": "GET",
+      "path": "/api/subagent/roles",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyHasKeys": ["roles"],
+        "bodyPaths": { "roles.length": 2 }
+      }
+    },
+    {
+      "id": "m5-run-empty-task",
+      "title": "空 task 返回 400",
+      "purpose": "确认子 Agent 运行入口拒绝空任务，避免无意义模型调用。",
+      "method": "POST",
+      "path": "/api/subagent/run",
+      "input": { "role": "code_review", "task": "" },
+      "expect": {
+        "status": 400,
+        "bodyHasKeys": ["error"]
+      }
+    },
+    {
+      "id": "m5-batch-empty-roles",
+      "title": "batch 空 roles 返回 400",
+      "purpose": "确认并行派生必须指定至少一个角色。",
+      "method": "POST",
+      "path": "/api/subagent/batch",
+      "input": { "task": "检查代码", "roles": [] },
+      "expect": {
+        "status": 400,
+        "bodyHasKeys": ["error"]
+      }
+    },
+    {
+      "id": "m5-run-invalid-grant",
+      "title": "授予 write 权限被拒绝",
+      "purpose": "验证父 Agent 不能为只读子 Agent 授予 write 等非允许权限。",
+      "method": "POST",
+      "path": "/api/subagent/run",
+      "input": {
+        "role": "code_review",
+        "task": "x",
+        "grantedPermissions": ["write"]
+      },
+      "expect": {
+        "status": 400,
+        "bodyHasKeys": ["error"]
+      }
+    }
+  ]
+}

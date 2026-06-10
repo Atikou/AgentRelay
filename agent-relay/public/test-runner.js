@@ -86,22 +86,225 @@ const MANUAL_APIS_BY_FEATURE = {
     { label: "GET /api/notifications（全部）", method: "GET", path: "/api/notifications", sample: null },
     { label: "POST /api/notifications/consume", method: "POST", path: "/api/notifications/consume", sample: {} },
   ],
+  "m5-subagent": [
+    { label: "GET /api/subagent/roles", method: "GET", path: "/api/subagent/roles", sample: null },
+    {
+      label: "POST /api/subagent/run",
+      method: "POST",
+      path: "/api/subagent/run",
+      sample: {
+        role: "code_review",
+        task: "审查 src/agent/AgentLoop.ts 的错误处理",
+        sensitive: false,
+        maxIterations: 16,
+        timeoutMs: 180000,
+      },
+    },
+    {
+      label: "POST /api/subagent/batch",
+      method: "POST",
+      path: "/api/subagent/batch",
+      sample: {
+        roles: ["code_review", "test_analyze"],
+        task: "分析 agent-relay 测试失败原因",
+      },
+    },
+  ],
+  "m6-context": [
+    { label: "GET /api/context/sessions", method: "GET", path: "/api/context/sessions", sample: null },
+    {
+      label: "POST /api/context/sessions",
+      method: "POST",
+      path: "/api/context/sessions",
+      sample: { title: "手动验证会话" },
+    },
+    {
+      label: "POST /api/context/memories",
+      method: "POST",
+      path: "/api/context/memories",
+      sample: {
+        scope: "global",
+        memoryType: "preference",
+        key: "manual_lang",
+        value: "偏好使用 TypeScript 开发 AgentRelay",
+        summary: "TS 偏好",
+        importance: 0.8,
+      },
+    },
+    { label: "GET /api/context/memories", method: "GET", path: "/api/context/memories", sample: null },
+    { label: "GET /api/context/search?q=TypeScript", method: "GET", path: "/api/context/search?q=TypeScript", sample: null },
+  ],
+  "m8-scheduler": [
+    { label: "GET /api/scheduler/triggers", method: "GET", path: "/api/scheduler/triggers", sample: null },
+    {
+      label: "POST /api/scheduler/triggers · once",
+      method: "POST",
+      path: "/api/scheduler/triggers",
+      sample: {
+        name: "手动 once",
+        kind: "once",
+        goal: "验收调度",
+        at: "2099-06-01T12:00:00.000Z",
+      },
+    },
+    {
+      label: "POST /api/scheduler/triggers · event",
+      method: "POST",
+      path: "/api/scheduler/triggers",
+      sample: {
+        name: "后台完成后续",
+        kind: "event",
+        goal: "后台任务完成后提醒",
+        eventType: "background_completed",
+        eventFilter: { status: "completed" },
+      },
+    },
+    {
+      label: "POST /api/scheduler/triggers · file_changed",
+      method: "POST",
+      path: "/api/scheduler/triggers",
+      sample: {
+        name: "配置变更",
+        kind: "event",
+        goal: "config 下 json 变更时提醒",
+        eventType: "file_changed",
+        eventFilter: { watchPath: "config", pattern: "*.json" },
+      },
+    },
+  ],
+  "m7-security": [
+    { label: "GET /api/trace/recent", method: "GET", path: "/api/trace/recent?limit=10", sample: null },
+    { label: "GET /api/trace/export", method: "GET", path: "/api/trace/export?limit=20", sample: null },
+    { label: "GET /api/trace/replay", method: "GET", path: "/api/trace/replay?limit=30", sample: null },
+    {
+      label: "POST /api/tools/run · shell_run 危险命令",
+      method: "POST",
+      path: "/api/tools/run",
+      sample: { name: "shell_run", input: { command: "rm -rf /" } },
+    },
+  ],
 };
 
-async function fetchCase(path, method, input) {
+/** 调用模型时可传 clientName 的接口（与顶部模型选择器联动）。 */
+const MODEL_AWARE_PATHS = new Set([
+  "/api/chat",
+  "/api/agent",
+  "/api/plan",
+  "/api/subagent/run",
+  "/api/subagent/batch",
+]);
+
+let subAgentRolesCache = null;
+
+async function getSubAgentRolesCached() {
+  if (!subAgentRolesCache) {
+    const res = await fetch("/api/subagent/roles");
+    const data = await res.json();
+    subAgentRolesCache = data.roles || [];
+  }
+  return subAgentRolesCache;
+}
+
+/** 测试台手动验证：为子 Agent 请求补全角色默认 maxIterations / timeoutMs。 */
+async function enrichSubAgentInput(path, input) {
+  if (!input || typeof input !== "object") return input;
+  if (path !== "/api/subagent/run" && path !== "/api/subagent/batch") return input;
+  const roles = await getSubAgentRolesCached();
+  if (path === "/api/subagent/run" && input.role) {
+    const role = roles.find((r) => r.id === input.role);
+    if (!role) return input;
+    return {
+      ...input,
+      maxIterations: input.maxIterations ?? role.defaultMaxIterations ?? 16,
+      timeoutMs: input.timeoutMs ?? role.defaultTimeoutMs ?? 180000,
+    };
+  }
+  if (path === "/api/subagent/batch" && Array.isArray(input.roles) && input.roles.length > 0) {
+    const maxIterations =
+      input.maxIterations ??
+      Math.max(
+        ...input.roles.map((id) => roles.find((r) => r.id === id)?.defaultMaxIterations ?? 10),
+      );
+    const timeoutMs =
+      input.timeoutMs ??
+      Math.max(...input.roles.map((id) => roles.find((r) => r.id === id)?.defaultTimeoutMs ?? 120000));
+    return { ...input, maxIterations, timeoutMs };
+  }
+  return input;
+}
+
+function enrichModelInput(path, input, clientName) {
+  if (!MODEL_AWARE_PATHS.has(path)) return input;
+  if (!input || typeof input !== "object") return input;
+  if (input.clientName != null) return input;
+  if (!clientName || clientName === "__default__") return input;
+  return { ...input, clientName };
+}
+
+async function loadTestModelOptions(selectEl) {
+  const prev = selectEl.value;
+  selectEl.innerHTML = '<option value="">检测模型…</option>';
+  selectEl.disabled = true;
+  try {
+    const [rows, cfg] = await Promise.all([
+      fetch("/api/models/check").then((r) => r.json()),
+      fetch("/api/config").then((r) => r.json()),
+    ]);
+    const available = (rows || []).filter((r) => r.available);
+    selectEl.innerHTML = "";
+    if (available.length === 0) {
+      selectEl.innerHTML = '<option value="">无可用模型</option>';
+      return;
+    }
+    const defaultName = cfg?.defaultModel;
+    if (defaultName && available.some((r) => r.name === defaultName)) {
+      const auto = document.createElement("option");
+      auto.value = "__default__";
+      auto.textContent = `自动路由（默认：${defaultName}）`;
+      selectEl.appendChild(auto);
+    }
+    for (const r of available) {
+      const opt = document.createElement("option");
+      opt.value = r.name;
+      opt.textContent = `${r.name}（${r.location} / ${r.model}）`;
+      selectEl.appendChild(opt);
+    }
+    selectEl.disabled = false;
+    if (prev && [...selectEl.options].some((o) => o.value === prev)) {
+      selectEl.value = prev;
+    } else if (selectEl.querySelector('option[value="__default__"]')) {
+      selectEl.value = "__default__";
+    } else if (selectEl.options[0]) {
+      selectEl.value = selectEl.options[0].value;
+    }
+  } catch {
+    selectEl.innerHTML = '<option value="">模型检测失败</option>';
+  }
+}
+
+async function fetchCase(path, method, input, clientName) {
+  let body = input;
+  if (method !== "GET" && body != null) {
+    body = await enrichSubAgentInput(path, body);
+    body = enrichModelInput(path, body, clientName);
+  }
   const options = { method };
-  if (method !== "GET" && input != null) {
+  if (method !== "GET" && body != null) {
     options.headers = { "Content-Type": "application/json" };
-    options.body = JSON.stringify(input);
+    options.body = JSON.stringify(body);
   }
   const res = await fetch(path, options);
-  let body;
+  let responseBody;
   try {
-    body = await res.json();
+    responseBody = await res.json();
   } catch {
-    body = null;
+    responseBody = null;
   }
-  return { status: res.status, body };
+  return {
+    status: res.status,
+    body: responseBody,
+    contentType: res.headers.get("content-type") ?? "",
+  };
 }
 
 function getByPath(obj, dotPath) {
@@ -130,10 +333,33 @@ function deepPartialEqual(actual, expected) {
   return Object.keys(expected).every((k) => deepPartialEqual(actual?.[k], expected[k]));
 }
 
-function evaluateExpect(actual, expect) {
+function staleServerHint(actual, tc) {
+  const path = tc?.path ?? "";
+  if (actual.status !== 404 || actual.body?.error !== "未知接口") return null;
+  if (path.startsWith("/api/trace/")) {
+    return "后端未注册 trace 接口：请在 agent-relay 目录执行 npm run serve 重启测试台，再 Ctrl+F5 刷新页面。";
+  }
+  if (path.startsWith("/api/context/")) {
+    return "后端未注册 context 接口：请重启 npm run serve 并刷新页面。";
+  }
+  if (path.startsWith("/api/scheduler/")) {
+    return "后端未注册 scheduler 接口：请重启 npm run serve 并刷新页面。";
+  }
+  return null;
+}
+
+function evaluateExpect(actual, expect, tc) {
   const failures = [];
+  const staleHint = staleServerHint(actual, tc);
+  if (staleHint) failures.push(staleHint);
   if (expect.status != null && actual.status !== expect.status) {
     failures.push(`HTTP 状态：期望 ${expect.status}，实际 ${actual.status}`);
+  }
+  if (expect.contentTypeIncludes) {
+    const ct = actual.contentType ?? "";
+    if (!ct.includes(expect.contentTypeIncludes)) {
+      failures.push(`Content-Type 应包含 ${expect.contentTypeIncludes}，实际 ${ct || "(空)"}`);
+    }
   }
   const body = actual.body;
   if (expect.body != null && !deepPartialEqual(body, expect.body)) {
@@ -162,6 +388,9 @@ function evaluateExpect(actual, expect) {
       if (want === "string" && typeof got !== "string") failures.push(`${p} 应为 string，实际 ${typeOfValue(got)}`);
       else if (want === "array" && !Array.isArray(got)) failures.push(`${p} 应为 array`);
       else if (want === "number" && typeof got !== "number") failures.push(`${p} 应为 number`);
+      else if (want === "object" && (got === null || typeof got !== "object" || Array.isArray(got))) {
+        failures.push(`${p} 应为 object`);
+      }
       else if (typeof want !== "string" && got !== want) {
         failures.push(`${p}：期望 ${JSON.stringify(want)}，实际 ${JSON.stringify(got)}`);
       }
@@ -339,6 +568,33 @@ async function openTestCasesPanel(deps, initialFeatureId) {
   tabBar.className = "test-feature-tabs";
   panel.appendChild(tabBar);
 
+  const modelBar = document.createElement("div");
+  modelBar.className = "test-model-bar";
+  const modelLabel = document.createElement("label");
+  modelLabel.className = "test-model-label";
+  modelLabel.textContent = "模型";
+  const modelSelect = document.createElement("select");
+  modelSelect.className = "test-model-select";
+  modelSelect.title = "调用 /api/chat、/api/agent、/api/plan、子 Agent 时使用；仅列出当前可用模型";
+  const modelRefreshBtn = document.createElement("button");
+  modelRefreshBtn.type = "button";
+  modelRefreshBtn.className = "action-btn secondary";
+  modelRefreshBtn.textContent = "刷新模型";
+  modelRefreshBtn.addEventListener("click", () => {
+    void loadTestModelOptions(modelSelect);
+  });
+  modelBar.appendChild(modelLabel);
+  modelBar.appendChild(modelSelect);
+  modelBar.appendChild(modelRefreshBtn);
+  const modelHint = document.createElement("span");
+  modelHint.className = "test-model-hint";
+  modelHint.textContent = "需模型的用例会使用此处选择；输入 JSON 里已有 clientName 时优先用 JSON";
+  modelBar.appendChild(modelHint);
+  panel.appendChild(modelBar);
+  void loadTestModelOptions(modelSelect);
+
+  const getClientName = () => modelSelect.value || "__default__";
+
   const pageHost = document.createElement("div");
   pageHost.className = "test-feature-page";
   panel.appendChild(pageHost);
@@ -393,8 +649,8 @@ async function openTestCasesPanel(deps, initialFeatureId) {
       rowBtn.disabled = true;
       rowBtn.textContent = "…";
     }
-    const actual = await fetchCase(tc.path, tc.method, tc.input);
-    const verdict = evaluateExpect(actual, tc.expect);
+    const actual = await fetchCase(tc.path, tc.method, tc.input, getClientName());
+    const verdict = evaluateExpect(actual, tc.expect, tc);
     if (rowBtn) {
       rowBtn.disabled = false;
       rowBtn.textContent = "运行";
@@ -431,6 +687,21 @@ async function openTestCasesPanel(deps, initialFeatureId) {
       </div>
       <p class="test-page-summary">${escapeHtml(featurePage.summary || "")}</p>`;
     head.appendChild(headText);
+
+    if (meta.featureId === "m7-security") {
+      try {
+        const cfg = await fetch("/api/config").then((r) => r.json());
+        if (!cfg.capabilities?.traceAudit) {
+          const warn = document.createElement("p");
+          warn.className = "test-stale-server-hint";
+          warn.textContent =
+            "当前后端未暴露 trace 审计能力（capabilities.traceAudit）。请在 agent-relay 目录重启 npm run serve，再 Ctrl+F5 刷新。";
+          headText.appendChild(warn);
+        }
+      } catch {
+        /* 忽略探测失败 */
+      }
+    }
 
     const headActions = document.createElement("div");
     headActions.className = "test-page-actions";
@@ -514,17 +785,17 @@ async function openTestCasesPanel(deps, initialFeatureId) {
     pageHost.appendChild(list);
     pageHost.appendChild(resultArea);
 
-    manualFillRef = renderManualSection(pageHost, meta, featurePage);
+    manualFillRef = renderManualSection(pageHost, meta, featurePage, getClientName);
   }
 
-  function renderManualSection(host, meta, featurePage) {
+  function renderManualSection(host, meta, featurePage, getClientName) {
     const presets = MANUAL_APIS_BY_FEATURE[meta.featureId] || [];
 
     const custom = document.createElement("div");
     custom.className = "test-custom";
     custom.id = `manual-${meta.featureId}`;
     custom.innerHTML = `<div class="test-category">手动输入验证</div>
-      <p class="test-manual-hint">自选接口或自定义路径，编辑输入与期望后点击「运行」；未填期望时仅展示实际输出。</p>`;
+      <p class="test-manual-hint">自选接口或自定义路径，编辑输入与期望后点击「运行」；需模型的接口使用面板上方「模型」下拉框（仅可用模型）；未填期望时仅展示实际输出。</p>`;
 
     const customRow = document.createElement("div");
     customRow.className = "tool-row";
@@ -649,17 +920,28 @@ async function openTestCasesPanel(deps, initialFeatureId) {
       }
       customRun.disabled = true;
       customRun.textContent = "运行中…";
-      const actual = await fetchCase(apiDef.path, apiDef.method, input);
+      const clientName = getClientName();
+      const mergedInput =
+        input && MODEL_AWARE_PATHS.has(apiDef.path)
+          ? enrichModelInput(apiDef.path, input, clientName)
+          : input;
+      const actual = await fetchCase(apiDef.path, apiDef.method, input, clientName);
       const hasExpect = expectDef && Object.keys(expectDef).length > 0;
       const verdict = hasExpect
-        ? evaluateExpect(actual, expectDef)
+        ? evaluateExpect(actual, expectDef, { path: apiDef.path })
         : { pass: null, failures: [] };
       customRun.disabled = false;
       customRun.textContent = "运行手动验证";
+      const modelNote =
+        MODEL_AWARE_PATHS.has(apiDef.path) && clientName && clientName !== "__default__"
+          ? ` · 模型 ${clientName}`
+          : MODEL_AWARE_PATHS.has(apiDef.path)
+            ? " · 自动路由"
+            : "";
       showResult(
-        `手动 · ${apiDef.method} ${apiDef.path}`,
+        `手动 · ${apiDef.method} ${apiDef.path}${modelNote}`,
         actual,
-        { purpose: purposeInput.value, input, expect: expectDef ?? {} },
+        { purpose: purposeInput.value, input: mergedInput ?? input, expect: expectDef ?? {} },
         verdict,
       );
     }

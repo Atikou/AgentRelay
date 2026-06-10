@@ -1,0 +1,203 @@
+{
+  "milestone": "M6",
+  "feature": "上下文压缩与持久化",
+  "featureId": "m6-context",
+  "summary": "验证 ContextManager：会话、记忆、恢复 ContextPackage 与检索边界。",
+  "cases": [
+    {
+      "id": "m6-sessions-list",
+      "title": "会话列表为数组",
+      "purpose": "确认 GET /api/context/sessions 返回 sessions 数组，用于测试台展示持久化会话。",
+      "method": "GET",
+      "path": "/api/context/sessions",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyHasKeys": ["sessions"],
+        "bodyPaths": { "sessions": "array" }
+      }
+    },
+    {
+      "id": "m6-session-create",
+      "title": "创建持久化会话",
+      "purpose": "验证 POST /api/context/sessions 返回带 id 的 session 记录，作为后续恢复与压缩的载体。",
+      "method": "POST",
+      "path": "/api/context/sessions",
+      "input": { "title": "测试会话 M6" },
+      "expect": {
+        "status": 200,
+        "bodyHasKeys": ["session"],
+        "bodyPaths": {
+          "session.id": "string",
+          "session.title": "测试会话 M6"
+        }
+      }
+    },
+    {
+      "id": "m6-memory-create",
+      "title": "写入全局偏好记忆",
+      "purpose": "验证 POST /api/context/memories 能持久化结构化记忆并同步 FTS/向量索引。",
+      "method": "POST",
+      "path": "/api/context/memories",
+      "input": {
+        "scope": "global",
+        "memoryType": "preference",
+        "key": "test_lang",
+        "value": "偏好使用 TypeScript 开发 AgentRelay",
+        "summary": "TS 偏好",
+        "importance": 0.8
+      },
+      "expect": {
+        "status": 200,
+        "bodyHasKeys": ["memory"],
+        "bodyPaths": {
+          "memory.scope": "global",
+          "memory.memoryType": "preference"
+        }
+      }
+    },
+    {
+      "id": "m6-memory-upsert-same-key",
+      "title": "重复 key 更新偏好记忆",
+      "purpose": "确认同一 scope/memoryType/key 的长期记忆会更新原记录，避免测试台反复运行后在恢复上下文里出现重复偏好。",
+      "method": "POST",
+      "path": "/api/context/memories",
+      "input": {
+        "scope": "global",
+        "memoryType": "preference",
+        "key": "test_lang",
+        "value": "偏好使用 TypeScript 开发 AgentRelay",
+        "summary": "TS 偏好更新",
+        "importance": 0.9
+      },
+      "expect": {
+        "status": 200,
+        "bodyHasKeys": ["memory"],
+        "bodyPaths": {
+          "memory.key": "test_lang",
+          "memory.summary": "TS 偏好更新"
+        }
+      }
+    },
+    {
+      "id": "m6-memory-upsert-same-value",
+      "title": "无 key 同内容记忆去重",
+      "purpose": "覆盖测试台手动写入场景：没有显式 key 时，同 scope/memoryType/value 的偏好不应重复堆叠。",
+      "method": "POST",
+      "path": "/api/context/memories",
+      "input": {
+        "scope": "global",
+        "memoryType": "preference",
+        "value": "偏好使用 TypeScript 开发 AgentRelay",
+        "summary": "TS 偏好",
+        "importance": 0.8
+      },
+      "expect": {
+        "status": 200,
+        "bodyHasKeys": ["memory"],
+        "bodyPaths": {
+          "memory.scope": "global",
+          "memory.memoryType": "preference",
+          "memory.value": "偏好使用 TypeScript 开发 AgentRelay"
+        }
+      }
+    },
+    {
+      "id": "m6-search-missing-q",
+      "title": "检索缺少 q 返回 400",
+      "purpose": "边界用例：未提供查询词时应明确 4xx，避免空检索误用。",
+      "method": "GET",
+      "path": "/api/context/search",
+      "input": null,
+      "expect": {
+        "status": 400,
+        "bodyHasKeys": ["error"]
+      }
+    },
+    {
+      "id": "m6-session-missing-detail",
+      "title": "不存在的会话详情返回 404",
+      "purpose": "验证会话恢复/详情接口对无效 sessionId 有明确 404，前端可据此重新创建会话。",
+      "method": "GET",
+      "path": "/api/context/sessions/not-exist",
+      "input": null,
+      "expect": {
+        "status": 404,
+        "bodyHasKeys": ["error"]
+      }
+    },
+    {
+      "id": "m6-memory-missing-value",
+      "title": "记忆缺少 value 返回 400",
+      "purpose": "确认长期记忆写入必须包含有效内容，避免空记忆进入 SQLite/FTS/向量索引。",
+      "method": "POST",
+      "path": "/api/context/memories",
+      "input": {
+        "scope": "global",
+        "memoryType": "preference",
+        "value": ""
+      },
+      "expect": {
+        "status": 400,
+        "bodyHasKeys": ["error"]
+      }
+    },
+    {
+      "id": "m6-restore-missing-session",
+      "title": "恢复不存在的会话返回 404",
+      "purpose": "边界用例：无效 sessionId 恢复时应 404，避免前端误用已删除会话。",
+      "method": "GET",
+      "path": "/api/context/sessions/not-exist-session/restore",
+      "input": null,
+      "expect": {
+        "status": 404,
+        "bodyHasKeys": ["error"]
+      }
+    },
+    {
+      "id": "m6-memory-deactivate-missing",
+      "title": "停用不存在的记忆返回 404",
+      "purpose": "边界用例：对无效 memoryId 调用 deactivate 应明确 404，避免误操作。",
+      "method": "POST",
+      "path": "/api/context/memories/not-exist-memory/deactivate",
+      "input": { "reason": "test" },
+      "expect": {
+        "status": 404,
+        "bodyHasKeys": ["error"]
+      }
+    },
+    {
+      "id": "m6-memory-deactivate",
+      "title": "停用已写入的记忆",
+      "purpose": "先运行「写入全局偏好记忆」复制 memory.id，将路径改为 /api/context/memories/{id}/deactivate 后执行；验证记忆被停用且不再出现在 GET /api/context/memories。",
+      "method": "POST",
+      "path": "/api/context/memories/PASTE_MEMORY_ID/deactivate",
+      "input": { "reason": "test-bench" },
+      "expect": {
+        "status": 200,
+        "bodyHasKeys": ["memoryId", "deactivated"],
+        "bodyPaths": {
+          "deactivated": true
+        }
+      }
+    },
+    {
+      "id": "m6-restore-context-package",
+      "title": "恢复接口返回 contextPackage",
+      "purpose": "先运行「创建持久化会话」复制 session.id，将路径改为 /api/context/sessions/{id}/restore?q=测试 后执行；验证响应含结构化 contextPackage.systemSections。",
+      "method": "GET",
+      "path": "/api/context/sessions/PASTE_SESSION_ID/restore?q=测试",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyHasKeys": ["session", "phase", "contextPackage", "renderedPrompt"],
+        "bodyPaths": {
+          "phase": "pre_call",
+          "contextPackage.sessionId": "string",
+          "contextPackage.systemSections": "array",
+          "contextPackage.messages": "array"
+        }
+      }
+    }
+  ]
+}

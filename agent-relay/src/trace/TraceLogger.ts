@@ -1,9 +1,16 @@
 import { createWriteStream, mkdirSync, type WriteStream } from "node:fs";
 import path from "node:path";
 
+import { redactValue } from "../util/redact.js";
+
 export interface TraceEvent {
   type: string;
   [key: string]: unknown;
+}
+
+export interface TraceLoggerOptions {
+  /** 写入前脱敏（默认 true）。 */
+  redact?: boolean;
 }
 
 /**
@@ -11,14 +18,17 @@ export interface TraceEvent {
  */
 export class TraceLogger {
   private readonly stream: WriteStream;
+  private readonly redact: boolean;
 
-  constructor(traceFile: string) {
+  constructor(traceFile: string, options: TraceLoggerOptions = {}) {
     mkdirSync(path.dirname(traceFile), { recursive: true });
     this.stream = createWriteStream(traceFile, { flags: "a", encoding: "utf-8" });
+    this.redact = options.redact !== false;
   }
 
   write(event: TraceEvent): void {
-    this.stream.write(`${JSON.stringify({ time: new Date().toISOString(), ...event })}\n`);
+    const payload = this.redact ? redactValue(event) : event;
+    this.stream.write(`${JSON.stringify({ time: new Date().toISOString(), ...payload })}\n`);
   }
 
   close(): Promise<void> {

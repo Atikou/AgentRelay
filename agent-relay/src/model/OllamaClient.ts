@@ -15,6 +15,7 @@ export interface OllamaOptions {
   model: string;
   baseUrl?: string;
   timeoutMs?: number;
+  think?: boolean | "low" | "medium" | "high";
 }
 
 interface OllamaToolCall {
@@ -51,12 +52,14 @@ export class OllamaClient implements ModelClient {
 
   private readonly baseUrl: string;
   private readonly timeoutMs: number;
+  private readonly think: boolean | "low" | "medium" | "high";
 
   constructor(options: OllamaOptions) {
     this.name = options.name;
     this.model = options.model;
     this.baseUrl = (options.baseUrl ?? "http://localhost:11434").replace(/\/$/, "");
     this.timeoutMs = options.timeoutMs ?? 120_000;
+    this.think = options.think ?? false;
   }
 
   async isAvailable(): Promise<boolean> {
@@ -88,6 +91,9 @@ export class OllamaClient implements ModelClient {
           model: this.model,
           messages: toOllamaMessages(request.messages),
           tools: toOllamaTools(request.tools),
+          // Qwen3/DeepSeek-R1 等 thinking 模型可用配置开启；默认关闭以避免
+          // 输出预算全写进 message.thinking，导致 message.content 为空。
+          think: this.think,
           stream: false,
           options: {
             temperature: request.temperature,

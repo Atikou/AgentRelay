@@ -70,34 +70,34 @@
 
 ## 5. 子 Agent 派生
 
-- [ ] 支持从主 Agent 派生子 Agent。
-- [ ] 子 Agent 拥有独立上下文窗口。
-- [ ] 子 Agent 可被限制为只读、执行命令、代码审查、测试运行等角色。
-- [ ] 支持并行派生多个子 Agent。
-- [ ] 支持子 Agent 结果汇总、冲突检测和合并。
-- [ ] 支持子 Agent 超时、取消和失败上报。
-- [ ] 子 Agent 不能默认继承全部权限，必须显式授予。
-- [ ] 记录父子 Agent 的任务链路和决策过程。
+- [x] 支持从主 Agent 派生子 Agent。（`/api/subagent/run` / `batch`）
+- [x] 子 Agent 拥有独立上下文窗口。（角色 system + 独立 AgentLoop 消息链）
+- [x] 子 Agent 可被限制为只读、执行命令、代码审查、测试运行等角色。（第一版：`code_review` / `test_analyze` 仅 read）
+- [x] 支持并行派生多个子 Agent。（`SubAgentCoordinator.runBatch`）
+- [ ] 支持子 Agent 结果汇总、冲突检测和合并。（已汇总文本，未做冲突检测）
+- [x] 支持子 Agent 超时、取消和失败上报。（超时；显式 cancel 待后续）
+- [x] 子 Agent 不能默认继承全部权限，必须显式授予。（`resolveGrantedPermissions`）
+- [x] 记录父子 Agent 的任务链路和决策过程。（trace `subagent_start/end` + `parentTaskId`）
 
 ## 6. 上下文管理与压缩
 
-- [ ] 建立上下文分层：
-  - [ ] 系统规则。
-  - [ ] 用户目标。
+- [x] 建立上下文分层：（`SystemSectionBuilder` 动态 sections）
+  - [x] 系统规则。（`response_rules` section）
+  - [x] 用户目标。（`session_summary` / chunk 摘要）
   - [ ] 当前计划。
-  - [ ] 当前任务状态。
+  - [x] 当前任务状态。（`task_state` section + tasks 表）
   - [ ] 文件和代码片段。
-  - [ ] 工具调用结果。
-  - [ ] 历史决策摘要。
-- [ ] 支持上下文隔离，避免不同任务互相污染。
-- [ ] 支持长期记忆与短期上下文分离。
-- [ ] 实现上下文压缩。
-  - [ ] 对历史对话生成摘要。
-  - [ ] 保留关键决策、文件变更和失败原因。
-  - [ ] 丢弃低价值日志和重复信息。
-- [ ] 压缩后支持恢复任务，不从头开始。
+  - [x] 工具调用结果。（`recent_tool_results` 从 session tool 消息注入）
+  - [x] 历史决策摘要。
+- [x] 支持上下文隔离，避免不同任务互相污染。（scope: global/session/project/task）
+- [x] 支持长期记忆与短期上下文分离。
+- [x] 实现上下文压缩。
+  - [x] 对历史对话生成摘要。
+  - [x] 保留关键决策、文件变更和失败原因。
+  - [x] 丢弃低价值日志和重复信息。（压缩后 `is_summarized=1`）
+- [x] 压缩后支持恢复任务，不从头开始。
 - [ ] 为上下文片段打标签，便于检索和重组。
-- [ ] 支持向量检索或关键字检索找回历史上下文。
+- [x] 支持向量检索或关键字检索找回历史上下文。
 
 ## 7. 后台线程与命令执行
 
@@ -169,7 +169,7 @@
 - [x] 设计 Agent 主状态机。（`AgentLoop`：模型→解析→工具→回灌→迭代/终止）
 - [x] 设计任务状态机。（`TaskRunner`：pending/running/blocked/completed/failed/cancelled）
 - [x] 设计后台线程状态机。（running / completed / failed / cancelled）
-- [ ] 设计子 Agent 生命周期。
+- [x] 设计子 Agent 生命周期。（completed/failed/timeout + batch 汇总）
 - [ ] 支持任务依赖图 DAG。
 - [ ] 支持并行任务和串行任务混合执行。
 - [ ] 支持任务阻塞时自动切换到其他可执行任务。
@@ -213,9 +213,9 @@
 - [ ] 单元测试上下文压缩。
 - [x] 单元测试通知队列。（`npm run test:background`）
 - [ ] 单元测试权限边界。
-- [ ] 集成测试完整任务执行链路。
-- [ ] 集成测试后台命令完成后通知注入。
-- [ ] 集成测试子 Agent 并行执行和结果汇总。
+- [x] 集成测试完整任务执行链路。（`tests/integration.test.ts`）
+- [x] 集成测试后台命令完成后通知注入。（AgentLoop + NotificationQueue）
+- [x] 集成测试子 Agent 并行执行和结果汇总。（SubAgentCoordinator.runBatch）
 - [ ] 压力测试长上下文、多后台任务和高频通知。
 - [ ] 回归测试失败重试、取消和恢复。
 
@@ -252,12 +252,12 @@
 - [ ] Prompt 管理：系统提示词、工具提示词和任务模板需要版本管理。
 - [ ] 结果验收：每个任务必须有 done definition，而不是只看模型是否回答完成。
 - [ ] 错误分类与恢复策略：不同错误对应不同处理方式。
-- [ ] 审计与回放：可以重放某次 Agent 执行过程用于调试。
+- [x] 审计与回放：trace 回放 API + 测试台审计回放面板（第一版）。
 - [ ] 多平台兼容：Windows、macOS、Linux 的 shell、路径和权限差异需要处理。
 - [ ] 插件系统：后续可以增加新工具、新模型和新触发器。
 - [ ] 数据迁移：状态文件、数据库 schema 和记忆存储升级时要有迁移机制。
 - [ ] 灰度开关：新能力先在部分任务或 profile 中启用。
-- [ ] 防 prompt injection：读取外部网页、代码注释、日志或文档时，不能直接相信其中的指令。
+- [x] 防 prompt injection：工具只读输出扫描 + `_untrusted` 围栏回灌（第一版）。
 - [ ] 成本预算：单任务、单日、单用户设置费用上限。
 - [ ] 质量门禁：代码变更后自动运行 lint、test、typecheck 或自定义验证。
 - [ ] 最小可用版本 MVP：先做单 Agent、模型路由、任务状态、工具调用、后台任务和通知，再逐步扩展。
@@ -281,21 +281,23 @@
   - [x] 后台命令。
   - [x] 完成通知。
   - [x] 主 Agent 消费通知。
-- [ ] M5：子 Agent 与上下文隔离。
-  - [ ] 子 Agent 派生。
-  - [ ] 独立上下文。
-  - [ ] 结果汇总。
-- [ ] M6：上下文压缩和持久化。
-  - [ ] 历史摘要。
-  - [ ] 状态恢复。
-  - [ ] 记忆检索。
-- [ ] M7：安全、审计和测试。
-  - [ ] 权限控制。
-  - [ ] 敏感信息保护。
-  - [ ] Trace 和回放。
-  - [ ] 自动化测试。
-- [ ] M8：定时与事件触发。
-  - [ ] 定时任务（一次性、周期、cron）。
-  - [ ] 事件触发（文件变更、后台完成、Git 变化）。
-  - [ ] 触发任务仍走权限检查，不绕过确认。
+- [x] M5：子 Agent 与上下文隔离。
+  - [x] 子 Agent 派生。
+  - [x] 独立上下文。
+  - [x] 结果汇总。
+- [x] M6：上下文压缩和持久化。
+  - [x] 历史摘要（chunk/session，超 20 条自动压缩）。
+  - [x] 状态恢复（ContextRestorer + SQLite 持久化）。
+  - [x] 记忆检索（FTS5 + LanceDB 向量接口）。
+- [x] M7：安全、审计和测试。（第一版）
+  - [x] 权限控制。（工具 permission + shell denylist，已有）
+  - [x] 敏感信息保护。（`redact` + TraceLogger 脱敏）
+  - [x] Trace 和回放。（`tool_audit` + `/api/trace/*` 导出）
+  - [x] 自动化测试。（`tests/m7-integration.test.ts` 6 项：AgentLoop/TaskRunner + 审计断言）
+- [x] M8：定时与事件触发。（第一版）
+  - [x] 定时任务（一次性、周期、cron）。（`Scheduler` + croner）
+  - [x] 事件触发：后台完成 + 文件变更 + Git。（`background_completed` / `file_changed` / `git_changed`）
+  - [x] cron 错过补偿、无人值守白名单、待办队列 UI、`daily_summary` cron。
+  - [x] 触发任务仍走权限检查，不绕过确认。（仅写通知队列 + `requiresConfirmation`）
+  - [x] 触发器暂停/恢复/取消与 JSONL 持久化。
 

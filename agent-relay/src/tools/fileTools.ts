@@ -2,6 +2,7 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import { z } from "zod";
 
+import { buildTextPatch } from "../util/patch.js";
 import { resolveInsideWorkspace } from "./pathSafe.js";
 import type { Tool } from "./types.js";
 
@@ -128,7 +129,7 @@ export const writeFileTool: Tool<
     content: z.ZodString;
     createDirs: z.ZodDefault<z.ZodBoolean>;
   }>,
-  { path: string; bytesWritten: number }
+  { path: string; bytesWritten: number; patchPreview: string; isNew: boolean }
 > = {
   name: "write_file",
   description: "向工作区内写入（覆盖）文本文件，必要时创建父目录。",
@@ -141,10 +142,22 @@ export const writeFileTool: Tool<
   }),
   async execute(input, ctx) {
     const full = resolveInsideWorkspace(ctx.workspaceRoot, input.path);
+    let oldContent: string | null = null;
+    try {
+      oldContent = await fs.readFile(full, "utf-8");
+    } catch {
+      oldContent = null;
+    }
+    const patchPreview = buildTextPatch(oldContent, input.content, input.path);
     if (input.createDirs) {
       await fs.mkdir(path.dirname(full), { recursive: true });
     }
     await fs.writeFile(full, input.content, "utf-8");
-    return { path: input.path, bytesWritten: Buffer.byteLength(input.content, "utf-8") };
+    return {
+      path: input.path,
+      bytesWritten: Buffer.byteLength(input.content, "utf-8"),
+      patchPreview,
+      isNew: oldContent === null,
+    };
   },
 };

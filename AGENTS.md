@@ -29,6 +29,9 @@ AgentRelay/
       ├─ model/                   # 模型层：clients / ModelRouter / MetricsRegistry / ModelFactory
       ├─ agent/                   # Agent：AgentLoop(主循环) / Planner / TaskRunner / ToolStepExecutor / permissions / types
       ├─ background/              # M4：BackgroundTaskManager / NotificationQueue
+      ├─ scheduler/               # M8：Scheduler 定时与事件触发
+      ├─ subagent/                # M5：SubAgentRunner / SubAgentCoordinator / 只读角色
+      ├─ context/                 # M6：ContextManager / Restorer / SystemSectionBuilder / PromptBuilder / LanceDB
       ├─ tools/                   # 工具系统：ToolRegistry / 文件工具 / shell_run / 风险与路径沙箱
       ├─ trace/                   # TraceLogger（JSONL 事件日志）
       ├─ server/                  # 测试台后端（Node http，无框架）
@@ -60,12 +63,18 @@ npm run serve          # 启动后端与测试台 http://localhost:18787
 - Agent 模式（todolist 第 2 节）：`Planner` 计划模式（只读生成结构化计划）+ `TaskRunner` 任务模式状态机（确认/中断/重试/权限边界），步骤执行器可插拔。
 - 工具系统（todolist 第 3/10 节）：`ToolRegistry`（zod 校验/权限边界/超时/trace）+ 内置工具 `read_file`/`list_files`/`search_text`/`write_file`/`shell_run`；路径沙箱 + 命令风险分级拦截 + 确认门；`ToolStepExecutor` 让任务模式真实执行。
 - M1 主对话循环（todolist 第 11/19 节）：`AgentLoop` 用可移植的 ReAct JSON 协议让模型自主决定工具调用，迭代到最终答案；含权限/确认/迭代上限。接口 `POST /api/agent`，测试台「智能体」模式。
-- 文档站：`/docs` 自动渲染 `docs/*.md`（Mermaid + 截图，ChatGPT 配色 + 深色模式）。
+- 文档站：`/docs` 自动渲染 `docs/*.md`（Mermaid + 截图，ChatGPT 配色 + 深色模式）；**API 文档**：`/api-docs`（Scalar + OpenAPI 3.1，`public/openapi.json`），说明总览见 `docs/API参考.md`。
 - 多 profile 配置、测试台网页（配置 / 可用性 / 调用统计 / 敏感开关 / 对话 / 计划 / 智能体 / **测试用例** / 工具系统）。
 - M4 后台任务与通知队列：`BackgroundTaskManager`（spawn/查询/取消）+ `NotificationQueue`（JSONL 持久化）；`AgentLoop` 在安全点消费通知；`/api/background/*`、`/api/notifications/*`；测试台「后台任务」「通知队列」面板。
-- 自检：`npm test`（路由 + Agent 模式 + 工具系统 + 对话循环 + 后台/通知，41 项）。
+- M5 子 Agent（只读第一版）：`code_review` / `test_analyze` 角色；`SubAgentRunner` + `SubAgentCoordinator`（并行派生+汇总）；`/api/subagent/*`；测试台「子 Agent」面板。
+- M6 上下文压缩与持久化：`ContextManager`（SQLite + FTS5 + LanceDB）；`ContextRestorer` → `ContextPackage`；`SystemSectionBuilder` + `PromptBuilder` 动态注入；`MemoryRetriever` / `SemanticRetriever` 多路检索；`AgentLoop` 默认持久化；`/api/context/*`；测试台「上下文与记忆」面板。
+- M7 安全与审计（第一版）：`util/redact` 日志脱敏；`tool_audit` trace；`GET /api/trace/recent|export`；测试台「安全与审计」面板。
+- M8 定时与事件触发：`Scheduler`（once/interval/cron/event 含 file_changed、git_changed）；无人值守白名单、`daily_summary` cron；待办队列 UI；`/api/scheduler/*`。
+- M7 补强：写文件 `patchPreview`、prompt injection 围栏、`GET /api/trace/replay` 审计回放。
+- 集成测试：`tests/integration.test.ts`（任务链路、后台通知注入、子 Agent 并行）。
+- 自检：`npm test`（全量 **99** 项，含 OpenAPI 规范自检）。
 
-**未实现**（按里程碑推进，勿提前堆叠）：单任务多模型协作、流式逐步推送、通知去重/合并、定时触发、子 Agent、上下文压缩、安全审计增强。
+**未实现**（按里程碑推进）：单任务多模型协作、流式推送、通知去重/合并、子 Agent 写权限/递归、多模态附件/OCR、HTTP E2E 自动化。
 
 ## 关键约定（务必遵守）
 
@@ -73,7 +82,7 @@ npm run serve          # 启动后端与测试台 http://localhost:18787
 - **分层边界**：`model/` 只负责与模型对话，不掺杂路由、任务、工具执行逻辑。新增能力按 `src/` 现有目录分层。
 - **配置**：新增模型走 `config/*.json`，用 zod schema（`src/config/types.ts`）校验。远程 API Key 一律走环境变量（`apiKeyEnv`），**严禁写入配置文件或提交仓库**。
 - **密钥安全**：不在代码、日志、提交中出现明文 key。`.env` 已被 gitignore。
-- **MVP 纪律**：先保证最小闭环稳定，再扩展；不要提前引入向量库、子 Agent、复杂调度（理由见实现指南第 2 节）。
+- **MVP 纪律**：先保证最小闭环稳定，再扩展；M6 已引入 LanceDB 向量检索（本地优先）；勿提前堆叠多模态知识库、复杂调度（理由见实现指南第 2 节）。
 - **安全默认**：高风险操作（删除文件、覆盖配置、安装依赖、`git push`、部署、联网执行脚本）默认需要确认，不可自动执行。
 - **验证**：改完代码必须 `npm run typecheck` 通过；涉及模型/网页时用 `npm run models:check` 或 `npm run serve` 自测。
 - **测试用例（强制，双轨）**：每实现一块功能，除 `tests/*.test.ts` 外，必须在对应**功能页 JSON**中 **新增不少于 2 条**网页用例（见 `agent-relay/public/test-cases/`）：

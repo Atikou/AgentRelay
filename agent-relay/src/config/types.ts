@@ -28,12 +28,25 @@ export const ModelClientConfigSchema = z.object({
   apiVersion: z.string().optional(),
   /** 仅 anthropic：messages API 必填 max_tokens 的默认值。 */
   maxTokens: z.number().int().positive().optional(),
+  /** 仅 ollama：是否启用 thinking 字段；默认 false，避免 content 为空。 */
+  think: z.union([z.boolean(), z.enum(["low", "medium", "high"])]).optional(),
   /** 可选计价：每 1k 输入 token 的美元价格（用于成本统计）。 */
   pricePer1kInputUsd: z.number().nonnegative().optional(),
   /** 可选计价：每 1k 输出 token 的美元价格。 */
   pricePer1kOutputUsd: z.number().nonnegative().optional(),
 });
 export type ModelClientConfig = z.infer<typeof ModelClientConfigSchema>;
+
+export const SchedulerConfigSchema = z.object({
+  /** goal 子串匹配时通知 payload 不要求确认（无人值守白名单）。 */
+  unattendedGoalPatterns: z.array(z.string()).default([]),
+  gitPollIntervalMs: z.number().int().positive().default(5000),
+  cronMissPolicy: z.enum(["skip", "run_once"]).default("skip"),
+  /** 启动时注册 daily_summary cron（可选，如 `0 9 * * *`）。 */
+  dailySummaryCron: z.string().optional(),
+  dailySummaryGoal: z.string().optional(),
+});
+export type SchedulerConfig = z.infer<typeof SchedulerConfigSchema>;
 
 export const AppConfigSchema = z.object({
   workspaceRoot: z.string().min(1),
@@ -45,5 +58,6 @@ export const AppConfigSchema = z.object({
     strategy: RoutingStrategySchema,
     fallback: z.boolean(),
   }),
+  scheduler: SchedulerConfigSchema.optional(),
 });
 export type AppConfig = z.infer<typeof AppConfigSchema>;

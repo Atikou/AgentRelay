@@ -620,6 +620,39 @@ textarea#message-input::placeholder {
   gap: 0;
   min-height: 0;
 }
+.test-model-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--accent) 6%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 18%, transparent);
+}
+.test-model-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+.test-model-select {
+  min-width: 220px;
+  max-width: 100%;
+  flex: 1;
+  font-size: 13px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+}
+.test-model-hint {
+  flex: 1 1 100%;
+  font-size: 12px;
+  color: var(--text-muted);
+  line-height: 1.4;
+}
 .test-feature-tabs {
   display: flex;
   flex-wrap: wrap;

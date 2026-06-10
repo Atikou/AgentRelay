@@ -1,6 +1,7 @@
 import { performance } from "node:perf_hooks";
 
 import type { TraceLogger } from "../trace/TraceLogger.js";
+import { redactPreview } from "../util/redact.js";
 import type { ToolPermission } from "../agent/permissions.js";
 import type { Tool, ToolContext, ToolRunResult, ToolSpec } from "./types.js";
 
@@ -70,16 +71,33 @@ export class ToolRegistry {
       };
     }
 
-    this.trace?.write({ type: "tool_call", tool: name, status: "start" });
+    this.trace?.write({
+      type: "tool_audit",
+      tool: name,
+      status: "start",
+      permission: tool.permission,
+      inputPreview: redactPreview(parsed.data),
+    });
     try {
       const output = await this.withTimeout(tool, () => tool.execute(parsed.data, ctx), ctx.signal);
       const durationMs = elapsed();
-      this.trace?.write({ type: "tool_call", tool: name, status: "ok", durationMs });
+      this.trace?.write({
+        type: "tool_audit",
+        tool: name,
+        status: "ok",
+        durationMs,
+        outputPreview: redactPreview(output, 600),
+      });
       return { ok: true, tool: name, output, durationMs };
     } catch (err) {
       const isTimeout = err instanceof Error && err.message === "__tool_timeout__";
       const error = isTimeout ? `工具执行超时（${tool.timeoutMs}ms）` : String(err);
-      this.trace?.write({ type: "tool_call", tool: name, status: "error", error });
+      this.trace?.write({
+        type: "tool_audit",
+        tool: name,
+        status: "error",
+        error: redactPreview(error, 300),
+      });
       return { ok: false, tool: name, code: isTimeout ? "timeout" : "error", error, durationMs: elapsed() };
     }
   }

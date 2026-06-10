@@ -15,6 +15,18 @@
         "status": 400,
         "bodyHasKeys": ["error"]
       }
+    },
+    {
+      "id": "m3-plan-unknown-client",
+      "title": "未知模型客户端返回 404",
+      "purpose": "确认计划模式指定不存在的 clientName 时返回明确错误，不会误走默认路由。",
+      "method": "POST",
+      "path": "/api/plan",
+      "input": { "goal": "生成一个只读计划", "clientName": "missing-client" },
+      "expect": {
+        "status": 404,
+        "bodyHasKeys": ["error"]
+      }
     }
   ]
 }

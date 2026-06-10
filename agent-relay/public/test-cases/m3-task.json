@@ -15,6 +15,18 @@
         "status": 400,
         "bodyHasKeys": ["error"]
       }
+    },
+    {
+      "id": "m3-task-run-invalid-plan",
+      "title": "真实执行入口非法 plan 返回 400",
+      "purpose": "确认 /api/task/run 与 dry-run 使用同一 PlanSchema 校验，非法计划不会进入工具执行层。",
+      "method": "POST",
+      "path": "/api/task/run",
+      "input": { "plan": { "not": "a plan" }, "autoConfirm": false },
+      "expect": {
+        "status": 400,
+        "bodyHasKeys": ["error"]
+      }
     }
   ]
 }

@@ -1,0 +1,1002 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "AgentRelay HTTP API",
+    "version": "0.1.0",
+    "description": "AgentRelay 测试台后端 REST API。默认基址 `http://localhost:18787`。\n\n- 交互文档：[/api-docs](/api-docs)\n- 说明文档：[/docs](/docs)\n- 能力探测：`GET /api/config` → `capabilities`",
+    "contact": {
+      "name": "AgentRelay"
+    }
+  },
+  "servers": [
+    {
+      "url": "http://localhost:18787",
+      "description": "本地测试台（npm run serve）"
+    }
+  ],
+  "tags": [
+    { "name": "配置与模型", "description": "Profile、路由策略与模型连通性" },
+    { "name": "对话与智能体", "description": "单次对话与 ReAct 自主循环" },
+    { "name": "计划与任务", "description": "计划生成与任务状态机" },
+    { "name": "工具", "description": "内置工具注册表与直接调用" },
+    { "name": "后台与通知", "description": "M4 后台命令与通知队列" },
+    { "name": "调度", "description": "M8 定时与事件触发器" },
+    { "name": "子 Agent", "description": "M5 只读子 Agent" },
+    { "name": "上下文与记忆", "description": "M6 会话持久化与检索" },
+    { "name": "安全与审计", "description": "M7 trace 导出与回放" },
+    { "name": "文档", "description": "Markdown 说明文档元数据" }
+  ],
+  "x-tagGroups": [
+    {
+      "name": "入门",
+      "tags": ["配置与模型"]
+    },
+    {
+      "name": "Agent 能力",
+      "tags": ["对话与智能体", "计划与任务", "工具", "子 Agent"]
+    },
+    {
+      "name": "编排与状态",
+      "tags": ["后台与通知", "调度", "上下文与记忆"]
+    },
+    {
+      "name": "可观测性",
+      "tags": ["安全与审计", "文档"]
+    }
+  ],
+  "paths": {
+    "/api/config": {
+      "get": {
+        "tags": ["配置与模型"],
+        "summary": "获取当前配置与能力清单",
+        "operationId": "getConfig",
+        "responses": {
+          "200": {
+            "description": "配置快照",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ConfigResponse" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/models/check": {
+      "get": {
+        "tags": ["配置与模型"],
+        "summary": "探测各模型客户端可用性",
+        "operationId": "checkModels",
+        "responses": {
+          "200": {
+            "description": "客户端列表及 available 标记",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": { "$ref": "#/components/schemas/ModelCheckItem" }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/metrics": {
+      "get": {
+        "tags": ["配置与模型"],
+        "summary": "模型调用指标统计",
+        "operationId": "getMetrics",
+        "responses": {
+          "200": {
+            "description": "延迟、token、成本等聚合指标",
+            "content": {
+              "application/json": {
+                "schema": { "type": "object", "additionalProperties": true }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/chat": {
+      "post": {
+        "tags": ["对话与智能体"],
+        "summary": "单次模型对话",
+        "operationId": "chat",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/ChatRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "模型回复", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ChatResponse" } } } },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "502": { "$ref": "#/components/responses/UpstreamError" }
+        }
+      }
+    },
+    "/api/agent": {
+      "post": {
+        "tags": ["对话与智能体"],
+        "summary": "自主 Agent 循环（ReAct JSON）",
+        "operationId": "runAgent",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/AgentRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "最终答案与工具步骤", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AgentResponse" } } } },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "502": { "$ref": "#/components/responses/UpstreamError" }
+        }
+      }
+    },
+    "/api/plan": {
+      "post": {
+        "tags": ["计划与任务"],
+        "summary": "生成结构化计划（只读）",
+        "operationId": "createPlan",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/PlanRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "计划对象", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PlanResponse" } } } },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "502": { "$ref": "#/components/responses/UpstreamError" }
+        }
+      }
+    },
+    "/api/task/dry-run": {
+      "post": {
+        "tags": ["计划与任务"],
+        "summary": "任务模式干跑（不执行副作用）",
+        "operationId": "taskDryRun",
+        "requestBody": { "content": { "application/json": { "schema": { "$ref": "#/components/schemas/TaskRunRequest" } } } },
+        "responses": {
+          "200": { "description": "步骤状态", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/TaskRunResponse" } } } }
+        }
+      }
+    },
+    "/api/task/run": {
+      "post": {
+        "tags": ["计划与任务"],
+        "summary": "任务模式真实执行",
+        "operationId": "taskRun",
+        "requestBody": { "content": { "application/json": { "schema": { "$ref": "#/components/schemas/TaskRunRequest" } } } },
+        "responses": {
+          "200": { "description": "步骤状态", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/TaskRunResponse" } } } }
+        }
+      }
+    },
+    "/api/tools": {
+      "get": {
+        "tags": ["工具"],
+        "summary": "列出内置工具",
+        "operationId": "listTools",
+        "responses": {
+          "200": {
+            "description": "工具规格列表",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "tools": { "type": "array", "items": { "$ref": "#/components/schemas/ToolSpec" } }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tools/run": {
+      "post": {
+        "tags": ["工具"],
+        "summary": "直接执行单个工具",
+        "operationId": "runTool",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/ToolRunRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "归一化工具结果（含 ok）", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ToolRunResponse" } } } }
+        }
+      }
+    },
+    "/api/background": {
+      "get": {
+        "tags": ["后台与通知"],
+        "summary": "列出后台任务",
+        "operationId": "listBackgroundTasks",
+        "responses": {
+          "200": {
+            "description": "任务数组",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": { "tasks": { "type": "array", "items": { "$ref": "#/components/schemas/BackgroundTask" } } }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/background/start": {
+      "post": {
+        "tags": ["后台与通知"],
+        "summary": "启动后台命令",
+        "operationId": "startBackgroundTask",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["command"],
+                "properties": {
+                  "command": { "type": "string", "example": "npm test" },
+                  "cwd": { "type": "string", "description": "工作区内相对目录" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "已启动", "content": { "application/json": { "schema": { "type": "object", "properties": { "task": { "$ref": "#/components/schemas/BackgroundTask" } } } } } },
+          "400": { "$ref": "#/components/responses/BadRequest" }
+        }
+      }
+    },
+    "/api/background/{taskId}": {
+      "get": {
+        "tags": ["后台与通知"],
+        "summary": "查询后台任务",
+        "operationId": "getBackgroundTask",
+        "parameters": [{ "$ref": "#/components/parameters/taskId" }],
+        "responses": {
+          "200": { "description": "任务详情", "content": { "application/json": { "schema": { "type": "object", "properties": { "task": { "$ref": "#/components/schemas/BackgroundTask" } } } } } },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+    "/api/background/{taskId}/cancel": {
+      "post": {
+        "tags": ["后台与通知"],
+        "summary": "取消后台任务",
+        "operationId": "cancelBackgroundTask",
+        "parameters": [{ "$ref": "#/components/parameters/taskId" }],
+        "responses": {
+          "200": { "description": "取消后状态", "content": { "application/json": { "schema": { "type": "object", "properties": { "task": { "$ref": "#/components/schemas/BackgroundTask" } } } } } },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+    "/api/notifications": {
+      "get": {
+        "tags": ["后台与通知"],
+        "summary": "列出通知",
+        "operationId": "listNotifications",
+        "parameters": [
+          {
+            "name": "pending",
+            "in": "query",
+            "schema": { "type": "string", "enum": ["1", "0"] },
+            "description": "1=仅未消费"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "通知列表",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "notifications": { "type": "array", "items": { "$ref": "#/components/schemas/Notification" } }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/notifications/consume": {
+      "post": {
+        "tags": ["后台与通知"],
+        "summary": "消费全部待处理通知（安全点）",
+        "operationId": "consumeNotifications",
+        "responses": {
+          "200": {
+            "description": "已消费列表",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "consumed": { "type": "array", "items": { "$ref": "#/components/schemas/Notification" } }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/scheduler/triggers": {
+      "get": {
+        "tags": ["调度"],
+        "summary": "列出触发器",
+        "operationId": "listSchedulerTriggers",
+        "responses": {
+          "200": {
+            "description": "触发器数组",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "triggers": { "type": "array", "items": { "$ref": "#/components/schemas/Trigger" } }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": ["调度"],
+        "summary": "注册触发器",
+        "operationId": "createSchedulerTrigger",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/CreateTriggerRequest" },
+              "examples": {
+                "once": {
+                  "value": {
+                    "name": "提醒",
+                    "kind": "once",
+                    "goal": "检查构建",
+                    "at": "2099-01-01T09:00:00.000Z"
+                  }
+                },
+                "fileChanged": {
+                  "value": {
+                    "name": "配置变更",
+                    "kind": "event",
+                    "eventType": "file_changed",
+                    "goal": "检查 config 变更",
+                    "eventFilter": { "watchPath": "config", "pattern": "*.json" }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "已创建", "content": { "application/json": { "schema": { "type": "object", "properties": { "trigger": { "$ref": "#/components/schemas/Trigger" } } } } } },
+          "400": { "$ref": "#/components/responses/BadRequest" }
+        }
+      }
+    },
+    "/api/scheduler/triggers/{triggerId}/pause": {
+      "post": {
+        "tags": ["调度"],
+        "summary": "暂停触发器",
+        "operationId": "pauseSchedulerTrigger",
+        "parameters": [{ "$ref": "#/components/parameters/triggerId" }],
+        "responses": {
+          "200": { "description": "已暂停", "content": { "application/json": { "schema": { "type": "object", "properties": { "trigger": { "$ref": "#/components/schemas/Trigger" } } } } } },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+    "/api/scheduler/triggers/{triggerId}/resume": {
+      "post": {
+        "tags": ["调度"],
+        "summary": "恢复触发器",
+        "operationId": "resumeSchedulerTrigger",
+        "parameters": [{ "$ref": "#/components/parameters/triggerId" }],
+        "responses": {
+          "200": { "description": "已恢复", "content": { "application/json": { "schema": { "type": "object", "properties": { "trigger": { "$ref": "#/components/schemas/Trigger" } } } } } },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+    "/api/scheduler/triggers/{triggerId}/cancel": {
+      "post": {
+        "tags": ["调度"],
+        "summary": "取消触发器",
+        "operationId": "cancelSchedulerTrigger",
+        "parameters": [{ "$ref": "#/components/parameters/triggerId" }],
+        "responses": {
+          "200": { "description": "已取消", "content": { "application/json": { "schema": { "type": "object", "properties": { "trigger": { "$ref": "#/components/schemas/Trigger" } } } } } },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+    "/api/subagent/roles": {
+      "get": {
+        "tags": ["子 Agent"],
+        "summary": "列出子 Agent 角色",
+        "operationId": "listSubAgentRoles",
+        "responses": {
+          "200": {
+            "description": "角色定义",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "roles": { "type": "array", "items": { "type": "object", "additionalProperties": true } }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/subagent/run": {
+      "post": {
+        "tags": ["子 Agent"],
+        "summary": "运行单个子 Agent",
+        "operationId": "runSubAgent",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/SubAgentRunRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "子 Agent 结果", "content": { "application/json": { "schema": { "type": "object", "additionalProperties": true } } } },
+          "400": { "$ref": "#/components/responses/BadRequest" }
+        }
+      }
+    },
+    "/api/subagent/batch": {
+      "post": {
+        "tags": ["子 Agent"],
+        "summary": "并行运行多个子 Agent 并汇总",
+        "operationId": "runSubAgentBatch",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/SubAgentBatchRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "批量结果与 summary", "content": { "application/json": { "schema": { "type": "object", "additionalProperties": true } } } }
+        }
+      }
+    },
+    "/api/context/sessions": {
+      "get": {
+        "tags": ["上下文与记忆"],
+        "summary": "列出会话",
+        "operationId": "listContextSessions",
+        "responses": {
+          "200": { "description": "会话列表", "content": { "application/json": { "schema": { "type": "object", "additionalProperties": true } } } }
+        }
+      },
+      "post": {
+        "tags": ["上下文与记忆"],
+        "summary": "创建会话",
+        "operationId": "createContextSession",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": { "title": { "type": "string" } }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "新会话", "content": { "application/json": { "schema": { "type": "object", "additionalProperties": true } } } }
+        }
+      }
+    },
+    "/api/context/sessions/{sessionId}": {
+      "get": {
+        "tags": ["上下文与记忆"],
+        "summary": "获取会话元数据",
+        "operationId": "getContextSession",
+        "parameters": [{ "$ref": "#/components/parameters/sessionId" }],
+        "responses": {
+          "200": { "description": "会话", "content": { "application/json": { "schema": { "type": "object", "additionalProperties": true } } } },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+    "/api/context/sessions/{sessionId}/restore": {
+      "get": {
+        "tags": ["上下文与记忆"],
+        "summary": "恢复上下文包",
+        "operationId": "restoreContextSession",
+        "parameters": [
+          { "$ref": "#/components/parameters/sessionId" },
+          {
+            "name": "q",
+            "in": "query",
+            "schema": { "type": "string" },
+            "description": "检索关键词"
+          },
+          {
+            "name": "phase",
+            "in": "query",
+            "schema": { "type": "string", "enum": ["pre_call", "post_call"], "default": "pre_call" }
+          }
+        ],
+        "responses": {
+          "200": { "description": "contextPackage + renderedPrompt", "content": { "application/json": { "schema": { "type": "object", "additionalProperties": true } } } },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+    "/api/context/sessions/{sessionId}/compress": {
+      "post": {
+        "tags": ["上下文与记忆"],
+        "summary": "手动触发会话压缩",
+        "operationId": "compressContextSession",
+        "parameters": [{ "$ref": "#/components/parameters/sessionId" }],
+        "responses": {
+          "200": { "description": "压缩结果", "content": { "application/json": { "schema": { "type": "object", "additionalProperties": true } } } },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+    "/api/context/search": {
+      "get": {
+        "tags": ["上下文与记忆"],
+        "summary": "检索记忆",
+        "operationId": "searchContext",
+        "parameters": [
+          { "name": "q", "in": "query", "required": true, "schema": { "type": "string" } },
+          { "name": "limit", "in": "query", "schema": { "type": "integer", "default": 10 } }
+        ],
+        "responses": {
+          "200": { "description": "命中记忆", "content": { "application/json": { "schema": { "type": "object", "additionalProperties": true } } } }
+        }
+      }
+    },
+    "/api/context/memories": {
+      "get": {
+        "tags": ["上下文与记忆"],
+        "summary": "列出记忆",
+        "operationId": "listMemories",
+        "parameters": [
+          { "name": "scope", "in": "query", "schema": { "type": "string" } },
+          { "name": "active", "in": "query", "schema": { "type": "string", "enum": ["1", "0"] } }
+        ],
+        "responses": {
+          "200": { "description": "记忆列表", "content": { "application/json": { "schema": { "type": "object", "additionalProperties": true } } } }
+        }
+      },
+      "post": {
+        "tags": ["上下文与记忆"],
+        "summary": "创建或更新记忆",
+        "operationId": "upsertMemory",
+        "requestBody": { "content": { "application/json": { "schema": { "type": "object", "additionalProperties": true } } } },
+        "responses": {
+          "200": { "description": "记忆记录", "content": { "application/json": { "schema": { "type": "object", "additionalProperties": true } } } }
+        }
+      }
+    },
+    "/api/context/memories/{memoryId}/deactivate": {
+      "post": {
+        "tags": ["上下文与记忆"],
+        "summary": "停用记忆",
+        "operationId": "deactivateMemory",
+        "parameters": [{ "name": "memoryId", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": {
+          "200": { "description": "已停用", "content": { "application/json": { "schema": { "type": "object", "additionalProperties": true } } } },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+    "/api/trace/recent": {
+      "get": {
+        "tags": ["安全与审计"],
+        "summary": "最近 trace 事件（脱敏）",
+        "operationId": "getRecentTrace",
+        "parameters": [{ "name": "limit", "in": "query", "schema": { "type": "integer", "default": 50, "maximum": 200 } }],
+        "responses": {
+          "200": {
+            "description": "events 数组",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/TraceListResponse" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/trace/export": {
+      "get": {
+        "tags": ["安全与审计"],
+        "summary": "导出 trace 事件",
+        "operationId": "exportTrace",
+        "parameters": [{ "name": "limit", "in": "query", "schema": { "type": "integer", "default": 500, "maximum": 2000 } }],
+        "responses": {
+          "200": {
+            "description": "含 exportedAt",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    { "$ref": "#/components/schemas/TraceListResponse" },
+                    {
+                      "type": "object",
+                      "properties": { "exportedAt": { "type": "string", "format": "date-time" } }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/trace/replay": {
+      "get": {
+        "tags": ["安全与审计"],
+        "summary": "审计回放（仅工具/任务链路事件）",
+        "operationId": "replayTrace",
+        "parameters": [{ "name": "limit", "in": "query", "schema": { "type": "integer", "default": 100, "maximum": 500 } }],
+        "responses": {
+          "200": {
+            "description": "replay=true",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    { "$ref": "#/components/schemas/TraceListResponse" },
+                    { "type": "object", "properties": { "replay": { "type": "boolean", "const": true } } }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/docs": {
+      "get": {
+        "tags": ["文档"],
+        "summary": "Markdown 文档目录",
+        "operationId": "listDocs",
+        "responses": {
+          "200": {
+            "description": "slug 与 title 列表",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "docs": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "slug": { "type": "string" },
+                          "title": { "type": "string" }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/docs/content": {
+      "get": {
+        "tags": ["文档"],
+        "summary": "获取 Markdown 文档正文",
+        "operationId": "getDocContent",
+        "parameters": [{ "name": "slug", "in": "query", "required": true, "schema": { "type": "string" } }],
+        "responses": {
+          "200": { "description": "markdown 文本", "content": { "application/json": { "schema": { "type": "object", "additionalProperties": true } } } },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    }
+  },
+  "components": {
+    "parameters": {
+      "taskId": {
+        "name": "taskId",
+        "in": "path",
+        "required": true,
+        "schema": { "type": "string", "format": "uuid" }
+      },
+      "triggerId": {
+        "name": "triggerId",
+        "in": "path",
+        "required": true,
+        "schema": { "type": "string", "format": "uuid" }
+      },
+      "sessionId": {
+        "name": "sessionId",
+        "in": "path",
+        "required": true,
+        "schema": { "type": "string" }
+      }
+    },
+    "responses": {
+      "BadRequest": {
+        "description": "请求参数错误",
+        "content": {
+          "application/json": {
+            "schema": { "$ref": "#/components/schemas/ErrorBody" }
+          }
+        }
+      },
+      "NotFound": {
+        "description": "资源不存在",
+        "content": {
+          "application/json": {
+            "schema": { "$ref": "#/components/schemas/ErrorBody" }
+          }
+        }
+      },
+      "UpstreamError": {
+        "description": "上游模型或执行错误",
+        "content": {
+          "application/json": {
+            "schema": { "$ref": "#/components/schemas/ErrorBody" }
+          }
+        }
+      }
+    },
+    "schemas": {
+      "ErrorBody": {
+        "type": "object",
+        "properties": { "error": { "type": "string" } },
+        "required": ["error"]
+      },
+      "Capabilities": {
+        "type": "object",
+        "properties": {
+          "traceAudit": { "type": "boolean" },
+          "traceReplay": { "type": "boolean" },
+          "contextPersistence": { "type": "boolean" },
+          "subAgent": { "type": "boolean" },
+          "scheduler": { "type": "boolean" }
+        }
+      },
+      "ConfigResponse": {
+        "type": "object",
+        "properties": {
+          "profile": { "type": "string" },
+          "workspaceRoot": { "type": "string" },
+          "routing": { "type": "object", "additionalProperties": true },
+          "defaultModel": { "type": "string" },
+          "clients": { "type": "array", "items": { "type": "object", "additionalProperties": true } },
+          "capabilities": { "$ref": "#/components/schemas/Capabilities" }
+        }
+      },
+      "ModelCheckItem": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string" },
+          "provider": { "type": "string" },
+          "location": { "type": "string", "enum": ["local", "remote"] },
+          "model": { "type": "string" },
+          "available": { "type": "boolean" }
+        }
+      },
+      "ChatRequest": {
+        "type": "object",
+        "required": ["message"],
+        "properties": {
+          "message": { "type": "string" },
+          "system": { "type": "string" },
+          "clientName": { "type": "string", "description": "指定客户端；省略则走路由" },
+          "sensitive": { "type": "boolean", "description": "true 时仅本地模型" },
+          "sessionId": { "type": "string", "description": "M6 持久化会话" }
+        }
+      },
+      "ChatResponse": {
+        "type": "object",
+        "properties": {
+          "content": { "type": "string" },
+          "clientName": { "type": "string" },
+          "modelName": { "type": "string" },
+          "location": { "type": "string" },
+          "latencyMs": { "type": "number" },
+          "usage": { "type": "object", "additionalProperties": true }
+        }
+      },
+      "AgentRequest": {
+        "type": "object",
+        "required": ["message"],
+        "properties": {
+          "message": { "type": "string" },
+          "system": { "type": "string" },
+          "clientName": { "type": "string" },
+          "sensitive": { "type": "boolean" },
+          "autoConfirm": { "type": "boolean", "description": "允许写/命令等副作用工具" },
+          "maxIterations": { "type": "integer", "default": 8 },
+          "sessionId": { "type": "string" }
+        }
+      },
+      "AgentResponse": {
+        "type": "object",
+        "properties": {
+          "answer": { "type": "string" },
+          "steps": { "type": "array", "items": { "type": "object", "additionalProperties": true } },
+          "iterations": { "type": "integer" },
+          "reachedLimit": { "type": "boolean" },
+          "sessionId": { "type": "string" },
+          "notifications": { "type": "array", "items": { "$ref": "#/components/schemas/Notification" } }
+        }
+      },
+      "PlanRequest": {
+        "type": "object",
+        "required": ["goal"],
+        "properties": {
+          "goal": { "type": "string" },
+          "context": { "type": "string" },
+          "clientName": { "type": "string" }
+        }
+      },
+      "PlanResponse": {
+        "type": "object",
+        "properties": { "plan": { "type": "object", "additionalProperties": true } }
+      },
+      "TaskRunRequest": {
+        "type": "object",
+        "properties": {
+          "plan": { "type": "object", "additionalProperties": true },
+          "autoConfirm": { "type": "boolean" }
+        }
+      },
+      "TaskRunResponse": {
+        "type": "object",
+        "properties": {
+          "steps": { "type": "array", "items": { "type": "object", "additionalProperties": true } }
+        }
+      },
+      "ToolSpec": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string" },
+          "description": { "type": "string" },
+          "permission": { "type": "string" },
+          "hasSideEffect": { "type": "boolean" }
+        }
+      },
+      "ToolRunRequest": {
+        "type": "object",
+        "required": ["name", "input"],
+        "properties": {
+          "name": { "type": "string", "example": "read_file" },
+          "input": { "type": "object", "additionalProperties": true },
+          "confirm": { "type": "boolean", "description": "副作用工具需 true" }
+        }
+      },
+      "ToolRunResponse": {
+        "type": "object",
+        "properties": {
+          "ok": { "type": "boolean" },
+          "tool": { "type": "string" },
+          "output": { "type": "object", "additionalProperties": true },
+          "error": { "type": "string" },
+          "code": { "type": "string" },
+          "durationMs": { "type": "number" }
+        }
+      },
+      "BackgroundTask": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "command": { "type": "string" },
+          "status": { "type": "string", "enum": ["running", "completed", "failed", "cancelled"] },
+          "stdout": { "type": "string" },
+          "stderr": { "type": "string" },
+          "exitCode": { "type": "integer", "nullable": true }
+        }
+      },
+      "Notification": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "source": { "type": "string", "enum": ["background_task", "system", "scheduler"] },
+          "level": { "type": "string" },
+          "message": { "type": "string" },
+          "timestamp": { "type": "string", "format": "date-time" },
+          "consumed": { "type": "boolean" },
+          "payload": { "type": "object", "additionalProperties": true }
+        }
+      },
+      "Trigger": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "name": { "type": "string" },
+          "kind": { "type": "string", "enum": ["once", "interval", "cron", "event"] },
+          "status": { "type": "string" },
+          "goal": { "type": "string" },
+          "fireCount": { "type": "integer" }
+        }
+      },
+      "CreateTriggerRequest": {
+        "type": "object",
+        "required": ["name", "kind", "goal"],
+        "properties": {
+          "name": { "type": "string" },
+          "kind": { "type": "string", "enum": ["once", "interval", "cron", "event"] },
+          "goal": { "type": "string" },
+          "at": { "type": "string", "format": "date-time" },
+          "intervalMs": { "type": "integer" },
+          "cron": { "type": "string" },
+          "timezone": { "type": "string" },
+          "eventType": { "type": "string", "enum": ["background_completed", "file_changed", "git_changed"] },
+          "eventFilter": { "type": "object", "additionalProperties": true },
+          "missPolicy": { "type": "string", "enum": ["skip", "run_once"] },
+          "cronMissPolicy": { "type": "string", "enum": ["skip", "run_once"] }
+        }
+      },
+      "SubAgentRunRequest": {
+        "type": "object",
+        "required": ["role", "task"],
+        "properties": {
+          "role": { "type": "string", "enum": ["code_review", "test_analyze"] },
+          "task": { "type": "string" },
+          "sensitive": { "type": "boolean" },
+          "maxIterations": { "type": "integer" },
+          "timeoutMs": { "type": "integer" }
+        }
+      },
+      "SubAgentBatchRequest": {
+        "type": "object",
+        "required": ["roles", "task"],
+        "properties": {
+          "roles": { "type": "array", "items": { "type": "string" } },
+          "task": { "type": "string" }
+        }
+      },
+      "TraceListResponse": {
+        "type": "object",
+        "properties": {
+          "events": { "type": "array", "items": { "type": "object", "additionalProperties": true } },
+          "count": { "type": "integer" },
+          "redacted": { "type": "boolean", "const": true }
+        }
+      }
+    }
+  }
+}

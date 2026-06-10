@@ -16,6 +16,43 @@
         "bodyPaths": { "profile": "string", "workspaceRoot": "string", "defaultModel": "string" },
         "bodyHasKeys": ["clients", "routing"]
       }
+    },
+    {
+      "id": "m0-config-clients-array",
+      "title": "配置返回客户端列表",
+      "purpose": "确认配置接口暴露 clients 数组，供模型下拉、路由展示与连通性面板复用。",
+      "method": "GET",
+      "path": "/api/config",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyPaths": { "clients": "array", "routing.strategy": "string" }
+      }
+    },
+    {
+      "id": "m0-openapi-spec",
+      "title": "OpenAPI 规范可访问",
+      "purpose": "确认 public/openapi.json 经静态服务暴露，供 /api-docs Scalar 与外部工具导入。",
+      "method": "GET",
+      "path": "/openapi.json",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyPaths": { "openapi": "string", "info.title": "string", "paths": "object" },
+        "bodyHasKeys": ["openapi", "info", "paths", "components", "tags"]
+      }
+    },
+    {
+      "id": "m0-api-docs-page",
+      "title": "API 文档页路由",
+      "purpose": "确认 GET /api-docs 返回交互文档 HTML，测试台「API 文档 ↗」入口依赖此路由。",
+      "method": "GET",
+      "path": "/api-docs",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "contentTypeIncludes": "text/html"
+      }
     }
   ]
 }

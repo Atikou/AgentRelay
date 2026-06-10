@@ -22,6 +22,7 @@ export function createModelClient(config: ModelClientConfig): ModelClient {
         model: config.model,
         baseUrl: config.baseUrl,
         timeoutMs: config.timeoutMs,
+        think: config.think,
       });
     case "openai-compatible":
       return new OpenAICompatibleClient({

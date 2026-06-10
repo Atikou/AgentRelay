@@ -3,6 +3,8 @@ dist/
 data/logs/
 data/traces/
 data/notifications/
+data/scheduler/
+data/agent_data/
 data/*.db
 *.local
 .env

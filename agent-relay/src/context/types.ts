@@ -1,0 +1,251 @@
+import type { ChatMessage } from "../model/types.js";
+
+/** 摘要类型：chunk / session / daily / task。 */
+export type SummaryType = "chunk_summary" | "session_summary" | "daily_summary" | "task_summary";
+
+/** 结构化摘要内容。 */
+export interface StructuredSummary {
+  current_goal?: string;
+  important_decisions?: string[];
+  user_preferences?: string[];
+  project_state?: string[];
+  open_questions?: string[];
+  recent_changes?: string[];
+  important_files?: string[];
+  tool_results?: string[];
+  errors_seen?: string[];
+}
+
+export type MemoryScope = "global" | "session" | "project" | "task";
+
+export type MemoryType =
+  | "preference"
+  | "habit"
+  | "decision"
+  | "fact"
+  | "lesson"
+  | "project_note"
+  | "recent_state"
+  | "task_state"
+  | "known_issue"
+  | "tech_stack";
+
+export type MemoryRetrieveReason =
+  | "fixed_preference"
+  | "project_context"
+  | "task_context"
+  | "fts"
+  | "semantic"
+  | "recent";
+
+export interface SessionRecord {
+  id: string;
+  title: string;
+  status: "active" | "archived";
+  projectId?: string;
+  lastMessageId?: string;
+  activeTaskId?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface MessageRecord {
+  id: string;
+  sessionId: string;
+  role: string;
+  content: string;
+  tokenEstimate: number;
+  isSummarized: boolean;
+  summaryId?: string;
+  createdAt: string;
+}
+
+export interface SummaryRecord {
+  id: string;
+  sessionId: string;
+  projectId?: string;
+  summaryType: SummaryType;
+  content: StructuredSummary;
+  contentText: string;
+  structuredJson?: string;
+  startMessageId?: string;
+  endMessageId?: string;
+  tokenCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface MemoryRecord {
+  id: string;
+  scope: MemoryScope;
+  scopeId?: string;
+  memoryType: MemoryType;
+  key?: string;
+  value: string;
+  summary?: string;
+  importance: number;
+  confidence: number;
+  source?: string;
+  sourceId?: string;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+  lastUsedAt?: string;
+  expiresAt?: string;
+  supersedesId?: string;
+}
+
+export interface ProjectRecord {
+  id: string;
+  name: string;
+  rootPath?: string;
+  description?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface TaskRecord {
+  id: string;
+  sessionId?: string;
+  projectId?: string;
+  goal: string;
+  status: string;
+  summary?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface SemanticItem {
+  id: string;
+  itemType: "chat" | "summary" | "memory" | "document" | "image" | "screenshot" | "code";
+  scope: MemoryScope;
+  scopeId?: string;
+  sourceType: string;
+  sourceId: string;
+  content: string;
+  summary?: string;
+  vector: number[];
+  tags?: string[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface SemanticHit {
+  item: SemanticItem;
+  score: number;
+  reason: "semantic";
+}
+
+export interface RetrievedMemory {
+  memory: MemoryRecord;
+  score: number;
+  reason: MemoryRetrieveReason;
+}
+
+export type SystemSectionType =
+  | "user_preferences"
+  | "session_summary"
+  | "task_state"
+  | "project_context"
+  | "relevant_memories"
+  | "semantic_results"
+  | "recent_tool_results"
+  | "response_rules";
+
+export interface SystemSectionItem {
+  sourceType: "memory" | "summary" | "project" | "task" | "semantic" | "tool";
+  sourceId?: string;
+  text: string;
+  score?: number;
+}
+
+export interface SystemSection {
+  type: SystemSectionType;
+  title: string;
+  priority: number;
+  items: SystemSectionItem[];
+}
+
+/** 上下文包中的消息（含持久化 id，便于摘要/压缩/去重排查）。 */
+export interface ContextMessage {
+  id: string;
+  role: "user" | "assistant" | "tool" | "system";
+  content: string;
+  createdAt: string;
+}
+
+/** ContextRestorer 返回的结构化上下文包（唯一结构化上下文主对象）。 */
+export interface ContextPackage {
+  sessionId: string;
+  projectId?: string;
+  taskId?: string;
+  systemSections: SystemSection[];
+  messages: ContextMessage[];
+  summaries: SummaryRecord[];
+  memories: RetrievedMemory[];
+  semanticHits: SemanticHit[];
+  projectContext?: ProjectRecord;
+  activeTask?: TaskRecord;
+}
+
+export type ContextPhase = "pre_call" | "post_call";
+
+/** 调试快照：PromptBuilder 渲染结果，不持久化、不写回 contextPackage。 */
+export interface RenderedPrompt {
+  systemSectionsText: string;
+  finalMessages: ChatMessage[];
+}
+
+/** 带阶段的调试快照（仅用于模型调用预览与 API 调试，非主数据）。 */
+export interface ContextDebugSnapshot {
+  phase: ContextPhase;
+  contextPackage: ContextPackage;
+  renderedPrompt: RenderedPrompt;
+}
+
+export interface RestoreContextInput {
+  sessionId: string;
+  userInput?: string;
+  projectId?: string;
+  taskId?: string;
+}
+
+export interface MemoryRetrieveInput {
+  userInput: string;
+  sessionId: string;
+  projectId?: string;
+  taskId?: string;
+  scopes?: MemoryScope[];
+  limit?: number;
+}
+
+export interface SemanticSearchInput {
+  query: string;
+  sessionId?: string;
+  projectId?: string;
+  taskId?: string;
+  limit?: number;
+}
+
+export type SummarizeFn = (messages: MessageRecord[]) => Promise<StructuredSummary>;
+
+export interface SearchHit {
+  source: "fts" | "vector";
+  itemType: string;
+  sourceId: string;
+  content: string;
+  score: number;
+}
+
+export interface MemoryCandidate {
+  scope: MemoryScope;
+  scopeId?: string;
+  memoryType: MemoryType;
+  key?: string;
+  value: string;
+  summary?: string;
+  importance?: number;
+  confidence?: number;
+  source?: string;
+  sourceId?: string;
+}

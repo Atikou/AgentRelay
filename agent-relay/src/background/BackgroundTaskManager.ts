@@ -19,6 +19,7 @@ export class BackgroundTaskManager {
     private readonly workspaceRoot: string,
     private readonly notifications: NotificationQueue,
     private readonly trace?: TraceLogger,
+    private readonly onTaskDone?: (record: BackgroundTaskRecord) => void,
   ) {}
 
   start(command: string, cwd?: string): BackgroundTaskRecord {
@@ -131,6 +132,7 @@ export class BackgroundTaskManager {
         stderrTail: tail(record.stderr),
       },
     });
+    this.onTaskDone?.(record);
   }
 
   private snapshot(task: BackgroundTaskRecord): BackgroundTaskRecord {

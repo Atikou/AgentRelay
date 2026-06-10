@@ -33,7 +33,8 @@
         "provider": "ollama",
         "location": "local",
         "baseUrl": "http://localhost:11434",
-        "model": "qwen3.5:0.8b"
+        "model": "qwen3.5:0.8b",
+        "think": false
       }
     ]
   },

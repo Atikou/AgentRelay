@@ -471,12 +471,12 @@ TestAnalyzeAgent：只读分析测试输出
 
 ### 必做任务
 
-- [ ] 子 Agent 独立上下文。
-- [ ] 子 Agent 独立工具权限。
-- [ ] 父 Agent 显式授予权限。
-- [ ] 子 Agent 结果汇总。
-- [ ] 超时取消。
-- [ ] 父子调用链记录。
+- [x] 子 Agent 独立上下文。
+- [x] 子 Agent 独立工具权限。
+- [x] 父 Agent 显式授予权限。
+- [x] 子 Agent 结果汇总。
+- [x] 超时取消。
+- [x] 父子调用链记录。
 
 ### 暂不做
 
@@ -492,31 +492,28 @@ TestAnalyzeAgent：只读分析测试输出
 
 让 Agent 长时间运行后仍然能继续任务。
 
-### 第一版不要上向量库
+### 第一版交付（已按 M6 方案文档落地）
 
-第一版上下文压缩只做：
-
-- 保留当前任务目标。
-- 保留当前计划。
-- 保留已修改文件列表。
-- 保留失败原因。
-- 保留关键工具结果。
-- 压缩历史对话为摘要。
+- SQLite（`node:sqlite`）持久化 messages / sessions / summaries / memories。
+- FTS5 关键词检索；LanceDB（`@lancedb/lancedb`）向量索引 summary / memory。
+- 消息数超过 20 条自动 `chunk_summary`；`ContextRestorer` 只恢复摘要 + 记忆 + 最近消息。
+- `AgentLoop` 集成 `sessionId` 持久化；大工具输出截断预览。
+- HTTP：`/api/context/*`；测试台「上下文与记忆」面板。
 
 ### 必做任务
 
-- [ ] `ContextManager` 管理上下文层级。
-- [ ] 超过 token 预算时生成摘要。
-- [ ] 摘要写入任务状态。
-- [ ] 重启后恢复未完成任务。
-- [ ] 工具大输出只保留摘要和文件路径。
+- [x] `ContextManager` 管理上下文层级。
+- [x] 超过消息阈值时生成摘要。
+- [x] 摘要写入 SQLite（并同步 LanceDB）。
+- [x] 重启后恢复会话上下文。
+- [x] 工具大输出只保留摘要和路径提示。
 
 ### 后续再做
 
-- embedding。
-- Chroma / Qdrant。
-- 项目知识库。
-- 长期用户记忆。
+- LLM 结构化摘要 / 记忆抽取可切换（`createLlmSummarize` / `createLlmMemoryExtractor` 钩子；默认规则抽取）。
+- 多模态附件 / 文档 chunk / OCR。
+- Chroma / Qdrant 平台化版本（本地优先仍用 LanceDB）。
+- 项目知识库与定时 `daily_summary`。
 
 ---
 
@@ -1061,10 +1058,10 @@ export class ModelRouter {
 
 ## M5 验收
 
-- [ ] 能派生只读子 Agent。
-- [ ] 子 Agent 无法调用写文件工具。
-- [ ] 子 Agent 拥有独立上下文。
-- [ ] 父 Agent 能汇总子 Agent 结果。
+- [x] 能派生只读子 Agent。
+- [x] 子 Agent 无法调用写文件工具。
+- [x] 子 Agent 拥有独立上下文。
+- [x] 父 Agent 能汇总子 Agent 结果。
 
 ## M6 验收
 

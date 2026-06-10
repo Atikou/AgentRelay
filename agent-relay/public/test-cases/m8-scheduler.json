@@ -1,0 +1,105 @@
+{
+  "milestone": "M8",
+  "feature": "定时与事件触发",
+  "featureId": "m8-scheduler",
+  "summary": "验证触发器注册、列表与暂停；触发后写入通知队列而非直接执行工具。",
+  "cases": [
+    {
+      "id": "m8-triggers-list",
+      "title": "触发器列表为数组",
+      "purpose": "确认 GET /api/scheduler/triggers 返回已注册触发器，供测试台调度面板展示。",
+      "method": "GET",
+      "path": "/api/scheduler/triggers",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyHasKeys": ["triggers"],
+        "bodyPaths": {
+          "triggers": "array"
+        }
+      }
+    },
+    {
+      "id": "m8-trigger-once-create",
+      "title": "注册一次性触发器",
+      "purpose": "验证 POST 可创建 once 触发器并返回 active 状态；到期后通过通知队列投递待办。",
+      "method": "POST",
+      "path": "/api/scheduler/triggers",
+      "input": {
+        "name": "网页验收一次性",
+        "kind": "once",
+        "goal": "验收：检查 agent-relay 测试是否通过",
+        "at": "2099-01-01T00:00:00.000Z"
+      },
+      "expect": {
+        "status": 200,
+        "bodyHasKeys": ["trigger"],
+        "bodyPaths": {
+          "trigger.kind": "once",
+          "trigger.status": "active"
+        }
+      }
+    },
+    {
+      "id": "m8-trigger-file-changed",
+      "title": "注册文件变更触发器",
+      "purpose": "验证 file_changed 事件可注册并返回 watchPath/pattern 过滤配置。",
+      "method": "POST",
+      "path": "/api/scheduler/triggers",
+      "input": {
+        "name": "监听配置变更",
+        "kind": "event",
+        "goal": "config 目录变更时提醒",
+        "eventType": "file_changed",
+        "eventFilter": {
+          "watchPath": "config",
+          "pattern": "*.json"
+        }
+      },
+      "expect": {
+        "status": 200,
+        "bodyPaths": {
+          "trigger.eventType": "file_changed",
+          "trigger.status": "active"
+        }
+      }
+    },
+    {
+      "id": "m8-trigger-git-changed",
+      "title": "注册 Git 状态变更触发器",
+      "purpose": "验证 git_changed 事件可注册，用于工作区脏状态触发通知。",
+      "method": "POST",
+      "path": "/api/scheduler/triggers",
+      "input": {
+        "name": "工作区脏检查",
+        "kind": "event",
+        "goal": "有未提交变更时提醒",
+        "eventType": "git_changed",
+        "eventFilter": { "dirtyOnly": true }
+      },
+      "expect": {
+        "status": 200,
+        "bodyPaths": {
+          "trigger.eventType": "git_changed",
+          "trigger.status": "active"
+        }
+      }
+    },
+    {
+      "id": "m8-trigger-invalid",
+      "title": "缺少 at 的 once 触发器被拒绝",
+      "purpose": "边界：once 类型未提供 at 时应返回 400，防止无效调度入库。",
+      "method": "POST",
+      "path": "/api/scheduler/triggers",
+      "input": {
+        "name": "无效",
+        "kind": "once",
+        "goal": "不应成功"
+      },
+      "expect": {
+        "status": 400,
+        "bodyHasKeys": ["error"]
+      }
+    }
+  ]
+}
