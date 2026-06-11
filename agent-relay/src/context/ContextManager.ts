@@ -131,6 +131,10 @@ export class ContextManager {
     return this.sessions.get(id);
   }
 
+  setActiveTask(sessionId: string, taskId: string | null): void {
+    this.sessions.setActiveTask(sessionId, taskId);
+  }
+
   listSessions(): SessionRecord[] {
     return this.sessions.list();
   }

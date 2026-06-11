@@ -1,6 +1,8 @@
 import type { AgentNotification } from "../background/types.js";
+import { readMergeCount } from "../background/NotificationQueue.js";
 import type { NotificationQueue } from "../background/NotificationQueue.js";
 import type { ContextManager } from "../context/ContextManager.js";
+import type { ModelTaskType } from "../model/taskType.js";
 import type { ChatMessage, ChatRequest, ModelResponse } from "../model/types.js";
 import type { ToolRegistry } from "../tools/ToolRegistry.js";
 import type { TraceLogger } from "../trace/TraceLogger.js";
@@ -9,7 +11,7 @@ import { CONFIRMATION_REQUIRED, MODE_PERMISSIONS, type ToolPermission } from "./
 
 export type LoopChatFn = (
   req: ChatRequest,
-  opts?: { sensitive?: boolean },
+  opts?: { sensitive?: boolean; taskType?: ModelTaskType },
 ) => Promise<ModelResponse>;
 
 /** 一次工具调用的记录（用于回显执行过程）。 */
@@ -49,6 +51,7 @@ export interface AgentLoopOptions {
   /** 自动确认副作用工具（写/命令/联网/危险）。false 时这些工具会被阻塞。 */
   autoConfirm?: boolean;
   sensitive?: boolean;
+  taskType?: ModelTaskType;
   trace?: TraceLogger;
   /** 每发生一步工具调用时回调（便于流式回显）。 */
   onStep?: (step: AgentToolStep) => void;
@@ -58,6 +61,10 @@ export interface AgentLoopOptions {
   contextManager?: ContextManager;
   /** M6：已有会话 id；未提供时自动创建。 */
   sessionId?: string;
+  /** 编排 Run id，写入 trace 与工具审计。 */
+  runId?: string;
+  taskId?: string;
+  requestId?: string;
 }
 
 interface ToolAction {
@@ -115,7 +122,12 @@ export class AgentLoop {
       const notes = this.drainNotifications();
       if (notes.length === 0) return;
       consumedNotifications.push(...notes);
-      messages.push({ role: "user", content: renderNotifications(notes) });
+      const rendered = renderNotifications(notes);
+      const wrapped = wrapUntrustedToolOutput("notification", rendered);
+      messages.push({
+        role: "user",
+        content: typeof wrapped === "string" ? wrapped : JSON.stringify(wrapped),
+      });
     };
 
     injectNotifications();
@@ -123,7 +135,7 @@ export class AgentLoop {
     for (let iteration = 1; iteration <= this.maxIterations; iteration += 1) {
       const response = await this.options.chat(
         { messages, temperature: 0.2 },
-        { sensitive: this.options.sensitive },
+        { sensitive: this.options.sensitive, taskType: this.options.taskType },
       );
       messages.push({ role: "assistant", content: response.content });
       if (ctx && sessionId) {
@@ -233,10 +245,20 @@ export class AgentLoop {
       };
     }
 
-    this.options.trace?.write({ type: "agent_tool", tool: action.tool, iteration });
+    this.options.trace?.write({
+      type: "agent_tool",
+      tool: action.tool,
+      iteration,
+      runId: this.options.runId,
+      sessionId: this.options.sessionId,
+      taskId: this.options.taskId,
+    });
     const result = await this.options.registry.run(action.tool, action.input ?? {}, {
       workspaceRoot: this.options.workspaceRoot,
       allowedPermissions: this.allowed,
+      taskId: this.options.taskId,
+      sessionId: this.options.sessionId,
+      requestId: this.options.requestId ?? this.options.runId,
     });
 
     if (result.ok) {
@@ -292,9 +314,11 @@ export class AgentLoop {
 
 /** 将安全点消费的通知格式化为可回灌给模型的用户消息。 */
 export function renderNotifications(notes: AgentNotification[]): string {
-  const lines = notes.map(
-    (n) => `- [${n.source}/${n.level}] ${n.timestamp}: ${n.message}`,
-  );
+  const lines = notes.map((n) => {
+    const merged = readMergeCount(n.payload);
+    const mergeHint = merged > 1 ? ` [合并×${merged}]` : "";
+    return `- [${n.source}/${n.level}]${mergeHint} ${n.timestamp}: ${n.message}`;
+  });
   return [
     "系统通知（后台任务等，已在安全点注入，请勿打断当前工具链）：",
     ...lines,

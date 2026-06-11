@@ -1,6 +1,5 @@
 /**
- * 主入口（M1 将扩展为完整的 Agent 对话循环）。
- * 目前仅完成框架接线：加载配置 + 构建模型客户端，验证「模型接入」是否就绪。
+ * CLI 自检入口：加载配置并构建模型客户端，快速确认当前 profile 可用。
  */
 import { loadConfig } from "../config/loadConfig.js";
 import { createModelClients } from "../model/ModelFactory.js";
@@ -17,7 +16,7 @@ async function main(): Promise<void> {
   for (const client of clients) {
     console.log(`  - ${client.name}（${client.location} / ${client.model}）`);
   }
-  console.log("\n后续里程碑：M1 对话循环、工具系统、计划/任务模式、模型路由（自主选择）。");
+  console.log("\n已接入：模型路由、工具系统、计划/任务模式、Agent 循环、后台任务、子 Agent、上下文、审计与调度。");
   console.log("可先运行 `npm run models:check` 验证本地/远程模型连通性。");
 }
 

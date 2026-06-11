@@ -1,5 +1,11 @@
 import type { TraceLogger } from "../trace/TraceLogger.js";
 import { MODE_PERMISSIONS, type ToolPermission } from "./permissions.js";
+import {
+  indexPlanSteps,
+  propagateDependencyBlocks,
+  readyPendingSteps,
+  validateTaskGraph,
+} from "./taskGraph.js";
 import type { Plan, PlanStep } from "./types.js";
 
 export interface StepContext {
@@ -48,18 +54,34 @@ export class TaskRunner {
     this.cancelled = true;
   }
 
-  /** 顺序执行计划。遇到 failed / blocked 即停止，保留现场，便于确认或重试后继续。 */
+  /**
+   * 按 dependsOn 依赖图调度：无依赖或依赖已完成的步骤在同一波次并行执行。
+   * `blocked` 时继续调度其他可执行分支；`failed` 后不再启动新波次；依赖失败/阻塞会传播。
+   */
   async run(): Promise<Plan> {
-    for (const step of this.plan.steps) {
-      if (this.cancelled) {
-        if (step.status === "pending") step.status = "cancelled";
-        continue;
-      }
-      if (step.status === "completed") continue;
+    validateTaskGraph(this.plan.steps);
+    const byId = indexPlanSteps(this.plan.steps);
 
-      const outcome = await this.runStep(step);
-      if (outcome !== "completed") break;
+    let haltOnFailure = false;
+    while (!haltOnFailure) {
+      if (this.cancelled) {
+        for (const step of this.plan.steps) {
+          if (step.status === "pending") step.status = "cancelled";
+        }
+        break;
+      }
+
+      propagateDependencyBlocks(this.plan.steps, byId);
+      const ready = readyPendingSteps(this.plan.steps, byId);
+      if (ready.length === 0) break;
+
+      const outcomes = await Promise.all(ready.map((step) => this.runStep(step)));
+      propagateDependencyBlocks(this.plan.steps, byId);
+      if (outcomes.some((o) => o === "failed")) {
+        haltOnFailure = true;
+      }
     }
+
     this.emit();
     return this.plan;
   }

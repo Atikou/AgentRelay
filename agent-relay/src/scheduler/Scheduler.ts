@@ -21,11 +21,20 @@ import {
 
 type TimerHandle = { stop: () => void };
 
+export interface TriggerFireContext {
+  triggerId: string;
+  goal: string;
+  unattended: boolean;
+  sessionId?: string;
+}
+
 export interface SchedulerOptions {
   workspaceRoot?: string;
   unattendedGoalPatterns?: string[];
   gitPollIntervalMs?: number;
   defaultCronMissPolicy?: CronMissPolicy;
+  /** 触发后回调：由 Orchestrator 创建 Run / 无人值守时自动执行。 */
+  onFire?: (ctx: TriggerFireContext) => { runId?: string } | void;
 }
 
 interface FireContext {
@@ -52,6 +61,7 @@ export class Scheduler {
   private readonly defaultCronMissPolicy: CronMissPolicy;
   private gitHub?: GitStatusHub;
   private readonly lastFireKeys = new Map<string, string>();
+  private onFire?: (ctx: TriggerFireContext) => { runId?: string } | void;
   private started = false;
 
   constructor(
@@ -65,10 +75,15 @@ export class Scheduler {
     this.unattendedGoalPatterns = options?.unattendedGoalPatterns ?? [];
     this.gitPollIntervalMs = options?.gitPollIntervalMs ?? 5000;
     this.defaultCronMissPolicy = options?.defaultCronMissPolicy ?? "skip";
+    this.onFire = options?.onFire;
     if (options?.workspaceRoot) {
       this.fileWatchHub = new FileWatchHub(options.workspaceRoot);
     }
     this.replay();
+  }
+
+  setFireHandler(fn: (ctx: TriggerFireContext) => { runId?: string } | void): void {
+    this.onFire = fn;
   }
 
   start(): void {
@@ -378,11 +393,25 @@ export class Scheduler {
           ? `（分支 ${ctx.gitBranch}${ctx.gitDirty ? " 有未提交变更" : ""}）`
           : "";
       const unattended = this.isUnattended(trigger.goal);
+      const fired = this.onFire?.({
+        triggerId: trigger.id,
+        goal: trigger.goal,
+        unattended,
+      });
+      const runId = fired?.runId;
       this.notifications.enqueue({
         source: "scheduler",
         level: "info",
+        priority: unattended ? "normal" : "high",
+        runId,
+        dedupeKey:
+          dedupeKey !== "||"
+            ? `scheduler:${trigger.id}:${dedupeKey}`
+            : `scheduler:${trigger.id}:${trigger.fireCount}`,
+        mergeKey: `scheduler:${trigger.id}`,
         message: `定时触发「${trigger.name}」：${trigger.goal}${fileHint}${gitHint}`,
         payload: {
+          runId,
           triggerId: trigger.id,
           kind: trigger.kind,
           eventType: trigger.eventType,
@@ -401,6 +430,7 @@ export class Scheduler {
         kind: trigger.kind,
         goal: trigger.goal,
         filePath: ctx?.filePath,
+        unattended,
       });
 
       if (trigger.kind === "once") {

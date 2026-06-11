@@ -3,6 +3,7 @@ import { performance } from "node:perf_hooks";
 import type { TraceLogger } from "../trace/TraceLogger.js";
 import { redactPreview } from "../util/redact.js";
 import type { ToolPermission } from "../agent/permissions.js";
+import type { ToolStorage } from "./storage/ToolStorage.js";
 import type { Tool, ToolContext, ToolRunResult, ToolSpec } from "./types.js";
 
 export interface RegistryRunContext extends ToolContext {
@@ -11,13 +12,16 @@ export interface RegistryRunContext extends ToolContext {
 }
 
 /**
- * 工具注册表：集中注册工具，并在执行前完成入参校验、权限边界检查、超时控制与 trace。
+ * 工具注册表：集中注册工具，并在执行前完成入参校验、权限边界检查、超时控制、trace 与 tool_logs。
  * `run` 返回归一化结果（不抛异常），便于服务端与执行器统一分支处理。
  */
 export class ToolRegistry {
   private readonly tools = new Map<string, Tool>();
 
-  constructor(private readonly trace?: TraceLogger) {}
+  constructor(
+    private readonly trace?: TraceLogger,
+    private readonly storage?: ToolStorage,
+  ) {}
 
   register(tool: Tool): this {
     if (this.tools.has(tool.name)) {
@@ -29,6 +33,10 @@ export class ToolRegistry {
 
   get(name: string): Tool | undefined {
     return this.tools.get(name);
+  }
+
+  getStorage(): ToolStorage | undefined {
+    return this.storage;
   }
 
   list(): ToolSpec[] {
@@ -43,32 +51,45 @@ export class ToolRegistry {
 
   async run(name: string, rawInput: unknown, ctx: RegistryRunContext): Promise<ToolRunResult> {
     const started = performance.now();
+    const startedAt = new Date().toISOString();
     const elapsed = () => Math.round(performance.now() - started);
 
     const tool = this.tools.get(name);
     if (!tool) {
-      return { ok: false, tool: name, code: "unknown_tool", error: `未知工具：${name}`, durationMs: elapsed() };
+      const result: ToolRunResult = {
+        ok: false,
+        tool: name,
+        code: "unknown_tool",
+        error: `未知工具：${name}`,
+        durationMs: elapsed(),
+      };
+      this.logStorage(name, rawInput, result, startedAt, ctx);
+      return result;
     }
 
     if (ctx.allowedPermissions && !ctx.allowedPermissions.includes(tool.permission)) {
-      return {
+      const result: ToolRunResult = {
         ok: false,
         tool: name,
         code: "permission_denied",
         error: `当前不允许的权限：${tool.permission}`,
         durationMs: elapsed(),
       };
+      this.logStorage(name, rawInput, result, startedAt, ctx);
+      return result;
     }
 
     const parsed = tool.inputSchema.safeParse(rawInput);
     if (!parsed.success) {
-      return {
+      const result: ToolRunResult = {
         ok: false,
         tool: name,
         code: "invalid_input",
         error: parsed.error.issues.map((i) => `${i.path.join(".") || "(root)"}: ${i.message}`).join("; "),
         durationMs: elapsed(),
       };
+      this.logStorage(name, rawInput, result, startedAt, ctx);
+      return result;
     }
 
     this.trace?.write({
@@ -77,9 +98,15 @@ export class ToolRegistry {
       status: "start",
       permission: tool.permission,
       inputPreview: redactPreview(parsed.data),
+      runId: ctx.requestId,
+      sessionId: ctx.sessionId,
+      taskId: ctx.taskId,
     });
+
+    const execCtx: ToolContext = { ...ctx, storage: ctx.storage ?? this.storage };
+
     try {
-      const output = await this.withTimeout(tool, () => tool.execute(parsed.data, ctx), ctx.signal);
+      const output = await this.withTimeout(tool, () => tool.execute(parsed.data, execCtx), ctx.signal);
       const durationMs = elapsed();
       this.trace?.write({
         type: "tool_audit",
@@ -87,8 +114,13 @@ export class ToolRegistry {
         status: "ok",
         durationMs,
         outputPreview: redactPreview(output, 600),
+        runId: ctx.requestId,
+        sessionId: ctx.sessionId,
+        taskId: ctx.taskId,
       });
-      return { ok: true, tool: name, output, durationMs };
+      const result = { ok: true as const, tool: name, output, durationMs };
+      this.logStorage(name, parsed.data, result, startedAt, ctx);
+      return result;
     } catch (err) {
       const isTimeout = err instanceof Error && err.message === "__tool_timeout__";
       const error = isTimeout ? `工具执行超时（${tool.timeoutMs}ms）` : String(err);
@@ -97,8 +129,51 @@ export class ToolRegistry {
         tool: name,
         status: "error",
         error: redactPreview(error, 300),
+        runId: ctx.requestId,
+        sessionId: ctx.sessionId,
+        taskId: ctx.taskId,
       });
-      return { ok: false, tool: name, code: isTimeout ? "timeout" : "error", error, durationMs: elapsed() };
+      const result = {
+        ok: false as const,
+        tool: name,
+        code: (isTimeout ? "timeout" : "error") as "timeout" | "error",
+        error,
+        durationMs: elapsed(),
+      };
+      this.logStorage(name, parsed.data, result, startedAt, ctx);
+      return result;
+    }
+  }
+
+  /** 关闭 SQLite 连接（测试/进程退出时调用）。 */
+  close(): void {
+    this.storage?.close();
+  }
+
+  private logStorage(
+    name: string,
+    input: unknown,
+    result: ToolRunResult,
+    startedAt: string,
+    ctx: RegistryRunContext,
+  ): void {
+    if (!this.storage) return;
+    try {
+      this.storage.insertToolLog({
+        toolName: name,
+        sessionId: ctx.sessionId,
+        requestId: ctx.requestId,
+        inputJson: JSON.stringify(input ?? {}),
+        outputJson: JSON.stringify(result.ok ? result.output : { error: result.error, code: result.code }),
+        ok: result.ok,
+        errorCode: result.ok ? undefined : result.code,
+        errorMessage: result.ok ? undefined : result.error,
+        startedAt,
+        endedAt: new Date().toISOString(),
+        durationMs: result.durationMs,
+      });
+    } catch {
+      /* 日志写入失败不阻断工具执行 */
     }
   }
 

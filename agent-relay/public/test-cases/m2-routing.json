@@ -28,6 +28,95 @@
         "status": 200,
         "bodyHasKeys": ["stats", "recent"]
       }
+    },
+    {
+      "id": "m2-models-catalog",
+      "title": "本地模型目录返回 entries",
+      "purpose": "确认 GET /api/models/catalog 对配置中 location=local 的客户端探测 Ollama tags / OpenAI models 列表，结构为 entries 数组。",
+      "method": "GET",
+      "path": "/api/models/catalog",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyHasKeys": ["entries"],
+        "bodyPaths": { "entries": "array" }
+      }
+    },
+    {
+      "id": "m2-models-catalog-local-only",
+      "title": "目录项含 clientName 与 models 字段",
+      "purpose": "当本地 Ollama/LM Studio 在线时 entries 项应含 reachable、configuredModel；离线时仍返回条目且 reachable 为 false。",
+      "method": "GET",
+      "path": "/api/models/catalog",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyPaths": { "entries": "array" }
+      }
+    },
+    {
+      "id": "m2-chat-task-type-simple",
+      "title": "对话 taskType=simple 接受并返回 location",
+      "purpose": "验证 POST /api/chat 可选 taskType；simple 提示路由优先本地（响应含 clientName 与 location 供对照）。",
+      "method": "POST",
+      "path": "/api/chat",
+      "input": {
+        "message": "回复 ok",
+        "taskType": "simple",
+        "persist": false
+      },
+      "expect": {
+        "status": 200,
+        "bodyHasKeys": ["content", "clientName", "location"]
+      }
+    },
+    {
+      "id": "m2-chat-quality-mode-fast",
+      "title": "qualityMode=fast 返回 executionStrategy",
+      "purpose": "验证规则路由 fast 模式走单模型并回传 executionStrategy 字段。",
+      "method": "POST",
+      "path": "/api/chat",
+      "input": {
+        "message": "你好",
+        "qualityMode": "fast",
+        "persist": false
+      },
+      "expect": {
+        "status": 200,
+        "bodyHasKeys": ["content", "executionStrategy", "routerDecision"]
+      }
+    },
+    {
+      "id": "m2-chat-architecture-routing",
+      "title": "架构类问题返回 routerDecision",
+      "purpose": "架构关键词应触发 SmartModelRouter；响应含 routerDecision.taskType 与 executionStrategy（协作或降级说明）。",
+      "method": "POST",
+      "path": "/api/chat",
+      "input": {
+        "message": "帮我设计完整架构方案",
+        "qualityMode": "balanced",
+        "persist": false
+      },
+      "expect": {
+        "status": 200,
+        "bodyHasKeys": ["routerDecision", "executionStrategy"]
+      }
+    },
+    {
+      "id": "m2-chat-task-type-invalid",
+      "title": "无效 taskType 返回 400",
+      "purpose": "边界：非法 taskType 应在编排层校验并 400，避免静默忽略。",
+      "method": "POST",
+      "path": "/api/chat",
+      "input": {
+        "message": "hi",
+        "taskType": "not-a-valid-type",
+        "persist": false
+      },
+      "expect": {
+        "status": 400,
+        "bodyHasKeys": ["error"]
+      }
     }
   ]
 }

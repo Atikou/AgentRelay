@@ -1,6 +1,6 @@
 /**
- * OpenAPI 规范自检：结构合法且覆盖主要 HTTP 路由。
- * 运行：npm run test:openapi
+ * API 规范自检：结构合法且覆盖主要 HTTP 路由。
+ * 运行：npm run test:api-spec
  */
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
@@ -8,13 +8,19 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const specPath = path.join(__dirname, "../public/openapi.json");
+const specPath = path.join(__dirname, "../public/api-spec.json");
+const apiDocsHtml = path.join(__dirname, "../public/api-docs.html");
+const scalarJs = path.join(__dirname, "../public/vendor/scalar-api-reference.js");
 
 const REQUIRED_PATHS = [
   "/api/config",
+  "/api/models/catalog",
   "/api/chat",
   "/api/agent",
+  "/api/agent/stream",
   "/api/plan",
+  "/api/runs",
+  "/api/runs/{runId}",
   "/api/tools",
   "/api/tools/run",
   "/api/background",
@@ -33,7 +39,7 @@ function test(name: string, fn: () => Promise<void>) {
   tests.push({ name, fn });
 }
 
-test("openapi.json 可解析且版本为 3.1", async () => {
+test("api-spec.json 可解析且含 AgentRelay 标题", async () => {
   const raw = await readFile(specPath, "utf-8");
   const spec = JSON.parse(raw) as {
     openapi: string;
@@ -45,7 +51,8 @@ test("openapi.json 可解析且版本为 3.1", async () => {
   assert.equal(spec.openapi, "3.1.0");
   assert.ok(spec.info.title.includes("AgentRelay"));
   assert.ok(spec.components.schemas.ErrorBody);
-  assert.ok(Array.isArray(spec.tags) && spec.tags.length >= 8);
+  assert.ok(spec.components.schemas.RunRecord);
+  assert.ok(Array.isArray(spec.tags) && spec.tags.length >= 9);
 });
 
 test("主要 API 路径已在规范中登记", async () => {
@@ -64,6 +71,18 @@ test("动态路径含 path 参数", async () => {
   assert.ok(spec.paths["/api/context/sessions/{sessionId}/restore"]);
 });
 
+test("api-docs 页面使用 Scalar 官方 script 集成", async () => {
+  const html = await readFile(apiDocsHtml, "utf-8");
+  assert.ok(html.includes('id="api-reference"'));
+  assert.ok(html.includes('data-url="/api-spec.json"'));
+  assert.ok(html.includes("/vendor/scalar-api-reference.js"));
+  assert.ok(!html.includes("cdn.jsdelivr.net"));
+  assert.ok(!html.includes("Scalar.createApiReference"));
+  assert.ok(!html.includes('<div id="api-reference"'));
+  const js = await readFile(scalarJs, "utf-8");
+  assert.ok(js.length > 10_000);
+});
+
 let passed = 0;
 for (const { name, fn } of tests) {
   try {
@@ -75,4 +94,4 @@ for (const { name, fn } of tests) {
     throw error;
   }
 }
-console.log(`openapi: ${passed}/${tests.length} passed`);
+console.log(`api-spec: ${passed}/${tests.length} passed`);

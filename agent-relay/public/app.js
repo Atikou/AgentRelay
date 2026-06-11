@@ -29,6 +29,26 @@ function clearWelcome() {
   if (welcome) welcome.remove();
 }
 
+function renderWelcome() {
+  feed.innerHTML = `
+    <div class="welcome">
+      <div class="welcome-kicker">AgentRelay</div>
+      <h1>Agent 编排控制台</h1>
+      <p>模型路由、工具执行、上下文记忆、后台任务和调度触发集中在一个本地后端里。</p>
+      <div class="welcome-actions">
+        <button class="action-btn" data-action="check-models">检测模型</button>
+        <button class="action-btn secondary" data-action="test-cases">测试用例</button>
+        <button class="action-btn secondary" data-action="tools">工具系统</button>
+      </div>
+      <div class="welcome-grid">
+        <div class="welcome-tile"><span>Run 编排</span><strong>统一追踪</strong></div>
+        <div class="welcome-tile"><span>本地优先</span><strong>模型路由</strong></div>
+        <div class="welcome-tile"><span>安全边界</span><strong>确认与审计</strong></div>
+        <div class="welcome-tile"><span>后台队列</span><strong>通知调度</strong></div>
+      </div>
+    </div>`;
+}
+
 function scrollToBottom() {
   feed.scrollTop = feed.scrollHeight;
 }
@@ -321,10 +341,16 @@ async function handlePlan(goal) {
 
 const TOOL_PLACEHOLDERS = {
   read_file: '{\n  "path": "package.json"\n}',
-  list_files: '{\n  "path": "."\n}',
-  search_text: '{\n  "query": "ModelRouter",\n  "dir": "src"\n}',
+  list_files: '{\n  "root": ".",\n  "recursive": false\n}',
+  search_text: '{\n  "query": "ModelRouter",\n  "root": "src"\n}',
   write_file: '{\n  "path": "data/tool-demo.txt",\n  "content": "hello from tool"\n}',
+  apply_patch: '{\n  "path": "README.md",\n  "search": "旧文本",\n  "replace": "新文本"\n}',
+  diff_file: '{\n  "path": "package.json",\n  "against": "git"\n}',
+  backup_file: '{\n  "paths": ["package.json"],\n  "reason": "manual"\n}',
+  rollback_change: '{\n  "changeId": "粘贴 changeId"\n}',
   shell_run: '{\n  "command": "node -v"\n}',
+  git_status: '{}',
+  git_diff: '{\n  "path": "package.json"\n}',
 };
 
 async function handleTools() {
@@ -1260,8 +1286,7 @@ document.querySelector(".sidebar").addEventListener("click", async (e) => {
   const action = btn.dataset.action;
   if (action === "new-chat") {
     setActiveSessionId(undefined);
-    feed.innerHTML =
-      '<div class="welcome"><h1>准备好了，随时开始</h1><p>左侧按钮可测试已实现功能；下方可直接与模型对话。</p></div>';
+    renderWelcome();
   } else if (action === "view-config") {
     const cfg = await loadConfig();
     if (cfg) renderConfigCard(cfg);
@@ -1304,6 +1329,13 @@ document.querySelector(".sidebar").addEventListener("click", async (e) => {
       addMessage("system", `已刷新：${n}/${rows.length} 个模型可用，下拉框仅显示可用模型。`);
     }
   }
+});
+
+feed.addEventListener("click", (e) => {
+  const btn = e.target.closest(".welcome button[data-action]");
+  if (!btn) return;
+  const target = document.querySelector(`.sidebar [data-action="${btn.dataset.action}"]`);
+  target?.click();
 });
 
 sendBtn.addEventListener("click", handleSend);

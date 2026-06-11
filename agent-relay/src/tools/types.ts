@@ -10,6 +10,12 @@ export interface ToolContext {
   workspaceRoot: string;
   /** 关联的任务 id（用于 trace），可选。 */
   taskId?: string;
+  /** M6 会话 id，可选。 */
+  sessionId?: string;
+  /** 请求 id，可选。 */
+  requestId?: string;
+  /** 工具层持久化（备份/变更/日志），可选。 */
+  storage?: import("./storage/ToolStorage.js").ToolStorage;
   /** 取消信号。 */
   signal?: AbortSignal;
 }

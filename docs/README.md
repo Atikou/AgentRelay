@@ -13,10 +13,12 @@ npm run serve
 
 打开 http://localhost:18787/docs （或测试台左侧「说明文档 ↗」）。
 
-交互式 API 文档（OpenAPI 3.1 + Scalar）：
+**AgentRelay API 参考**（本地 Scalar 交互页）：
 
 - http://localhost:18787/api-docs
-- 原始规范：http://localhost:18787/openapi.json
+- 机器可读规范：http://localhost:18787/api-spec.json
+
+文档站与 API 参考页采用固定顶栏/侧栏布局：正文区域内部滚动，便于长文档阅读时保留导航入口。
 
 ## 如何新增一篇文档
 
@@ -54,6 +56,7 @@ npm run docs:screenshots # 用无头浏览器截图到 docs/assets/
 
 - [API 参考](API参考.md)：REST 接口总览、能力探测与交互式文档入口（`/api-docs`）。
 - [项目整体架构](项目整体架构.md)：分层设计、模块职责、关键调用链路、目录结构与里程碑路线图。
+- [编排与Run模型](编排与Run模型.md)：Orchestrator、统一 Run/Task、`GET /api/runs`。
 - [自审核记录](自审核记录.md)：每次任务结束后的自审核结论（最新在上），首次预览项目必读。
 - [工具系统](工具系统.md)：工具协议、内置工具、权限/风险/沙箱安全机制与 HTTP 接口。
 - [对话循环](对话循环.md)：M1 自主对话循环（ReAct JSON 协议、工具调用闭环、安全边界）。
@@ -64,3 +67,5 @@ npm run docs:screenshots # 用无头浏览器截图到 docs/assets/
 - [定时与事件触发](定时与事件触发.md)：M8 触发器调度、通知队列投递与后台完成事件。
 - [测试用例](测试用例.md)：测试台内置/自定义 API 用例，输入·期望·实际三列比对。
 - [接入本地模型](接入本地模型.md)：本地模型（Ollama / LM Studio / vLLM）的接入流程、配置与使用。
+- [模型路由与协作](模型路由与协作.md)：规则路由、`routerProfile` 等级、单任务草拟+审查协作与日志表。
+- [模型路由升级 TodoList](模型路由升级TodoList.md)：**V1→V9 升级路线图扫描结论**与下一阶段任务清单（当前建议 V2 FallbackManager）；改路由前必读。

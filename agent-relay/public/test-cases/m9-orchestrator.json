@@ -1,0 +1,60 @@
+{
+  "featureId": "m9-orchestrator",
+  "title": "编排与 Run",
+  "cases": [
+    {
+      "id": "m9-runs-list",
+      "title": "列出最近 Run",
+      "purpose": "确认 Orchestrator 写入的 runs 表可通过 GET /api/runs 查询。",
+      "method": "GET",
+      "path": "/api/runs?limit=10",
+      "input": {},
+      "expect": {
+        "status": 200,
+        "bodyHasKeys": ["runs"],
+        "bodyPaths": { "runs": "array" }
+      }
+    },
+    {
+      "id": "m9-config-orchestrator-cap",
+      "title": "配置含编排能力标记",
+      "purpose": "确认 capabilities 暴露 orchestrator 与 runsApi，便于测试台探测编排层是否启用。",
+      "method": "GET",
+      "path": "/api/config",
+      "input": {},
+      "expect": {
+        "status": 200,
+        "bodyPaths": {
+          "capabilities.orchestrator": "boolean",
+          "capabilities.runsApi": "boolean"
+        }
+      }
+    },
+    {
+      "id": "m9-api-spec",
+      "title": "API 规范可访问",
+      "purpose": "确认 public/api-spec.json 经静态服务暴露，供 /api-docs 交互参考页加载。",
+      "method": "GET",
+      "path": "/api-spec.json",
+      "input": {},
+      "expect": {
+        "status": 200,
+        "bodyPaths": { "info.title": "string", "paths": "object" },
+        "bodyHasKeys": ["openapi", "info", "paths", "components", "tags"]
+      }
+    },
+    {
+      "id": "m9-api-docs-html",
+      "title": "API 参考页可访问",
+      "purpose": "确认 GET /api-docs 返回交互参考 HTML，且引用本地 api-spec 与 Scalar 资源。",
+      "method": "GET",
+      "path": "/api-docs",
+      "input": {},
+      "expect": {
+        "status": 200,
+        "contentTypeIncludes": "text/html",
+        "bodyIncludes": ["/api-spec.json", "AgentRelay", "data-url"]
+      }
+    }
+  ]
+}

@@ -29,6 +29,56 @@
         "bodyHasKeys": ["consumed"],
         "bodyPaths": { "consumed": "array" }
       }
+    },
+    {
+      "id": "m4-nq-list-all",
+      "title": "通知全量列表可查询",
+      "purpose": "确认 GET /api/notifications 不带 pending 参数时返回 notifications 数组，兼容已消费与未消费通知。",
+      "method": "GET",
+      "path": "/api/notifications",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyHasKeys": ["notifications"],
+        "bodyPaths": { "notifications": "array" }
+      }
+    },
+    {
+      "id": "m4-nq-merge-fields",
+      "title": "通知条目支持 mergeKey 字段",
+      "purpose": "确认 notifications 数组元素可携带 mergeKey（调度等同源折叠），与 NotificationQueue.mergeKey 语义一致。",
+      "method": "GET",
+      "path": "/api/notifications",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyHasKeys": ["notifications"]
+      }
+    },
+    {
+      "id": "m4-nq-priority-values",
+      "title": "通知条目支持 priority 字段",
+      "purpose": "确认 notifications 返回体兼容 priority（low/normal/high），供队列排序与调度高优先级待办使用。",
+      "method": "GET",
+      "path": "/api/notifications?pending=1",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyPaths": { "notifications": "array" }
+      }
+    },
+    {
+      "id": "m4-nq-consume-idempotent",
+      "title": "重复消费通知保持稳定响应",
+      "purpose": "验证通知队列在没有待处理通知或已被消费后再次调用 consume 仍返回 consumed 数组，不产生 5xx。",
+      "method": "POST",
+      "path": "/api/notifications/consume",
+      "input": {},
+      "expect": {
+        "status": 200,
+        "bodyHasKeys": ["consumed"],
+        "bodyPaths": { "consumed": "array" }
+      }
     }
   ]
 }

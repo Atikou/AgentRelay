@@ -104,7 +104,11 @@ function buildToc() {
 
 let spyHandler = null;
 function setupScrollSpy(headings) {
-  if (spyHandler) document.querySelector(".doc-main").removeEventListener("scroll", spyHandler);
+  const scrollRoot = document.querySelector(".doc-main");
+  if (spyHandler) {
+    window.removeEventListener("scroll", spyHandler);
+    scrollRoot?.removeEventListener("scroll", spyHandler);
+  }
   const links = [...tocListEl.querySelectorAll("a")];
   const onScroll = () => {
     let activeIndex = 0;
@@ -114,6 +118,7 @@ function setupScrollSpy(headings) {
     links.forEach((l, i) => l.classList.toggle("active", i === activeIndex));
   };
   spyHandler = onScroll;
+  scrollRoot?.addEventListener("scroll", onScroll, { passive: true });
   window.addEventListener("scroll", onScroll, { passive: true });
   onScroll();
 }

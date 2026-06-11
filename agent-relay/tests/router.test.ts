@@ -111,6 +111,44 @@ test("forceClient 绕过策略指定客户端", async () => {
   assert.equal(res.clientName, "cloud-a");
 });
 
+test("taskType=simple 覆盖 cloud-first 优先本地", async () => {
+  const router = new ModelRouter(
+    [new MockClient("local-a", "local", "ok"), new MockClient("cloud-a", "remote", "ok")],
+    { strategy: "cloud-first", fallback: true },
+  );
+  const res = await router.chat(req, { taskType: "simple" });
+  assert.equal(res.clientName, "local-a");
+});
+
+test("taskType=reasoning 覆盖 local-first 优先远程", async () => {
+  const router = new ModelRouter(
+    [new MockClient("local-a", "local", "ok"), new MockClient("cloud-a", "remote", "ok")],
+    { strategy: "local-first", fallback: true },
+  );
+  const res = await router.chat(req, { taskType: "reasoning" });
+  assert.equal(res.clientName, "cloud-a");
+});
+
+test("taskType=codegen 与 long_context 均优先远程", async () => {
+  const router = new ModelRouter(
+    [new MockClient("local-a", "local", "ok"), new MockClient("cloud-a", "remote", "ok")],
+    { strategy: "local-first", fallback: true },
+  );
+  for (const taskType of ["codegen", "long_context"] as const) {
+    const res = await router.chat(req, { taskType });
+    assert.equal(res.clientName, "cloud-a", taskType);
+  }
+});
+
+test("sensitive 时 taskType=reasoning 仍仅本地", async () => {
+  const router = new ModelRouter(
+    [new MockClient("local-a", "local", "ok"), new MockClient("cloud-a", "remote", "ok")],
+    { strategy: "local-first", fallback: true },
+  );
+  const res = await router.chat(req, { taskType: "reasoning", sensitive: true });
+  assert.equal(res.clientName, "local-a");
+});
+
 test("metrics 记录调用、失败率与成本", async () => {
   const metrics = new MetricsRegistry();
   const pricing = new Map([["cloud-a", { inputPer1k: 1, outputPer1k: 2 }]]);

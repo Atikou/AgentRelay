@@ -182,6 +182,69 @@
       }
     },
     {
+      "id": "m6-dry-run-persists-plan-steps",
+      "title": "任务 dry-run 持久化计划步骤",
+      "purpose": "验证 POST /api/task/dry-run 将 plan.steps 写入 task_steps，供后续 current_plan 上下文注入。需先创建会话并将 sessionId 填入 input。",
+      "method": "POST",
+      "path": "/api/task/dry-run",
+      "input": {
+        "sessionId": "PASTE_SESSION_ID",
+        "plan": {
+          "goal": "M6 计划注入测试",
+          "steps": [
+            {
+              "id": "step-read",
+              "title": "读取 README",
+              "description": "只读",
+              "status": "pending",
+              "requiredPermissions": ["read"],
+              "needsConfirmation": false
+            }
+          ]
+        }
+      },
+      "expect": {
+        "status": 200,
+        "bodyHasKeys": ["runId", "taskId", "plan"]
+      }
+    },
+    {
+      "id": "m6-restore-includes-current-plan",
+      "title": "恢复上下文含 current_plan 节",
+      "purpose": "在 dry-run 写入计划后，GET restore 的 contextPackage.systemSections 应含 type=current_plan（与「创建会话」+ dry-run 链式执行）。",
+      "method": "GET",
+      "path": "/api/context/sessions/PASTE_SESSION_ID/restore?q=继续",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyHasKeys": ["contextPackage"]
+      }
+    },
+    {
+      "id": "m6-file-snippets-read-file",
+      "title": "read_file 工具消息注入 file_snippets",
+      "purpose": "经 Agent 或测试写入 read_file 结果后，GET restore 的 systemSections 应含 type=file_snippets 且文本含文件路径（链式：先创建会话再跑只读 Agent）。",
+      "method": "GET",
+      "path": "/api/context/sessions/PASTE_SESSION_ID/restore?q=继续",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyHasKeys": ["contextPackage"]
+      }
+    },
+    {
+      "id": "m6-file-snippets-search-text",
+      "title": "search_text 命中注入片段",
+      "purpose": "search_text 工具 JSON 含 results[].path 时，file_snippets 应展示路径与行预览；用于验证多工具解析而非仅 read_file。",
+      "method": "GET",
+      "path": "/api/context/sessions/PASTE_SESSION_ID/restore",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyPaths": { "contextPackage.systemSections": "array" }
+      }
+    },
+    {
       "id": "m6-restore-context-package",
       "title": "恢复接口返回 contextPackage",
       "purpose": "先运行「创建持久化会话」复制 session.id，将路径改为 /api/context/sessions/{id}/restore?q=测试 后执行；验证响应含结构化 contextPackage.systemSections。",

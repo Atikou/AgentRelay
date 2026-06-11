@@ -1,11 +1,18 @@
 /** 后台任务生命周期状态。 */
-export type BackgroundTaskStatus = "running" | "completed" | "failed" | "cancelled";
+export type BackgroundTaskStatus = "running" | "completed" | "failed" | "cancelled" | "timed_out";
+
+export interface BackgroundStartOptions {
+  cwd?: string;
+  /** 超时后终止进程树；未设置则不自动超时。 */
+  timeoutMs?: number;
+}
 
 export interface BackgroundTaskRecord {
   id: string;
   command: string;
   cwd: string;
   pid?: number;
+  timeoutMs?: number;
   status: BackgroundTaskStatus;
   stdout: string;
   stderr: string;
@@ -16,6 +23,7 @@ export interface BackgroundTaskRecord {
 }
 
 export type NotificationLevel = "info" | "warn" | "error";
+export type NotificationPriority = "low" | "normal" | "high";
 export type NotificationSource = "background_task" | "system" | "scheduler";
 
 export interface AgentNotification {
@@ -24,7 +32,11 @@ export interface AgentNotification {
   level: NotificationLevel;
   timestamp: string;
   message: string;
+  priority?: NotificationPriority;
   taskId?: string;
+  runId?: string;
+  dedupeKey?: string;
+  mergeKey?: string;
   payload?: Record<string, unknown>;
   consumed: boolean;
 }

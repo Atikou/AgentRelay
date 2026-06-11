@@ -1,3 +1,4 @@
+import { extractFileSnippetsFromToolMessages } from "./fileSnippets.js";
 import type { MemoryManager } from "./MemoryManager.js";
 import type { MemoryRetriever } from "./MemoryRetriever.js";
 import type { SemanticRetriever } from "./SemanticRetriever.js";
@@ -72,11 +73,13 @@ export class ContextRestorer {
     const activeTask = taskId
       ? this.tasks.get(taskId)
       : this.tasks.getActiveForSession(input.sessionId);
+    const planSteps = activeTask ? this.tasks.listSteps(activeTask.id) : [];
     const globalPreferences = this.memoryManager.listGlobalPreferences(10);
     const projectMemories = projectId
       ? this.memoryManager.listProjectMemories(projectId, 10)
       : [];
-    const recentTools = this.messages.listRecentByRole(input.sessionId, "tool", 5);
+    const recentTools = this.messages.listRecentByRole(input.sessionId, "tool", 8);
+    const fileSnippets = extractFileSnippetsFromToolMessages(recentTools);
     const recentToolSummaries = summarizeToolMessages(recentTools);
 
     const systemSections = this.sectionBuilder.build({
@@ -91,6 +94,8 @@ export class ContextRestorer {
       semanticHits,
       project,
       activeTask,
+      planSteps,
+      fileSnippets,
       recentToolSummaries,
     });
 

@@ -27,6 +27,30 @@
         "status": 404,
         "bodyHasKeys": ["error"]
       }
+    },
+    {
+      "id": "m1-agent-stream-empty",
+      "title": "流式接口空 message 返回 400",
+      "purpose": "确认 /api/agent/stream 在开启 SSE 前完成与 /api/agent 相同的 message 校验。",
+      "method": "POST",
+      "path": "/api/agent/stream",
+      "input": { "message": "" },
+      "expect": {
+        "status": 400,
+        "bodyHasKeys": ["error"]
+      }
+    },
+    {
+      "id": "m1-agent-stream-unknown-client",
+      "title": "流式接口未知 client 返回 404",
+      "purpose": "确认流式入口在 clientName 无效时仍返回 JSON 404，不进入 event-stream。",
+      "method": "POST",
+      "path": "/api/agent/stream",
+      "input": { "message": "ping", "clientName": "missing-client" },
+      "expect": {
+        "status": 404,
+        "bodyHasKeys": ["error"]
+      }
     }
   ]
 }

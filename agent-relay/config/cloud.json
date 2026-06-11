@@ -1,5 +1,5 @@
 {
-  "workspaceRoot": ".",
+  "workspaceRoot": "..",
   "models": {
     "default": "cloud-openai",
     "clients": [

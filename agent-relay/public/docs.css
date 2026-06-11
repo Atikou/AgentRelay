@@ -42,6 +42,7 @@ html,
 body {
   margin: 0;
   height: 100%;
+  overflow: hidden;
   font-family: "Söhne", ui-sans-serif, system-ui, -apple-system, "Segoe UI",
     "Microsoft YaHei", Helvetica, Arial, sans-serif;
   color: var(--text);
@@ -52,13 +53,13 @@ body {
 /* 顶栏 */
 .topbar {
   height: 56px;
+  min-height: 56px;
   display: flex;
   align-items: center;
   justify-content: space-between;
   padding: 0 24px;
   border-bottom: 1px solid var(--border);
-  position: sticky;
-  top: 0;
+  position: relative;
   background: var(--topbar-bg);
   backdrop-filter: blur(8px);
   z-index: 10;
@@ -111,15 +112,15 @@ body {
   display: grid;
   grid-template-columns: 260px minmax(0, 1fr) 220px;
   max-width: 1320px;
+  height: calc(100vh - 56px);
   margin: 0 auto;
+  overflow: hidden;
 }
 
 .doc-nav {
   border-right: 1px solid var(--border);
   padding: 22px 14px;
-  position: sticky;
-  top: 56px;
-  height: calc(100vh - 56px);
+  height: 100%;
   overflow-y: auto;
   background: var(--nav-bg);
 }
@@ -159,6 +160,9 @@ body {
 .doc-main {
   padding: 32px 48px 80px;
   min-width: 0;
+  height: 100%;
+  overflow-y: auto;
+  scroll-behavior: smooth;
 }
 .loading {
   color: var(--text-soft);
@@ -167,9 +171,7 @@ body {
 /* 右侧目录 */
 .doc-toc {
   padding: 22px 14px;
-  position: sticky;
-  top: 56px;
-  height: calc(100vh - 56px);
+  height: 100%;
   overflow-y: auto;
 }
 .toc-list a {
@@ -320,10 +322,31 @@ body {
   }
 }
 @media (max-width: 720px) {
+  body {
+    overflow: auto;
+  }
+  .topbar {
+    position: sticky;
+    top: 0;
+    padding: 0 16px;
+  }
+  .topbar-right {
+    gap: 8px;
+  }
+  .search {
+    width: min(42vw, 180px);
+  }
   .layout {
     grid-template-columns: 1fr;
+    height: auto;
+    overflow: visible;
   }
   .doc-nav {
     display: none;
+  }
+  .doc-main {
+    height: auto;
+    overflow: visible;
+    padding: 24px 20px 72px;
   }
 }

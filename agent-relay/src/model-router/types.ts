@@ -1,0 +1,130 @@
+/** 规则路由与协作策略类型（见 Agent_Model_Router_Collaboration_Spec）。 */
+
+export type TaskType =
+  | "casual_chat"
+  | "companion_chat"
+  | "memory_write"
+  | "memory_search"
+  | "summary"
+  | "intent_classification"
+  | "simple_qa"
+  | "technical_qa"
+  | "code_question"
+  | "code_edit"
+  | "architecture"
+  | "debug"
+  | "document_qa"
+  | "image_qa"
+  | "tool_action"
+  | "high_risk_action"
+  | "unknown";
+
+export type ModelLevel = 0 | 1 | 2 | 3;
+
+export type ExecutionStrategy = "rule_only" | "single_model" | "local_draft_remote_review";
+
+export type ModelRole = "primary" | "draft" | "review" | "final";
+
+export type QualityMode = "fast" | "balanced" | "deep";
+
+export type RiskLevel = "low" | "medium" | "high";
+
+export interface ModelProfile {
+  id: string;
+  displayName: string;
+  provider: "local" | "api" | "mock";
+  defaultLevel: ModelLevel;
+  enabled: boolean;
+  supportsStreaming: boolean;
+  supportsTools: boolean;
+  supportsVision: boolean;
+  supportsJsonMode: boolean;
+  maxInputTokens: number;
+  maxOutputTokens: number;
+  relativeCost: "free" | "low" | "medium" | "high";
+  avgLatencyMs?: number;
+  allowedTaskTypes: TaskType[];
+  allowedRoles: ModelRole[];
+  canDraft: boolean;
+  canReview: boolean;
+  canFinal: boolean;
+  tags?: string[];
+}
+
+export interface RouterInput {
+  sessionId?: string;
+  projectId?: string;
+  userInput: string;
+  mode?: "chat" | "project" | "memory" | "tool";
+  qualityMode?: QualityMode;
+  hasAttachments?: boolean;
+  attachmentTypes?: Array<"image" | "pdf" | "doc" | "code" | "audio" | "unknown">;
+  mayUseTools?: boolean;
+  mayModifyWorkspace?: boolean;
+  contextTokenEstimate?: number;
+  recentMessagesCount?: number;
+  allowCollaboration?: boolean;
+  forceSingleModel?: boolean;
+  /** 敏感任务：仅允许本地模型。 */
+  localOnly?: boolean;
+  /** 显式覆盖任务类型（跳过关键词分类）。 */
+  taskTypeOverride?: TaskType;
+  /** 手动指定模型 id（client name）。 */
+  forceModelId?: string;
+}
+
+export interface RuleRouteResult {
+  taskType: TaskType;
+  requiredLevel: ModelLevel;
+  risk: RiskLevel;
+  reason: string;
+  requireVision?: boolean;
+  requireTools?: boolean;
+  requireJsonMode?: boolean;
+  requireUserConfirmation?: boolean;
+  preferCollaboration?: boolean;
+  preferredStrategy?: ExecutionStrategy;
+}
+
+export interface RouterDecision {
+  id: string;
+  sessionId?: string;
+  projectId?: string;
+  taskType: TaskType;
+  selectedLevel: ModelLevel;
+  risk: RiskLevel;
+  reason: string;
+  source: "rule" | "manual_override" | "fallback";
+  executionStrategy: ExecutionStrategy;
+  selectedModelId?: string;
+  draftModelId?: string;
+  reviewModelId?: string;
+  finalModelId?: string;
+  requireUserConfirmation: boolean;
+  candidates: string[];
+  createdAt: string;
+  /** 策略降级说明（如无 review 模型时）。 */
+  fallbackNote?: string;
+}
+
+export interface DraftReviewIssue {
+  severity: "low" | "medium" | "high";
+  message: string;
+}
+
+export interface DraftReviewResult {
+  verdict: "approve" | "revise" | "reject";
+  confidence: number;
+  issues: DraftReviewIssue[];
+  revisedAnswer?: string;
+}
+
+export class RouterError extends Error {
+  constructor(
+    readonly code: "NO_AVAILABLE_MODEL" | "NO_REVIEW_MODEL_AVAILABLE" | "RULE_ONLY_NOT_IMPLEMENTED",
+    message: string,
+  ) {
+    super(message);
+    this.name = "RouterError";
+  }
+}

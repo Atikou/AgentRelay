@@ -23,6 +23,7 @@ export const PlanStepSchema = z.object({
   requiredPermissions: z.array(ToolPermissionSchema).default(["read"]),
   needsConfirmation: z.boolean().default(false),
   acceptance: z.string().optional(),
+  dependsOn: z.array(z.string()).default([]),
   /** 可选：该步骤绑定的工具名（提供时任务模式会真实执行该工具）。 */
   tool: z.string().optional(),
   /** 可选：传给绑定工具的入参。 */
@@ -69,6 +70,7 @@ export const RawPlanSchema = z.object({
         requiredPermissions: z.array(ToolPermissionSchema).optional(),
         needsConfirmation: z.boolean().optional(),
         acceptance: z.string().optional(),
+        dependsOn: z.array(z.string()).optional(),
         tool: z.string().optional(),
         toolInput: z.record(z.unknown()).optional(),
       }),

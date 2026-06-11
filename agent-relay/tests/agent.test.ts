@@ -26,6 +26,7 @@ function makePlan(steps: Array<Partial<PlanStep> & { id: string; title: string }
       requiredPermissions: s.requiredPermissions ?? ["read"],
       needsConfirmation: s.needsConfirmation ?? false,
       acceptance: s.acceptance,
+      dependsOn: s.dependsOn ?? [],
       status: s.status ?? "pending",
     })),
   };
@@ -71,14 +72,15 @@ test("TaskRunner 顺序执行全部完成", async () => {
 test("失败步骤标记 failed 并停止后续", async () => {
   const plan = makePlan([
     { id: "a", title: "A" },
-    { id: "b", title: "B" },
-    { id: "c", title: "C" },
+    { id: "b", title: "B", dependsOn: ["a"] },
+    { id: "c", title: "C", dependsOn: ["b"] },
   ]);
   const runner = new TaskRunner(plan, { executor: new FailingExecutor("b"), autoConfirm: true });
   const result = await runner.run();
   assert.equal(result.steps[0]!.status, "completed");
   assert.equal(result.steps[1]!.status, "failed");
-  assert.equal(result.steps[2]!.status, "pending");
+  assert.equal(result.steps[2]!.status, "blocked");
+  assert.match(result.steps[2]!.error ?? "", /依赖步骤 b/);
 });
 
 test("需确认步骤在拒绝时阻塞", async () => {
@@ -130,6 +132,135 @@ test("cancel 后剩余步骤标记 cancelled", async () => {
     result.steps.map((s) => s.status),
     ["cancelled", "cancelled"],
   );
+});
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+test("TaskRunner dependsOn 串行执行", async () => {
+  const order: string[] = [];
+  const executor: StepExecutor = {
+    async execute(step) {
+      order.push(step.id);
+      return { output: "ok" };
+    },
+  };
+  const plan = makePlan([
+    { id: "a", title: "A" },
+    { id: "b", title: "B", dependsOn: ["a"] },
+  ]);
+  const runner = new TaskRunner(plan, { executor, autoConfirm: true });
+  await runner.run();
+  assert.deepEqual(order, ["a", "b"]);
+});
+
+test("TaskRunner 无依赖步骤并行执行", async () => {
+  const active = new Set<string>();
+  let maxConcurrent = 0;
+  const executor: StepExecutor = {
+    async execute(step) {
+      active.add(step.id);
+      maxConcurrent = Math.max(maxConcurrent, active.size);
+      await sleep(30);
+      active.delete(step.id);
+      return { output: "ok" };
+    },
+  };
+  const plan = makePlan([
+    { id: "a", title: "A" },
+    { id: "b", title: "B" },
+  ]);
+  const runner = new TaskRunner(plan, { executor, autoConfirm: true });
+  const result = await runner.run();
+  assert.equal(maxConcurrent, 2);
+  assert.deepEqual(
+    result.steps.map((s) => s.status),
+    ["completed", "completed"],
+  );
+});
+
+test("TaskRunner 菱形依赖汇聚后执行", async () => {
+  const order: string[] = [];
+  const executor: StepExecutor = {
+    async execute(step) {
+      order.push(step.id);
+      await sleep(10);
+      return { output: "ok" };
+    },
+  };
+  const plan = makePlan([
+    { id: "a", title: "A" },
+    { id: "b", title: "B" },
+    { id: "c", title: "C", dependsOn: ["a", "b"] },
+  ]);
+  const runner = new TaskRunner(plan, { executor, autoConfirm: true });
+  await runner.run();
+  assert.equal(order[order.length - 1], "c");
+  assert.ok(order.indexOf("a") < order.indexOf("c"));
+  assert.ok(order.indexOf("b") < order.indexOf("c"));
+});
+
+test("TaskRunner 阻塞时继续执行无依赖的其他步骤", async () => {
+  const executed: string[] = [];
+  const plan = makePlan([
+    {
+      id: "a",
+      title: "需确认",
+      requiredPermissions: ["write"],
+      needsConfirmation: true,
+    },
+    { id: "b", title: "只读分支", requiredPermissions: ["read"] },
+    { id: "c", title: "依赖 a", requiredPermissions: ["read"], dependsOn: ["a"] },
+  ]);
+  const runner = new TaskRunner(plan, {
+    executor: {
+      async execute(step) {
+        executed.push(step.id);
+        return { output: "ok" };
+      },
+    },
+    confirm: async () => false,
+  });
+  const result = await runner.run();
+  assert.equal(result.steps[0]!.status, "blocked");
+  assert.equal(result.steps[1]!.status, "completed");
+  assert.equal(result.steps[2]!.status, "blocked");
+  assert.ok(executed.includes("b"));
+  assert.equal(executed.includes("c"), false);
+});
+
+test("TaskRunner failed 后不再启动新波次", async () => {
+  const executed: string[] = [];
+  const plan = makePlan([
+    { id: "a", title: "A" },
+    { id: "b", title: "B", dependsOn: ["a"] },
+    { id: "c", title: "独立 C" },
+  ]);
+  const runner = new TaskRunner(plan, {
+    executor: {
+      async execute(step) {
+        executed.push(step.id);
+        if (step.id === "a") throw new Error("boom");
+        return { output: "ok" };
+      },
+    },
+    autoConfirm: true,
+  });
+  const result = await runner.run();
+  assert.equal(result.steps[0]!.status, "failed");
+  assert.equal(result.steps[1]!.status, "blocked");
+  assert.equal(result.steps[2]!.status, "completed");
+  assert.deepEqual([...executed].sort(), ["a", "c"]);
+});
+
+test("TaskRunner 拒绝循环依赖", async () => {
+  const plan = makePlan([
+    { id: "a", title: "A", dependsOn: ["b"] },
+    { id: "b", title: "B", dependsOn: ["a"] },
+  ]);
+  const runner = new TaskRunner(plan, { executor: new DryRunExecutor(), autoConfirm: true });
+  await assert.rejects(() => runner.run(), /环/);
 });
 
 test("retryFrom 重跑失败步骤", async () => {

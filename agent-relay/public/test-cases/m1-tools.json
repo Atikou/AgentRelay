@@ -2,31 +2,83 @@
   "milestone": "M1",
   "feature": "工具系统",
   "featureId": "m1-tools",
-  "summary": "验证 ToolRegistry 暴露的 5 个内置工具、只读/写/命令执行与危险命令拦截。",
+  "summary": "验证 ToolRegistry 暴露的第一阶段 11 个内置工具、安全写入/补丁/回滚与命令风险拦截。",
   "cases": [
     {
       "id": "m1-tools-list",
-      "title": "工具列表包含 5 个内置工具",
-      "purpose": "确认注册表完整暴露 read/list/search/write/shell 五类工具，智能体与任务模式依赖此列表。",
+      "title": "工具列表包含 11 个第一阶段工具",
+      "purpose": "确认注册表暴露 read/list/search/write/patch/diff/backup/rollback/shell/git 全套工具。",
       "method": "GET",
       "path": "/api/tools",
       "input": null,
       "expect": {
         "status": 200,
-        "bodyPaths": { "tools.length": 5 },
-        "bodyContainsNames": ["read_file", "write_file", "shell_run", "list_files", "search_text"]
+        "bodyPaths": { "tools.length": 11 },
+        "bodyContainsNames": [
+          "read_file",
+          "write_file",
+          "apply_patch",
+          "shell_run",
+          "list_files",
+          "search_text",
+          "git_status",
+          "git_diff"
+        ]
       }
     },
     {
       "id": "m1-tools-read",
-      "title": "read_file 读取 package.json",
-      "purpose": "验证只读工具能在工作区内读取已知文件并返回 ok=true，路径沙箱允许 agent-relay 根目录内文件。",
+      "title": "read_file 读取 package.json 含 sha256",
+      "purpose": "验证只读工具返回内容与 sha256，供后续 expectedHash 并发保护。",
       "method": "POST",
       "path": "/api/tools/run",
       "input": { "name": "read_file", "input": { "path": "package.json" } },
       "expect": {
         "status": 200,
-        "bodyPaths": { "ok": true, "output.name": "read_file" }
+        "bodyPaths": { "ok": true, "tool": "read_file", "output.sha256": "string" }
+      }
+    },
+    {
+      "id": "m1-tools-apply-patch",
+      "title": "apply_patch 唯一匹配替换",
+      "purpose": "验证 Agent 首选的安全修改工具可替换唯一片段并返回 changeId。",
+      "method": "POST",
+      "path": "/api/tools/run",
+      "input": {
+        "name": "apply_patch",
+        "input": {
+          "path": "package.json",
+          "search": "\"name\": \"agent-relay\"",
+          "replace": "\"name\": \"agent-relay\""
+        },
+        "confirm": true
+      },
+      "expect": {
+        "status": 200,
+        "bodyPaths": { "ok": true, "output.changeId": "string" }
+      }
+    },
+    {
+      "id": "m1-tools-write-preview",
+      "title": "write_file 未确认时返回 patchPreview",
+      "purpose": "验证写文件工具在真正落盘前先给出 diff 预览，避免测试台确认门成为盲确认。",
+      "method": "POST",
+      "path": "/api/tools/run",
+      "input": {
+        "name": "write_file",
+        "input": {
+          "path": "data/tmp-preview.txt",
+          "content": "preview only\n",
+          "createOnly": true
+        }
+      },
+      "expect": {
+        "status": 200,
+        "bodyPaths": {
+          "needsConfirmation": true,
+          "preview.kind": "write_file",
+          "preview.patchPreview": "string"
+        }
       }
     },
     {
@@ -59,8 +111,8 @@
     },
     {
       "id": "m1-tools-dangerous",
-      "title": "危险命令 rm -rf 被拦截",
-      "purpose": "验证风险分级拦截 dangerous 命令，即使 confirm=true 也不得执行。",
+      "title": "高风险命令 rm -rf 被拒绝",
+      "purpose": "验证 shell_run 拒绝高风险命令，即使 confirm=true 也不得执行。",
       "method": "POST",
       "path": "/api/tools/run",
       "input": {
@@ -71,6 +123,18 @@
       "expect": {
         "status": 400,
         "bodyPaths": { "ok": false }
+      }
+    },
+    {
+      "id": "m1-tools-git-status",
+      "title": "git_status 返回 isRepo",
+      "purpose": "确认 git 状态工具可用，Agent 可检查工作区改动。",
+      "method": "POST",
+      "path": "/api/tools/run",
+      "input": { "name": "git_status", "input": {} },
+      "expect": {
+        "status": 200,
+        "bodyPaths": { "ok": true, "output.isRepo": true }
       }
     }
   ]

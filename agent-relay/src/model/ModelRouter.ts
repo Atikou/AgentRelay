@@ -3,6 +3,7 @@ import { performance } from "node:perf_hooks";
 import type { RoutingStrategy } from "../config/types.js";
 import type { TraceLogger } from "../trace/TraceLogger.js";
 import type { MetricsRegistry } from "./MetricsRegistry.js";
+import { orderCandidatesByTaskType, type ModelTaskType } from "./taskType.js";
 import type { ChatRequest, ModelClient, ModelResponse } from "./types.js";
 
 /** 每个客户端的计价信息（每 1k token 的美元价格）。 */
@@ -27,6 +28,11 @@ export interface RouteOptions {
   sensitive?: boolean;
   /** 指定客户端（绕过策略，仅用该客户端）。 */
   forceClient?: string;
+  /**
+   * 任务类型提示：simple 优先本地；reasoning/codegen/long_context 优先远程。
+   * 在 sensitive / privacy-first 下仍仅本地。
+   */
+  taskType?: ModelTaskType;
 }
 
 /**
@@ -38,6 +44,7 @@ export interface RouteOptions {
  *  - quality-first：当前等同先远程（强模型通常在远程）；后续可接入质量评分。
  *  - privacy-first：仅本地。
  * sensitive=true 时无论策略一律仅本地。
+ * taskType 在敏感约束之后重排候选（覆盖 strategy 的 local/remote 顺序）。
  */
 export class ModelRouter {
   constructor(
@@ -58,6 +65,10 @@ export class ModelRouter {
     if (opts.sensitive || strategy === "privacy-first") {
       return local;
     }
+
+    const byTask = orderCandidatesByTaskType(opts.taskType, local, remote);
+    if (byTask) return byTask;
+
     if (strategy === "cloud-first" || strategy === "quality-first") {
       return [...remote, ...local];
     }
@@ -89,13 +100,13 @@ export class ModelRouter {
       try {
         const response = await client.chat(request);
         const latencyMs = response.latencyMs || performance.now() - start;
-        this.recordSuccess(client, response, latencyMs, strategy, request.messages.length);
+        this.recordSuccess(client, response, latencyMs, strategy, request.messages.length, opts.taskType);
         return response;
       } catch (error) {
         const latencyMs = performance.now() - start;
         const message = `${client.name}: ${String(error)}`;
         errors.push(message);
-        this.recordFailure(client, latencyMs, strategy, request.messages.length, String(error));
+        this.recordFailure(client, latencyMs, strategy, request.messages.length, String(error), opts.taskType);
       }
     }
 
@@ -116,6 +127,7 @@ export class ModelRouter {
     latencyMs: number,
     strategy: RoutingStrategy,
     contextMessages: number,
+    taskType?: ModelTaskType,
   ): void {
     const costUsd = this.priceFor(
       client.name,
@@ -133,6 +145,7 @@ export class ModelRouter {
       outputTokens: response.usage?.outputTokens,
       costUsd,
       strategy,
+      taskType,
     });
     this.options.trace?.write({
       type: "model_call",
@@ -145,6 +158,7 @@ export class ModelRouter {
       outputTokens: response.usage?.outputTokens,
       costUsd,
       strategy,
+      taskType,
     });
   }
 
@@ -154,6 +168,7 @@ export class ModelRouter {
     strategy: RoutingStrategy,
     contextMessages: number,
     error: string,
+    taskType?: ModelTaskType,
   ): void {
     this.options.metrics?.record({
       clientName: client.name,
@@ -163,6 +178,7 @@ export class ModelRouter {
       latencyMs,
       contextMessages,
       strategy,
+      taskType,
       error,
     });
     this.options.trace?.write({
@@ -173,6 +189,7 @@ export class ModelRouter {
       location: client.location,
       latencyMs: Math.round(latencyMs),
       strategy,
+      taskType,
       error,
     });
   }

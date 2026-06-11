@@ -147,6 +147,45 @@ test("MemoryStore 重复 key 更新原记忆", async () => {
   mgr.close();
 });
 
+test("current_plan section 从 task_steps 注入", async () => {
+  const mgr = new ContextManager({
+    dataDir: path.join(tmpDir, "current-plan"),
+    useLanceDb: false,
+    vectorStore: new InMemoryVectorStore(),
+  });
+  const session = mgr.createSession("计划注入");
+  const task = mgr.tasks.create({ goal: "实现功能", sessionId: session.id, status: "running" });
+  mgr.setActiveTask(session.id, task.id);
+  mgr.tasks.upsertSteps(task.id, [
+    {
+      stepId: "s1",
+      position: 0,
+      title: "读取配置",
+      description: "只读 package.json",
+      status: "pending",
+      requiredPermissions: ["read"],
+      needsConfirmation: false,
+    },
+    {
+      stepId: "s2",
+      position: 1,
+      title: "写补丁",
+      status: "blocked",
+      requiredPermissions: ["write"],
+      needsConfirmation: true,
+      dependsOn: ["s1"],
+    },
+  ]);
+  const pkg = await mgr.restoreContextPackage(session.id, "继续任务");
+  const planSection = pkg.systemSections.find((s) => s.type === "current_plan");
+  assert.ok(planSection);
+  assert.ok(planSection!.items.some((i) => i.text.includes("读取配置")));
+  assert.ok(planSection!.items.some((i) => i.text.includes("写补丁")));
+  const rendered = mgr.buildRenderedPrompt(pkg);
+  assert.ok(rendered.systemSectionsText.includes("当前计划"));
+  mgr.close();
+});
+
 test("ContextPackage 含结构化 systemSections", async () => {
   const mgr = new ContextManager({
     dataDir: path.join(tmpDir, "pkg"),
@@ -229,6 +268,25 @@ test("pre_call 不含本次 assistant 回复", async () => {
   assert.equal(final.at(-1)?.content, "新问题");
   const lastUserIdx = final.findLastIndex((m) => m.role === "user");
   assert.ok(!final.slice(lastUserIdx + 1).some((m) => m.role === "assistant"));
+  mgr.close();
+});
+
+test("file_snippets 从 read_file 工具消息注入", async () => {
+  const mgr = new ContextManager({
+    dataDir: path.join(tmpDir, "file-snippets"),
+    useLanceDb: false,
+    vectorStore: new InMemoryVectorStore(),
+  });
+  const session = mgr.createSession();
+  mgr.saveToolMessage(
+    session.id,
+    '工具「read_file」执行结果（JSON）：\n{"path":"src/index.ts","content":"export const x = 1;\\n"}',
+  );
+  const pkg = await mgr.restoreContextPackage(session.id);
+  const section = pkg.systemSections.find((s) => s.type === "file_snippets");
+  assert.ok(section);
+  assert.ok(section!.items.some((i) => i.text.includes("src/index.ts")));
+  assert.ok(section!.items.some((i) => i.text.includes("export const x")));
   mgr.close();
 });
 

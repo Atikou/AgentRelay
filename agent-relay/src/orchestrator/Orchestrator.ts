@@ -1,0 +1,1426 @@
+import { Planner } from "../agent/Planner.js";
+
+import {
+  AgentLoop,
+  type AgentRunResult,
+  type AgentToolStep,
+  type LoopChatFn,
+} from "../agent/AgentLoop.js";
+import type { AgentStreamEvent } from "./AgentStream.js";
+
+import { DryRunExecutor, TaskRunner } from "../agent/TaskRunner.js";
+
+import { ToolStepExecutor } from "../agent/ToolStepExecutor.js";
+
+import { PlanSchema, type Plan } from "../agent/types.js";
+
+import type { NotificationQueue } from "../background/NotificationQueue.js";
+
+import type { ContextManager } from "../context/ContextManager.js";
+
+import type { TaskStore } from "../context/stores.js";
+import type { TaskRecord } from "../context/types.js";
+
+import type { CorrelationContext } from "../core/correlation.js";
+
+import type { ModelOrchestrator } from "../model-orchestrator/index.js";
+import type { ModelRouter } from "../model/ModelRouter.js";
+import { buildRouterInputFromChat } from "../model-router/router-input.js";
+import type { SmartModelRouter } from "../model-router/smart-model-router.js";
+import { RouterError } from "../model-router/types.js";
+import { parseModelTaskTypeOrError, type ModelTaskType } from "../model/taskType.js";
+
+import type { ToolPermission } from "../agent/permissions.js";
+
+import type { SubAgentCoordinator } from "../subagent/SubAgentCoordinator.js";
+
+import type { SubAgentRoleId } from "../subagent/index.js";
+
+import type { ToolRegistry } from "../tools/ToolRegistry.js";
+
+import type { TraceLogger } from "../trace/TraceLogger.js";
+
+import { RunStore } from "./RunStore.js";
+import { rollbackFileChangesForRun, type TaskRollbackResult } from "./TaskRollback.js";
+import {
+  buildPlanFallbackContext,
+  detectTaskUncertainty,
+  type ModeFallbackResult,
+} from "./taskUncertainty.js";
+
+
+
+export interface OrchestratorDeps {
+
+  workspaceRoot: string;
+
+  modelRouter: ModelRouter;
+
+  planner: Planner;
+
+  registry: ToolRegistry;
+
+  contextManager: ContextManager;
+
+  tasks: TaskStore;
+
+  runs: RunStore;
+
+  notificationQueue: NotificationQueue;
+
+  trace?: TraceLogger;
+
+  makeChatFn: (forceClient?: string) => LoopChatFn;
+
+  subAgentCoordinator?: SubAgentCoordinator;
+
+  subAgentCoordinatorFor?: (forceClient?: string) => SubAgentCoordinator;
+
+  smartModelRouter?: SmartModelRouter;
+
+  modelOrchestrator?: ModelOrchestrator;
+
+}
+
+
+
+export type ApiResult = { status: number; body: unknown };
+
+
+
+/**
+
+ * 统一编排层：Agent / Task / Chat / Plan 均创建 Run 记录并写入关联 id。
+
+ * 后续 DAG、调度自动执行、流式推送均在此扩展，避免 server handler 膨胀。
+
+ */
+
+export class Orchestrator {
+
+  constructor(private readonly deps: OrchestratorDeps) {}
+
+
+
+  ensureSession(sessionId: string | undefined, title: string): string {
+
+    if (sessionId && this.deps.contextManager.getSession(sessionId)) return sessionId;
+
+    return this.deps.contextManager.createSession(title).id;
+
+  }
+
+
+
+  listRuns(limit?: number) {
+
+    return this.deps.runs.list({ limit: limit ?? 50 });
+
+  }
+
+
+
+  getRun(id: string) {
+
+    return this.deps.runs.get(id);
+
+  }
+
+
+
+  async runChat(body: unknown): Promise<ApiResult> {
+
+    const payload = (body ?? {}) as {
+
+      clientName?: string;
+
+      message?: string;
+
+      system?: string;
+
+      sensitive?: boolean;
+
+      taskType?: string;
+
+      qualityMode?: "fast" | "balanced" | "deep";
+
+      allowCollaboration?: boolean;
+
+      forceSingleModel?: boolean;
+
+      hasAttachments?: boolean;
+
+      attachmentTypes?: Array<"image" | "pdf" | "doc" | "code" | "audio" | "unknown">;
+
+      sessionId?: string;
+
+      persist?: boolean;
+
+    };
+
+    const message = (payload.message ?? "").trim();
+
+    if (!message) return { status: 400, body: { error: "message 不能为空" } };
+
+    const taskTypeParsed = parseModelTaskTypeOrError(payload.taskType);
+
+    if (!taskTypeParsed.ok) return { status: 400, body: { error: taskTypeParsed.error } };
+
+
+
+    const forceClient =
+
+      payload.clientName && payload.clientName !== "__default__" ? payload.clientName : undefined;
+
+
+
+    const persist = payload.persist !== false;
+
+    const sessionId = persist ? this.ensureSession(payload.sessionId, "网页对话") : undefined;
+
+    const requestId = crypto.randomUUID();
+
+
+
+    const run = this.deps.runs.create({
+
+      kind: "chat",
+
+      status: "running",
+
+      sessionId,
+
+      goal: message.slice(0, 200),
+
+      correlation: { runId: "", sessionId, requestId },
+
+    });
+
+    const correlation = this.correlationFor(run.id, { sessionId, requestId });
+
+    this.deps.runs.update(run.id, { correlationJson: JSON.stringify(correlation) });
+
+
+
+    const systemBase = payload.system?.trim() ?? "";
+
+    if (persist && sessionId) {
+
+      this.deps.contextManager.saveUserMessage(sessionId, message);
+
+    }
+
+
+
+    const messages =
+
+      persist && sessionId
+
+        ? this.deps.contextManager.buildChatMessages(
+
+            await this.deps.contextManager.restoreContextPackage(sessionId, message),
+
+            systemBase,
+
+            { phase: "pre_call", currentUser: message },
+
+          )
+
+        : [
+
+            ...(systemBase ? [{ role: "system" as const, content: systemBase }] : []),
+
+            { role: "user" as const, content: message },
+
+          ];
+
+
+
+    try {
+
+      this.deps.trace?.write({ type: "run_start", runId: run.id, kind: "chat", sessionId });
+
+      const useSmart =
+        !forceClient && this.deps.smartModelRouter && this.deps.modelOrchestrator;
+
+      let content: string;
+      let clientName: string | undefined;
+      let modelName: string | undefined;
+      let location: string | undefined;
+      let latencyMs = 0;
+      let usage: unknown;
+      let routerDecision: unknown;
+      let collaborationRunId: string | undefined;
+      let executionStrategy: string | undefined;
+
+      if (useSmart) {
+        const routerInput = buildRouterInputFromChat({
+          message,
+          sessionId,
+          sensitive: payload.sensitive,
+          qualityMode: payload.qualityMode,
+          taskType: taskTypeParsed.taskType as ModelTaskType | undefined,
+          allowCollaboration: payload.allowCollaboration,
+          forceSingleModel: payload.forceSingleModel,
+          hasAttachments: payload.hasAttachments,
+          attachmentTypes: payload.attachmentTypes,
+          contextTokenEstimate: messages.reduce((n, m) => n + m.content.length, 0),
+          recentMessagesCount: messages.length,
+        });
+        const smartRouter = this.deps.smartModelRouter!;
+        const chatOrchestrator = this.deps.modelOrchestrator!;
+        const decision = smartRouter.route(routerInput);
+        const chatMessages = messages.filter(
+          (m): m is { role: "system" | "user" | "assistant"; content: string } =>
+            m.role === "system" || m.role === "user" || m.role === "assistant",
+        );
+        const orchestrated = await chatOrchestrator.run({
+          routerDecision: decision,
+          userInput: message,
+          sessionId,
+          renderedPrompt: {
+            systemSectionsText: systemBase,
+            finalMessages: chatMessages,
+          },
+        });
+        content = orchestrated.finalAnswer;
+        clientName = orchestrated.clientName;
+        modelName = orchestrated.modelName;
+        location = orchestrated.location;
+        latencyMs = Math.round(orchestrated.latencyMs ?? 0);
+        usage = orchestrated.usage;
+        routerDecision = {
+          id: decision.id,
+          taskType: decision.taskType,
+          executionStrategy: decision.executionStrategy,
+          selectedModelId: decision.selectedModelId,
+          draftModelId: decision.draftModelId,
+          reviewModelId: decision.reviewModelId,
+          risk: decision.risk,
+          reason: decision.reason,
+          requireUserConfirmation: decision.requireUserConfirmation,
+        };
+        collaborationRunId = orchestrated.collaborationRunId;
+        executionStrategy = orchestrated.usedStrategy;
+      } else {
+        const response = await this.deps.modelRouter.chat(
+          { messages, temperature: 0.3 },
+          {
+            forceClient,
+            sensitive: payload.sensitive,
+            taskType: taskTypeParsed.taskType,
+          },
+        );
+        content = response.content;
+        clientName = response.clientName;
+        modelName = response.modelName;
+        location = response.location;
+        latencyMs = Math.round(response.latencyMs);
+        usage = response.usage;
+      }
+
+      if (persist && sessionId) {
+        this.deps.contextManager.saveAssistantMessage(sessionId, content);
+      }
+
+      const finalized =
+        persist && sessionId
+          ? await this.deps.contextManager.finalizeTurn(sessionId, message)
+          : undefined;
+
+      const body = {
+        runId: run.id,
+        routed: !forceClient,
+        clientName,
+        modelName,
+        location,
+        latencyMs,
+        usage,
+        content,
+        sessionId,
+        routerDecision,
+        collaborationRunId,
+        executionStrategy,
+        compressed: finalized?.compressed ? true : undefined,
+        phase: finalized?.postCall.phase,
+        contextPackage: finalized?.postCall.contextPackage,
+        renderedPrompt: finalized?.postCall.renderedPrompt,
+      };
+
+      this.deps.runs.update(run.id, {
+        status: "completed",
+        resultJson: JSON.stringify({ content }),
+      });
+
+      this.deps.trace?.write({ type: "run_end", runId: run.id, kind: "chat", status: "completed" });
+
+      return { status: 200, body };
+
+    } catch (error) {
+
+      this.deps.runs.update(run.id, { status: "failed", error: String(error) });
+
+      this.deps.trace?.write({ type: "run_end", runId: run.id, kind: "chat", status: "failed" });
+
+      if (error instanceof RouterError) {
+        return { status: 503, body: { error: error.message, code: error.code, runId: run.id } };
+      }
+
+      return { status: 502, body: { error: `调用失败：${String(error)}`, runId: run.id } };
+
+    }
+
+  }
+
+
+
+  async generatePlan(body: unknown, planner?: Planner): Promise<ApiResult> {
+
+    const payload = (body ?? {}) as { goal?: string; context?: string; clientName?: string };
+
+    const goal = (payload.goal ?? "").trim();
+
+    if (!goal) return { status: 400, body: { error: "goal 不能为空" } };
+
+
+
+    const run = this.deps.runs.create({
+
+      kind: "plan",
+
+      status: "running",
+
+      goal,
+
+      correlation: { runId: "" },
+
+    });
+
+    this.deps.runs.update(run.id, {
+
+      correlationJson: JSON.stringify(this.correlationFor(run.id, {})),
+
+    });
+
+
+
+    try {
+
+      this.deps.trace?.write({ type: "run_start", runId: run.id, kind: "plan" });
+
+      const activePlanner = planner ?? this.deps.planner;
+
+      const plan = await activePlanner.generatePlan(goal, payload.context);
+
+      this.deps.runs.update(run.id, {
+
+        status: "completed",
+
+        resultJson: JSON.stringify({ goal: plan.goal, stepCount: plan.steps.length }),
+
+      });
+
+      this.deps.trace?.write({ type: "run_end", runId: run.id, kind: "plan", status: "completed" });
+
+      return { status: 200, body: { runId: run.id, plan } };
+
+    } catch (error) {
+
+      this.deps.runs.update(run.id, { status: "failed", error: String(error) });
+
+      this.deps.trace?.write({ type: "run_end", runId: run.id, kind: "plan", status: "failed" });
+
+      return { status: 502, body: { error: `生成计划失败：${String(error)}`, runId: run.id } };
+
+    }
+
+  }
+
+
+
+  async runTask(body: unknown, dryRun: boolean, planner?: Planner): Promise<ApiResult> {
+
+    const payload = (body ?? {}) as {
+
+      plan?: unknown;
+
+      autoConfirm?: boolean;
+
+      sessionId?: string;
+
+      runId?: string;
+
+      /** 任务失败时逆序回滚本次 Run 内成功的 write_file / apply_patch（默认 false）。 */
+      rollbackOnFailure?: boolean;
+
+      /** 遇 blocked/failed 时调用 Planner 生成修订计划（默认 false）。 */
+      fallbackToPlanOnUncertainty?: boolean;
+
+    };
+
+    const parsed = PlanSchema.safeParse(payload.plan);
+
+    if (!parsed.success) {
+
+      return { status: 400, body: { error: `计划格式不合法：${parsed.error.message}` } };
+
+    }
+
+
+
+    const planGoal = parsed.data.goal ?? parsed.data.steps[0]?.title ?? "任务";
+
+    const sessionId = payload.sessionId
+
+      ? this.ensureSession(payload.sessionId, planGoal)
+
+      : undefined;
+
+    const task = this.resolveOrCreateTask(sessionId, planGoal);
+    this.persistTaskPlan(task.id, parsed.data);
+
+
+
+    const run = this.deps.runs.create({
+
+      kind: dryRun ? "task_dry_run" : "task",
+
+      status: "running",
+
+      sessionId,
+
+      taskId: task.id,
+
+      goal: planGoal,
+
+      parentRunId: payload.runId,
+
+      correlation: this.correlationFor("", { sessionId, taskId: task.id }),
+
+    });
+
+    this.deps.runs.update(run.id, {
+
+      correlationJson: JSON.stringify(this.correlationFor(run.id, { sessionId, taskId: task.id })),
+
+    });
+
+
+
+    const executor = dryRun
+
+      ? new DryRunExecutor()
+
+      : new ToolStepExecutor({
+
+          registry: this.deps.registry,
+
+          workspaceRoot: this.deps.workspaceRoot,
+
+          taskId: task.id,
+
+          sessionId,
+
+          requestId: run.id,
+
+        });
+
+
+
+    const runner = new TaskRunner(parsed.data, {
+
+      executor,
+
+      autoConfirm: payload.autoConfirm ?? false,
+
+      onUpdate: (plan) => this.persistTaskPlan(task.id, plan),
+
+      trace: this.deps.trace,
+
+    });
+
+
+
+    try {
+
+      this.deps.trace?.write({
+
+        type: "run_start",
+
+        runId: run.id,
+
+        kind: dryRun ? "task_dry_run" : "task",
+
+        sessionId,
+
+        taskId: task.id,
+
+      });
+
+      const plan = await runner.run();
+
+      this.persistTaskPlan(task.id, plan);
+
+      const blocked = plan.steps.some((s) => s.status === "blocked");
+      const failed = plan.steps.some((s) => s.status === "failed") || blocked;
+      const runStatus = blocked ? "blocked" : failed ? "failed" : "completed";
+
+      this.deps.tasks.update(task.id, {
+
+        status: failed ? "failed" : "done",
+
+        summary: failed ? "部分步骤未完成" : "全部步骤完成",
+
+      });
+
+      if (!failed) this.releaseTaskFromSession(sessionId, task.id);
+
+      let rollback: TaskRollbackResult | undefined;
+      if (failed && !dryRun && payload.rollbackOnFailure) {
+        rollback = await this.tryRollbackTaskFiles(run.id, sessionId, task.id);
+      }
+
+      const modeFallback = await this.tryFallbackToPlan({
+        enabled: payload.fallbackToPlanOnUncertainty ?? false,
+        planner,
+        planGoal,
+        executedPlan: plan,
+        taskRunId: run.id,
+        sessionId,
+        taskId: task.id,
+      });
+
+      const resultPayload = {
+        plan,
+        ...(rollback ? { rollback } : {}),
+        ...(modeFallback ? { modeFallback } : {}),
+      };
+
+      this.deps.runs.update(run.id, {
+
+        status: runStatus,
+
+        resultJson: JSON.stringify(resultPayload),
+
+      });
+      this.deps.tasks.recordAttempt({
+        taskId: task.id,
+        runId: run.id,
+        status: runStatus,
+        result: JSON.stringify({ stepCount: plan.steps.length, rollback, modeFallback }),
+        endedAt: new Date().toISOString(),
+      });
+
+      this.deps.trace?.write({
+
+        type: "run_end",
+
+        runId: run.id,
+
+        kind: dryRun ? "task_dry_run" : "task",
+
+        status: runStatus,
+
+      });
+
+      return { status: 200, body: { runId: run.id, taskId: task.id, ...resultPayload } };
+
+    } catch (error) {
+
+      let rollback: TaskRollbackResult | undefined;
+      if (!dryRun && payload.rollbackOnFailure) {
+        rollback = await this.tryRollbackTaskFiles(run.id, sessionId, task.id);
+      }
+
+      this.deps.tasks.update(task.id, { status: "failed", summary: String(error) });
+      this.deps.tasks.recordAttempt({
+        taskId: task.id,
+        runId: run.id,
+        status: "failed",
+        error: String(error),
+        endedAt: new Date().toISOString(),
+      });
+
+      this.releaseTaskFromSession(sessionId, task.id);
+
+      this.deps.runs.update(run.id, {
+        status: "failed",
+        error: String(error),
+        resultJson: rollback ? JSON.stringify({ rollback }) : undefined,
+      });
+
+      this.deps.trace?.write({ type: "run_end", runId: run.id, status: "failed" });
+
+      return {
+        status: 500,
+        body: { error: String(error), runId: run.id, taskId: task.id, ...(rollback ? { rollback } : {}) },
+      };
+
+    }
+
+  }
+
+
+
+  async runAgent(body: unknown, makeChat?: LoopChatFn): Promise<ApiResult> {
+    const prepared = this.prepareAgentRun(body, makeChat);
+    if ("error" in prepared) return prepared.error;
+    const { ctx } = prepared;
+
+    try {
+      this.traceAgentRunStart(ctx);
+      const result = await ctx.loop.run(ctx.message, ctx.system);
+      return { status: 200, body: this.finalizeAgentRunSuccess(ctx, result) };
+    } catch (error) {
+      return { status: 502, body: this.finalizeAgentRunFailure(ctx, error) };
+    }
+  }
+
+  /** SSE：推送 run_start / step / done | error（校验错误由 handler 在开启流前返回 JSON）。 */
+  async runAgentStream(
+    body: unknown,
+    emit: (event: AgentStreamEvent) => void,
+    makeChat?: LoopChatFn,
+  ): Promise<void> {
+    const prepared = this.prepareAgentRun(body, makeChat, (step) => emit({ type: "step", step }));
+    if ("error" in prepared) throw new Error(String((prepared.error.body as { error?: string }).error));
+    const { ctx } = prepared;
+
+    emit({ type: "run_start", runId: ctx.run.id, taskId: ctx.task.id, sessionId: ctx.sessionId });
+
+    try {
+      this.traceAgentRunStart(ctx);
+      const result = await ctx.loop.run(ctx.message, ctx.system);
+      emit({ type: "done", ...this.finalizeAgentRunSuccess(ctx, result) });
+    } catch (error) {
+      const body = this.finalizeAgentRunFailure(ctx, error);
+      emit({
+        type: "error",
+        error: String((body as { error?: string }).error),
+        runId: ctx.run.id,
+        taskId: ctx.task.id,
+      });
+    }
+  }
+
+
+
+  /** 调度器无人值守触发：创建 scheduled Run 并执行 Agent 循环（不持久化会话）。 */
+
+  async executeUnattendedTrigger(input: {
+
+    triggerId: string;
+
+    goal: string;
+
+    sessionId?: string;
+
+  }): Promise<{ runId: string }> {
+
+    const run = this.deps.runs.create({
+
+      kind: "scheduled",
+
+      status: "running",
+
+      goal: input.goal,
+
+      triggerId: input.triggerId,
+
+      sessionId: input.sessionId,
+
+      correlation: this.correlationFor("", { triggerId: input.triggerId, sessionId: input.sessionId }),
+
+    });
+
+    this.deps.runs.update(run.id, {
+
+      correlationJson: JSON.stringify(
+
+        this.correlationFor(run.id, { triggerId: input.triggerId, sessionId: input.sessionId }),
+
+      ),
+
+    });
+
+
+
+    const loop = new AgentLoop({
+
+      chat: this.deps.makeChatFn(),
+
+      registry: this.deps.registry,
+
+      workspaceRoot: this.deps.workspaceRoot,
+
+      autoConfirm: false,
+
+      notificationQueue: this.deps.notificationQueue,
+
+      trace: this.deps.trace,
+
+      runId: run.id,
+
+      requestId: run.id,
+
+    });
+
+
+
+    try {
+
+      this.deps.trace?.write({
+
+        type: "run_start",
+
+        runId: run.id,
+
+        kind: "scheduled",
+
+        triggerId: input.triggerId,
+
+      });
+
+      const result = await loop.run(input.goal);
+
+      this.deps.runs.update(run.id, {
+
+        status: result.reachedLimit ? "failed" : "completed",
+
+        resultJson: JSON.stringify({ answer: result.answer, iterations: result.iterations }),
+
+      });
+
+      this.deps.trace?.write({
+
+        type: "run_end",
+
+        runId: run.id,
+
+        kind: "scheduled",
+
+        status: result.reachedLimit ? "failed" : "completed",
+
+      });
+
+    } catch (error) {
+
+      this.deps.runs.update(run.id, { status: "failed", error: String(error) });
+
+      this.deps.trace?.write({ type: "run_end", runId: run.id, kind: "scheduled", status: "failed" });
+
+    }
+
+    return { runId: run.id };
+
+  }
+
+
+
+  createScheduledRun(input: {
+
+    goal: string;
+
+    triggerId: string;
+
+    sessionId?: string;
+
+  }): { runId: string } {
+
+    const run = this.deps.runs.create({
+
+      kind: "scheduled",
+
+      status: "pending",
+
+      goal: input.goal,
+
+      triggerId: input.triggerId,
+
+      sessionId: input.sessionId,
+
+      correlation: this.correlationFor("", {
+
+        triggerId: input.triggerId,
+
+        sessionId: input.sessionId,
+
+      }),
+
+    });
+
+    this.deps.runs.update(run.id, {
+
+      correlationJson: JSON.stringify(
+
+        this.correlationFor(run.id, { triggerId: input.triggerId, sessionId: input.sessionId }),
+
+      ),
+
+    });
+
+    return { runId: run.id };
+
+  }
+
+
+
+  async runSubAgent(body: unknown, forceClient?: string): Promise<ApiResult> {
+
+    const payload = (body ?? {}) as {
+
+      role?: SubAgentRoleId;
+
+      task?: string;
+
+      context?: string;
+
+      parentTaskId?: string;
+
+      grantedPermissions?: string[];
+
+      maxIterations?: number;
+
+      timeoutMs?: number;
+
+      sensitive?: boolean;
+
+    };
+
+    const taskText = (payload.task ?? "").trim();
+
+    if (!payload.role) return { status: 400, body: { error: "role 不能为空" } };
+
+    if (!taskText) return { status: 400, body: { error: "task 不能为空" } };
+
+
+
+    const coord = this.deps.subAgentCoordinatorFor?.(forceClient) ?? this.deps.subAgentCoordinator;
+
+    if (!coord) return { status: 503, body: { error: "子 Agent 未启用" } };
+
+
+
+    const run = this.deps.runs.create({
+
+      kind: "agent",
+
+      status: "running",
+
+      goal: taskText.slice(0, 200),
+
+      taskId: payload.parentTaskId,
+
+      correlation: this.correlationFor("", { taskId: payload.parentTaskId }),
+
+    });
+
+    this.deps.runs.update(run.id, {
+
+      correlationJson: JSON.stringify(this.correlationFor(run.id, { taskId: payload.parentTaskId })),
+
+    });
+
+
+
+    try {
+
+      this.deps.trace?.write({ type: "run_start", runId: run.id, kind: "subagent", role: payload.role });
+
+      const { getSubAgentRole } = await import("../subagent/index.js");
+
+      const roleDef = getSubAgentRole(payload.role);
+
+      const result = await coord.run({
+
+        role: payload.role,
+
+        task: taskText,
+
+        context: payload.context,
+
+        parentTaskId: payload.parentTaskId,
+
+        grantedPermissions: payload.grantedPermissions as ToolPermission[] | undefined,
+
+        maxIterations: payload.maxIterations ?? roleDef.defaultMaxIterations,
+
+        timeoutMs: payload.timeoutMs ?? roleDef.defaultTimeoutMs,
+
+        sensitive: payload.sensitive,
+
+      });
+
+      this.deps.runs.update(run.id, {
+
+        status: "completed",
+
+        resultJson: JSON.stringify({ role: payload.role, summary: result.answer?.slice(0, 500) }),
+
+      });
+
+      this.deps.trace?.write({ type: "run_end", runId: run.id, kind: "subagent", status: "completed" });
+
+      return { status: 200, body: { runId: run.id, result } };
+
+    } catch (error) {
+
+      this.deps.runs.update(run.id, { status: "failed", error: String(error) });
+
+      this.deps.trace?.write({ type: "run_end", runId: run.id, kind: "subagent", status: "failed" });
+
+      return { status: 400, body: { error: String(error), runId: run.id } };
+
+    }
+
+  }
+
+
+
+  async runSubAgentBatch(body: unknown, forceClient?: string): Promise<ApiResult> {
+
+    const payload = (body ?? {}) as {
+
+      roles?: SubAgentRoleId[];
+
+      task?: string;
+
+      context?: string;
+
+      parentTaskId?: string;
+
+      grantedPermissions?: string[];
+
+      maxIterations?: number;
+
+      timeoutMs?: number;
+
+      sensitive?: boolean;
+
+    };
+
+    const taskText = (payload.task ?? "").trim();
+
+    if (!taskText) return { status: 400, body: { error: "task 不能为空" } };
+
+    if (!payload.roles?.length) return { status: 400, body: { error: "roles 不能为空" } };
+
+
+
+    const coord = this.deps.subAgentCoordinatorFor?.(forceClient) ?? this.deps.subAgentCoordinator;
+
+    if (!coord) return { status: 503, body: { error: "子 Agent 未启用" } };
+
+
+
+    const run = this.deps.runs.create({
+
+      kind: "agent",
+
+      status: "running",
+
+      goal: taskText.slice(0, 200),
+
+      taskId: payload.parentTaskId,
+
+      correlation: this.correlationFor("", { taskId: payload.parentTaskId }),
+
+    });
+
+    this.deps.runs.update(run.id, {
+
+      correlationJson: JSON.stringify(this.correlationFor(run.id, { taskId: payload.parentTaskId })),
+
+    });
+
+
+
+    try {
+
+      const { getSubAgentRole } = await import("../subagent/index.js");
+
+      const maxIterations =
+
+        payload.maxIterations ??
+
+        Math.max(...payload.roles.map((r) => getSubAgentRole(r).defaultMaxIterations));
+
+      const timeoutMs =
+
+        payload.timeoutMs ??
+
+        Math.max(...payload.roles.map((r) => getSubAgentRole(r).defaultTimeoutMs));
+
+      this.deps.trace?.write({
+
+        type: "run_start",
+
+        runId: run.id,
+
+        kind: "subagent_batch",
+
+        roles: payload.roles,
+
+      });
+
+      const batch = await coord.runBatch({
+
+        roles: payload.roles,
+
+        task: taskText,
+
+        context: payload.context,
+
+        parentTaskId: payload.parentTaskId,
+
+        grantedPermissions: payload.grantedPermissions as ToolPermission[] | undefined,
+
+        maxIterations,
+
+        timeoutMs,
+
+        sensitive: payload.sensitive,
+
+      });
+
+      this.deps.runs.update(run.id, {
+
+        status: "completed",
+
+        resultJson: JSON.stringify({ roleCount: payload.roles.length }),
+
+      });
+
+      this.deps.trace?.write({ type: "run_end", runId: run.id, kind: "subagent_batch", status: "completed" });
+
+      return { status: 200, body: { runId: run.id, ...batch } };
+
+    } catch (error) {
+
+      this.deps.runs.update(run.id, { status: "failed", error: String(error) });
+
+      this.deps.trace?.write({ type: "run_end", runId: run.id, kind: "subagent_batch", status: "failed" });
+
+      return { status: 400, body: { error: String(error), runId: run.id } };
+
+    }
+
+  }
+
+
+
+  private correlationFor(runId: string, extra: Omit<CorrelationContext, "runId">): CorrelationContext {
+
+    return { runId, ...extra };
+
+  }
+
+  private prepareAgentRun(
+    body: unknown,
+    makeChat?: LoopChatFn,
+    onStep?: (step: AgentToolStep) => void,
+  ):
+    | { error: ApiResult }
+    | {
+        ctx: {
+          message: string;
+          system?: string;
+          sessionId?: string;
+          task: TaskRecord;
+          run: { id: string };
+          loop: AgentLoop;
+        };
+      } {
+    const payload = (body ?? {}) as {
+      message?: string;
+      system?: string;
+      autoConfirm?: boolean;
+      sensitive?: boolean;
+      taskType?: string;
+      maxIterations?: number;
+      sessionId?: string;
+      persist?: boolean;
+    };
+    const message = (payload.message ?? "").trim();
+    if (!message) return { error: { status: 400, body: { error: "message 不能为空" } } };
+
+    const taskTypeParsed = parseModelTaskTypeOrError(payload.taskType);
+    if (!taskTypeParsed.ok) {
+      return { error: { status: 400, body: { error: taskTypeParsed.error } } };
+    }
+
+    const persist = payload.persist !== false;
+    const sessionId = persist ? this.ensureSession(payload.sessionId, "智能体会话") : undefined;
+    const task = this.resolveOrCreateTask(sessionId, message.slice(0, 500));
+    const run = this.deps.runs.create({
+      kind: "agent",
+      status: "running",
+      sessionId,
+      taskId: task.id,
+      goal: message.slice(0, 200),
+      correlation: this.correlationFor("", { sessionId, taskId: task.id }),
+    });
+    this.deps.runs.update(run.id, {
+      correlationJson: JSON.stringify(this.correlationFor(run.id, { sessionId, taskId: task.id })),
+    });
+
+    const loop = new AgentLoop({
+      chat: makeChat ?? this.deps.makeChatFn(),
+      registry: this.deps.registry,
+      workspaceRoot: this.deps.workspaceRoot,
+      autoConfirm: payload.autoConfirm ?? false,
+      sensitive: payload.sensitive,
+      taskType: taskTypeParsed.taskType,
+      maxIterations: payload.maxIterations,
+      trace: this.deps.trace,
+      notificationQueue: this.deps.notificationQueue,
+      contextManager: persist ? this.deps.contextManager : undefined,
+      sessionId,
+      runId: run.id,
+      taskId: task.id,
+      requestId: run.id,
+      onStep,
+    });
+
+    return {
+      ctx: { message, system: payload.system, sessionId, task, run, loop },
+    };
+  }
+
+  private traceAgentRunStart(ctx: {
+    run: { id: string };
+    sessionId?: string;
+    task: TaskRecord;
+  }): void {
+    this.deps.trace?.write({
+      type: "run_start",
+      runId: ctx.run.id,
+      kind: "agent",
+      sessionId: ctx.sessionId,
+      taskId: ctx.task.id,
+    });
+  }
+
+  private finalizeAgentRunSuccess(
+    ctx: { sessionId?: string; task: TaskRecord; run: { id: string } },
+    result: AgentRunResult,
+  ): AgentRunResult & { runId: string; taskId: string } {
+    this.deps.tasks.update(ctx.task.id, {
+      status: result.reachedLimit ? "failed" : "done",
+      summary: result.answer.slice(0, 500),
+    });
+    if (!result.reachedLimit) this.releaseTaskFromSession(ctx.sessionId, ctx.task.id);
+    this.deps.runs.update(ctx.run.id, {
+      status: result.reachedLimit ? "failed" : "completed",
+      resultJson: JSON.stringify({ answer: result.answer, iterations: result.iterations }),
+    });
+    this.deps.trace?.write({
+      type: "run_end",
+      runId: ctx.run.id,
+      kind: "agent",
+      status: result.reachedLimit ? "failed" : "completed",
+    });
+    return { ...result, runId: ctx.run.id, taskId: ctx.task.id };
+  }
+
+  private finalizeAgentRunFailure(
+    ctx: { sessionId?: string; task: TaskRecord; run: { id: string } },
+    error: unknown,
+  ): { error: string; runId: string; taskId: string } {
+    this.deps.tasks.update(ctx.task.id, { status: "failed", summary: String(error) });
+    this.releaseTaskFromSession(ctx.sessionId, ctx.task.id);
+    this.deps.runs.update(ctx.run.id, { status: "failed", error: String(error) });
+    this.deps.trace?.write({ type: "run_end", runId: ctx.run.id, kind: "agent", status: "failed" });
+    return { error: String(error), runId: ctx.run.id, taskId: ctx.task.id };
+  }
+
+  private async tryFallbackToPlan(input: {
+    enabled: boolean;
+    planner?: Planner;
+    planGoal: string;
+    executedPlan: Plan;
+    taskRunId: string;
+    sessionId?: string;
+    taskId: string;
+  }): Promise<ModeFallbackResult | undefined> {
+    if (!input.enabled) return undefined;
+    const uncertainty = detectTaskUncertainty(input.executedPlan);
+    if (!uncertainty.uncertain) return undefined;
+
+    const activePlanner = input.planner ?? this.deps.planner;
+    const planRun = this.deps.runs.create({
+      kind: "plan",
+      status: "running",
+      goal: input.planGoal,
+      parentRunId: input.taskRunId,
+      sessionId: input.sessionId,
+      taskId: input.taskId,
+      correlation: this.correlationFor("", {
+        sessionId: input.sessionId,
+        taskId: input.taskId,
+      }),
+    });
+    this.deps.runs.update(planRun.id, {
+      correlationJson: JSON.stringify(
+        this.correlationFor(planRun.id, { sessionId: input.sessionId, taskId: input.taskId }),
+      ),
+    });
+
+    this.deps.trace?.write({
+      type: "task_fallback_plan_start",
+      runId: input.taskRunId,
+      planRunId: planRun.id,
+      taskId: input.taskId,
+      reasonCount: uncertainty.reasons.length,
+    });
+
+    try {
+      const context = buildPlanFallbackContext(input.executedPlan, uncertainty.reasons);
+      const revisedPlan = await activePlanner.generatePlan(input.planGoal, context);
+      this.deps.runs.update(planRun.id, {
+        status: "completed",
+        resultJson: JSON.stringify({ goal: revisedPlan.goal, stepCount: revisedPlan.steps.length }),
+      });
+      this.deps.trace?.write({
+        type: "task_fallback_plan_end",
+        runId: input.taskRunId,
+        planRunId: planRun.id,
+        status: "completed",
+      });
+      return {
+        triggered: true,
+        reasons: uncertainty.reasons,
+        revisedPlan,
+        planRunId: planRun.id,
+      };
+    } catch (error) {
+      this.deps.runs.update(planRun.id, { status: "failed", error: String(error) });
+      this.deps.trace?.write({
+        type: "task_fallback_plan_end",
+        runId: input.taskRunId,
+        planRunId: planRun.id,
+        status: "failed",
+        error: String(error),
+      });
+      return {
+        triggered: true,
+        reasons: uncertainty.reasons,
+        planRunId: planRun.id,
+        error: String(error),
+      };
+    }
+  }
+
+  private async tryRollbackTaskFiles(
+    runId: string,
+    sessionId: string | undefined,
+    taskId: string,
+  ): Promise<TaskRollbackResult | undefined> {
+    const storage = this.deps.registry.getStorage();
+    if (!storage) return undefined;
+    return rollbackFileChangesForRun({
+      registry: this.deps.registry,
+      storage,
+      workspaceRoot: this.deps.workspaceRoot,
+      runId,
+      sessionId,
+      taskId,
+      trace: this.deps.trace,
+    });
+  }
+
+  private persistTaskPlan(taskId: string, plan: Plan): void {
+
+    this.deps.tasks.upsertSteps(
+
+      taskId,
+
+      plan.steps.map((step, index) => ({
+
+        stepId: step.id,
+
+        position: index,
+
+        title: step.title,
+
+        description: step.description,
+
+        status: step.status,
+
+        requiredPermissions: step.requiredPermissions,
+
+        needsConfirmation: step.needsConfirmation,
+
+        acceptance: step.acceptance,
+
+        dependsOn: step.dependsOn,
+
+        tool: step.tool,
+
+        toolInput: step.toolInput,
+
+        result: step.result,
+
+        error: step.error,
+
+      })),
+
+    );
+
+  }
+
+
+
+  private resolveOrCreateTask(sessionId: string | undefined, goal: string): TaskRecord {
+
+    if (sessionId) {
+
+      const active = this.deps.tasks.getActiveForSession(sessionId);
+
+      if (active) return active;
+
+    }
+
+    const task = this.deps.tasks.create({
+
+      goal,
+
+      sessionId,
+
+      status: "in_progress",
+
+    });
+
+    if (sessionId) this.bindTaskToSession(sessionId, task.id);
+
+    return task;
+
+  }
+
+
+
+  private bindTaskToSession(sessionId: string, taskId: string): void {
+
+    this.deps.contextManager.setActiveTask(sessionId, taskId);
+
+  }
+
+
+
+  private releaseTaskFromSession(sessionId: string | undefined, taskId: string): void {
+
+    if (!sessionId) return;
+
+    const session = this.deps.contextManager.getSession(sessionId);
+
+    if (session?.activeTaskId === taskId) {
+
+      this.deps.contextManager.setActiveTask(sessionId, null);
+
+    }
+
+  }
+
+}
+
+

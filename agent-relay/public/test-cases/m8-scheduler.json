@@ -100,6 +100,65 @@
         "status": 400,
         "bodyHasKeys": ["error"]
       }
+    },
+    {
+      "id": "m8-trigger-fast-interval-rejected",
+      "title": "过小 interval 触发器被拒绝",
+      "purpose": "边界：intervalMs 低于 1000ms 时应返回 400，避免后台被误设为高频忙循环。",
+      "method": "POST",
+      "path": "/api/scheduler/triggers",
+      "input": {
+        "name": "过快轮询",
+        "kind": "interval",
+        "goal": "不应成功",
+        "intervalMs": 10
+      },
+      "expect": {
+        "status": 400,
+        "bodyHasKeys": ["error"]
+      }
+    },
+    {
+      "id": "m8-trigger-once-run-once-missed",
+      "title": "错过时间的 once 可按 run_once 补触发",
+      "purpose": "验证 once 触发器设置 missPolicy=run_once 且 at 已过去时仍能注册并立即进入调度处理链路。",
+      "method": "POST",
+      "path": "/api/scheduler/triggers",
+      "input": {
+        "name": "补触发 once",
+        "kind": "once",
+        "goal": "补触发后创建待确认 Run",
+        "at": "2000-01-01T00:00:00.000Z",
+        "missPolicy": "run_once"
+      },
+      "expect": {
+        "status": 200,
+        "bodyHasKeys": ["trigger"],
+        "bodyPaths": {
+          "trigger.kind": "once"
+        }
+      }
+    },
+    {
+      "id": "m8-trigger-interval-valid",
+      "title": "合法 interval 触发器可注册",
+      "purpose": "验证 intervalMs 达到下限时可成功注册，用于后续周期性待办与 scheduled Run 创建。",
+      "method": "POST",
+      "path": "/api/scheduler/triggers",
+      "input": {
+        "name": "周期巡检网页用例",
+        "kind": "interval",
+        "goal": "周期性检查项目状态",
+        "intervalMs": 5000
+      },
+      "expect": {
+        "status": 200,
+        "bodyHasKeys": ["trigger"],
+        "bodyPaths": {
+          "trigger.kind": "interval",
+          "trigger.status": "active"
+        }
+      }
     }
   ]
 }

@@ -20,13 +20,14 @@ const DANGEROUS_PATTERNS: Array<{ re: RegExp; reason: string }> = [
   { re: /\bgit\s+push\b.*(--force\b|-f\b)/i, reason: "强制推送 (git push --force)" },
   { re: /\b(curl|wget)\b[^|]*\|\s*(sh|bash|powershell|pwsh|cmd)\b/i, reason: "下载后直接执行脚本" },
   { re: /\bnpm\s+publish\b/i, reason: "发布 npm 包" },
+  { re: /\bgit\s+reset\s+--hard\b/i, reason: "硬重置工作区 (git reset --hard)" },
+  { re: /\bgit\s+clean\s+(-[a-z]*f|--force)/i, reason: "强制清理未跟踪文件 (git clean -fd)" },
 ];
 
 /** 提示需谨慎（仍可执行，但建议确认）的模式。 */
 const CAUTION_PATTERNS: Array<{ re: RegExp; reason: string }> = [
   { re: /\brm\b/i, reason: "删除文件" },
   { re: /\bdel\b/i, reason: "删除文件" },
-  { re: /\bgit\s+reset\s+--hard\b/i, reason: "硬重置工作区" },
   { re: /\bgit\s+clean\b/i, reason: "清理未跟踪文件" },
   { re: /\bgit\s+checkout\s+--?\s*\./i, reason: "丢弃本地改动" },
   { re: /\b(npm|pnpm|yarn)\s+(install|add|i)\b/i, reason: "安装依赖（联网）" },

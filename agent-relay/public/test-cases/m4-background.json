@@ -28,6 +28,48 @@
         "status": 200,
         "bodyPaths": { "task.status": "running", "task.command": "node -v" }
       }
+    },
+    {
+      "id": "m4-bg-caution-confirm",
+      "title": "后台 caution 命令未确认时返回 needsConfirmation",
+      "purpose": "验证后台端口不会直接启动删除/安装/覆盖等 caution 命令，必须由调用方显式确认。",
+      "method": "POST",
+      "path": "/api/background/start",
+      "input": { "command": "npm install" },
+      "expect": {
+        "status": 200,
+        "bodyPaths": {
+          "needsConfirmation": true,
+          "risk.level": "caution"
+        }
+      }
+    },
+    {
+      "id": "m4-bg-invalid-timeout",
+      "title": "非法 timeoutMs 返回 400",
+      "purpose": "确认后台启动接口对 timeoutMs 做整数与范围校验，避免误传 0 或极大值。",
+      "method": "POST",
+      "path": "/api/background/start",
+      "input": { "command": "node -v", "timeoutMs": 0 },
+      "expect": {
+        "status": 400,
+        "bodyHasKeys": ["error"]
+      }
+    },
+    {
+      "id": "m4-bg-start-with-timeout",
+      "title": "带 timeoutMs 启动返回任务字段",
+      "purpose": "确认可选 timeoutMs 会写入任务记录，便于测试台展示与轮询超时状态。",
+      "method": "POST",
+      "path": "/api/background/start",
+      "input": { "command": "node -v", "timeoutMs": 60000 },
+      "expect": {
+        "status": 200,
+        "bodyPaths": {
+          "task.status": "running",
+          "task.timeoutMs": 60000
+        }
+      }
     }
   ]
 }

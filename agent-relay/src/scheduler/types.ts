@@ -1,5 +1,8 @@
 import { z } from "zod";
 
+export const MIN_INTERVAL_MS = 1000;
+export const MIN_DEBOUNCE_MS = 100;
+
 export const TriggerStatusSchema = z.enum(["active", "paused", "cancelled", "completed"]);
 export type TriggerStatus = z.infer<typeof TriggerStatusSchema>;
 
@@ -23,7 +26,7 @@ export const EventFilterSchema = z.object({
   status: z.enum(["running", "completed", "failed", "cancelled"]).optional(),
   watchPath: z.string().optional(),
   pattern: z.string().optional(),
-  debounceMs: z.number().int().positive().optional(),
+  debounceMs: z.number().int().min(MIN_DEBOUNCE_MS).optional(),
   /** git_changed：仅工作区脏时触发。 */
   dirtyOnly: z.boolean().optional(),
   /** git_changed：分支名过滤（可选）。 */
@@ -42,7 +45,7 @@ export const TriggerRecordSchema = z.object({
   lastFiredAt: z.string().optional(),
   fireCount: z.number().int().nonnegative(),
   at: z.string().optional(),
-  intervalMs: z.number().int().positive().optional(),
+  intervalMs: z.number().int().min(MIN_INTERVAL_MS).optional(),
   cron: z.string().optional(),
   timezone: z.string().optional(),
   eventType: SchedulerEventTypeSchema.optional(),
@@ -58,7 +61,7 @@ export const CreateTriggerInputSchema = z
     kind: TriggerKindSchema,
     goal: z.string().min(1),
     at: z.string().optional(),
-    intervalMs: z.number().int().positive().optional(),
+    intervalMs: z.number().int().min(MIN_INTERVAL_MS).optional(),
     cron: z.string().optional(),
     timezone: z.string().optional(),
     eventType: SchedulerEventTypeSchema.optional(),

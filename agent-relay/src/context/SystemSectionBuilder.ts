@@ -1,3 +1,4 @@
+import type { FileSnippetItem } from "./fileSnippets.js";
 import type {
   ContextPackage,
   MemoryRecord,
@@ -8,6 +9,7 @@ import type {
   SystemSection,
   SystemSectionItem,
   TaskRecord,
+  TaskStepRecord,
 } from "./types.js";
 
 export interface BuildSystemSectionsInput {
@@ -22,6 +24,8 @@ export interface BuildSystemSectionsInput {
   semanticHits: SemanticHit[];
   project?: ProjectRecord | null;
   activeTask?: TaskRecord | null;
+  planSteps?: TaskStepRecord[];
+  fileSnippets?: FileSnippetItem[];
   recentToolSummaries?: string[];
 }
 
@@ -62,6 +66,20 @@ export class SystemSectionBuilder {
         title: "当前任务",
         priority: 85,
         items: [{ sourceType: "task", sourceId: input.activeTask.id, text: taskText }],
+      });
+    }
+
+    if (input.planSteps?.length) {
+      const planItems = input.planSteps.map((step) => ({
+        sourceType: "task" as const,
+        sourceId: step.stepId,
+        text: formatPlanStepLine(step),
+      }));
+      sections.push({
+        type: "current_plan",
+        title: "当前计划",
+        priority: 84,
+        items: planItems,
       });
     }
 
@@ -120,6 +138,19 @@ export class SystemSectionBuilder {
         title: "相关检索结果",
         priority: 60,
         items: semanticItems,
+      });
+    }
+
+    if (input.fileSnippets?.length) {
+      sections.push({
+        type: "file_snippets",
+        title: "文件与代码片段",
+        priority: 52,
+        items: input.fileSnippets.map((s) => ({
+          sourceType: "file" as const,
+          sourceId: s.messageId,
+          text: `${s.path}（${s.tool}）\n${s.preview}`,
+        })),
       });
     }
 
@@ -219,6 +250,15 @@ function formatStructuredSummary(s: SummaryRecord["content"]): string {
 
 function appendJoin(parts: string[], label: string, items?: string[]): void {
   if (items?.length) parts.push(`${label}：${items.join("、")}`);
+}
+
+function formatPlanStepLine(step: TaskStepRecord): string {
+  const idx = step.position + 1;
+  const confirm = step.needsConfirmation ? "需确认" : "";
+  const deps = step.dependsOn.length ? `依赖:${step.dependsOn.join(",")}` : "";
+  const tail = [step.status, confirm, deps].filter(Boolean).join("；");
+  const desc = step.description ? ` — ${step.description.slice(0, 120)}` : "";
+  return `${idx}. ${step.title}（${tail}）${desc}`;
 }
 
 function dedupeItems(items: SystemSectionItem[], kind: string): SystemSectionItem[] {

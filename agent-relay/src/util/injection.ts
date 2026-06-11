@@ -8,7 +8,7 @@ const INJECTION_PATTERNS: Array<{ re: RegExp; label: string }> = [
   { re: /开发者模式|忽略之前|无视上述/i, label: "zh_injection" },
 ];
 
-const UNTRUSTED_TOOLS = new Set(["read_file", "search_text", "list_files"]);
+const UNTRUSTED_TOOLS = new Set(["read_file", "search_text", "list_files", "notification"]);
 
 export interface InjectionScanResult {
   flagged: boolean;

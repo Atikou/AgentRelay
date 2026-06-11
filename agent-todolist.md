@@ -10,14 +10,15 @@
 - [x] 接入远程模型服务，例如 OpenAI、Anthropic、Gemini、DeepSeek 或其他兼容 API。
 - [x] 统一模型调用接口，屏蔽不同厂商的请求、响应、流式输出和错误格式差异。
 - [x] 支持本地模型和远程模型同时可用。
+- [x] 探测本地端点已安装模型目录。（`GET /api/models/catalog`，基于已配置 local 客户端，不自动写 config）
 - [x] 记录每次模型调用的延迟、价格、token 用量、失败率和上下文长度。
-- [ ] 根据任务类型自主选择模型：
-  - [ ] 低成本简单任务优先使用本地模型。
-  - [ ] 复杂推理、长上下文、代码生成优先使用远程强模型。
+- [x] 根据任务类型自主选择模型：
+  - [x] 低成本简单任务优先使用本地模型。（`RuleRouter` + `ModelRegistry` 等级/成本排序；闲聊/记忆 → Level 1 本地）
+  - [x] 复杂推理、长上下文、代码生成优先使用远程强模型。（架构/文档/代码类规则 → Level 2–3 远程；`qualityMode=deep` 倾向协作）
   - [x] 敏感数据任务优先使用本地模型。（sensitive 标志）
   - [x] 远程模型失败或限流时自动降级到本地模型。（fallback）
 - [x] 支持模型路由策略配置，例如 local-first、cloud-first、privacy-first、quality-first。
-- [ ] 支持单任务内多模型协作，例如本地模型草拟、远程模型审查。
+- [x] 支持单任务内多模型协作，例如本地模型草拟、远程模型审查。（`local_draft_remote_review` + `DraftReviewPipeline`；仅保存 finalAnswer）
 
 ## 2. Agent 模式
 
@@ -27,10 +28,10 @@
   - [x] 明确哪些步骤需要用户确认。
 - [x] 实现任务模式。（控制流 + 工具真实执行 ToolStepExecutor 已就绪）
   - [x] 根据计划执行文件修改、命令运行、测试验证和结果汇报。（步骤绑定 tool 经注册表执行；dry-run 仍保留）
-  - [ ] 支持任务中断、继续、重试和回滚策略。（中断/继续/重试已实现，回滚待定）
+  - [x] 支持任务中断、继续、重试和回滚策略。（`rollbackOnFailure` 显式开启时逆序 `rollback_change`）
 - [x] 支持模式切换。
   - [x] 从计划模式进入任务模式。
-  - [ ] 遇到不确定性时从任务模式回到计划模式。
+  - [x] 遇到不确定性时从任务模式回到计划模式。（`fallbackToPlanOnUncertainty` → `modeFallback.revisedPlan`）
   - [x] 支持用户强制切换模式。
 - [x] 为不同模式设置不同权限边界。
 
@@ -84,9 +85,9 @@
 - [x] 建立上下文分层：（`SystemSectionBuilder` 动态 sections）
   - [x] 系统规则。（`response_rules` section）
   - [x] 用户目标。（`session_summary` / chunk 摘要）
-  - [ ] 当前计划。
+  - [x] 当前计划。（`current_plan` section：从 `task_steps` 注入步骤标题/状态/依赖）
   - [x] 当前任务状态。（`task_state` section + tasks 表）
-  - [ ] 文件和代码片段。
+  - [x] 文件和代码片段。（`file_snippets` section：从近期 `read_file`/`search_text`/`git_diff` 等 tool 消息解析）
   - [x] 工具调用结果。（`recent_tool_results` 从 session tool 消息注入）
   - [x] 历史决策摘要。
 - [x] 支持上下文隔离，避免不同任务互相污染。（scope: global/session/project/task）
@@ -110,25 +111,27 @@
 - [x] 每个后台任务独立记录 stdout、stderr、退出码、开始时间和结束时间。
 - [x] 支持后台任务状态查询。
 - [x] 支持后台任务取消。（Windows `taskkill /T /F`）
-- [ ] 支持命令超时配置。（前台 `shell_run` 有 60s 超时；后台任务暂未设全局超时）
+- [x] 支持命令超时配置。（`POST /api/background/start` 可选 `timeoutMs`；未设置则不自动超时）
 - [x] 支持命令完成后注入通知到主 Agent。（经 `NotificationQueue`）
 - [ ] 支持命令输出匹配规则，例如错误关键字、服务 ready 日志、测试完成日志。
 - [ ] 支持根据命令结果自动触发下一步任务。
 
 ## 8. 定时触发与循环任务
 
-- [ ] 支持一次性定时任务。
-- [ ] 支持周期性任务。
-- [ ] 支持 cron 表达式。
-- [ ] 支持基于事件的触发器：
-  - [ ] 文件变更。
-  - [ ] Git 状态变化。
+- [x] 支持一次性定时任务。（`Scheduler` once）
+- [x] 支持周期性任务。（interval）
+- [x] 支持 cron 表达式。（croner + `cronMissPolicy`）
+- [x] 支持基于事件的触发器：
+  - [x] 文件变更。（`file_changed` + FileWatchHub）
+  - [x] Git 状态变化。（`git_changed` + GitStatusHub）
   - [ ] CI 状态变化。
-  - [ ] 后台任务完成。
+  - [x] 后台任务完成。（`background_completed`）
   - [ ] 外部 webhook。
-- [ ] 支持定时任务的暂停、恢复和取消。
-- [ ] 支持错过执行时间后的补偿策略。
-- [ ] 支持同一任务避免重复触发。
+- [x] 支持定时任务的暂停、恢复和取消。（`/api/scheduler/triggers/*`）
+- [x] 支持错过执行时间后的补偿策略。（`cronMissPolicy`: skip / run_once）
+- [x] 支持同一任务避免重复触发。（debounce + minGap + firing 锁）
+- [x] 无人值守 goal 自动执行 Agent。（`unattendedGoalPatterns` → `Orchestrator.executeUnattendedTrigger`）
+- [x] 触发时创建 scheduled Run。（非无人值守 `createScheduledRun` pending）
 
 ## 9. 通知队列
 
@@ -136,13 +139,13 @@
 - [x] 支持通知来源：
   - [x] 后台命令。
   - [ ] 子 Agent。
-  - [ ] 定时任务。
+  - [x] 定时任务。（`source: scheduler`）
   - [ ] 文件监听器。
   - [ ] 外部 API。
 - [x] 通知内容包含来源、等级、时间、关联任务和可执行动作。（payload 含 stdout 尾部等）
-- [ ] 支持通知优先级。
-- [ ] 支持通知去重。
-- [ ] 支持通知合并，避免噪音过多。
+- [x] 支持通知优先级。（`priority` + 待处理列表排序）
+- [x] 支持通知去重。（`dedupeKey` 合并未消费通知）
+- [x] 支持通知合并，避免噪音过多。（`mergeKey` 折叠未消费通知，`payload.mergeCount` + `mergedMessages`；测试台 UI 仍只展示合并后条目）
 - [x] 主 Agent 在安全点消费通知，而不是打断关键操作。（`AgentLoop` drain）
 - [x] 支持通知持久化，进程重启后不丢失。（`data/notifications/*.jsonl`）
 
@@ -162,7 +165,7 @@
 - [x] 支持工具调用审计日志。（`TraceLogger` 记录 start/ok/error）
 - [ ] 支持 mock 工具，方便测试。（测试用真实沙箱，未单独抽象 mock 工具）
 
-> 已实现内置工具：`read_file` / `list_files` / `search_text`（只读）、`write_file`（写）、`shell_run`（命令，含风险拦截）。安全机制：路径沙箱 + 命令风险分级 + 权限边界 + 确认门。自检：`npm run test:tools`。
+> 已实现第一阶段 11 个内置工具：`read_file` / `list_files` / `search_text` / `write_file` / `apply_patch` / `diff_file` / `backup_file` / `rollback_change` / `shell_run` / `git_status` / `git_diff`。安全机制：路径沙箱 + 自动备份/changeId/回滚 + 命令风险分级 + 输出限制 + `ToolStorage` tool_logs。自检：`npm run test:tools`（16 项）。
 
 ## 11. 状态机与任务编排
 
@@ -170,9 +173,9 @@
 - [x] 设计任务状态机。（`TaskRunner`：pending/running/blocked/completed/failed/cancelled）
 - [x] 设计后台线程状态机。（running / completed / failed / cancelled）
 - [x] 设计子 Agent 生命周期。（completed/failed/timeout + batch 汇总）
-- [ ] 支持任务依赖图 DAG。
-- [ ] 支持并行任务和串行任务混合执行。
-- [ ] 支持任务阻塞时自动切换到其他可执行任务。
+- [x] 支持任务依赖图 DAG。（`TaskRunner` + `taskGraph.ts` 校验环路与 dependsOn）
+- [x] 支持并行任务和串行任务混合执行。（同波并行、依赖串行）
+- [x] 支持任务阻塞时自动切换到其他可执行任务。（`blocked` 不 halt，`failed` 才停止新波次）
 - [x] 防止死循环、自我重复和无限重试。（AgentLoop `maxIterations` 上限）
 
 ## 12. 记忆与知识库
@@ -208,7 +211,7 @@
 
 ## 15. 测试与验证
 
-- [ ] 单元测试模型路由。
+- [x] 单元测试模型路由。（`tests/router.test.ts` 含策略、降级、taskType）
 - [ ] 单元测试任务拆分。
 - [ ] 单元测试上下文压缩。
 - [x] 单元测试通知队列。（`npm run test:background`）
@@ -269,6 +272,7 @@
   - [x] 模型调用。
   - [x] 工具调用。
   - [x] 简单任务状态。（步骤记录 + 迭代上限 + reachedLimit）
+  - [x] 工具步骤 SSE 流式推送。（`POST /api/agent/stream` + `Orchestrator.runAgentStream`）
 - [x] M2：模型路由。
   - [x] 本地和远程模型统一接口。
   - [x] 策略选择。

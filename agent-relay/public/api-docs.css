@@ -20,13 +20,17 @@
 
 body {
   margin: 0;
+  height: 100vh;
+  overflow: hidden;
   font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
   color: var(--text);
+  display: flex;
+  flex-direction: column;
 }
 
 .api-topbar {
-  position: sticky;
-  top: 0;
+  flex: 0 0 auto;
+  position: relative;
   z-index: 100;
   display: flex;
   align-items: center;
@@ -76,6 +80,19 @@ body {
   text-decoration: underline;
 }
 
-#api-reference {
-  min-height: calc(100vh - 49px);
+/* Scalar 在 script#api-reference 前插入的挂载 div */
+body > div {
+  flex: 1 1 auto;
+  min-height: 0;
+  height: calc(100vh - 43px);
+  overflow: auto;
+}
+
+body > div .t-doc__sidebar {
+  top: 0;
+  max-height: calc(100vh - 43px);
+}
+
+body > div .custom-scroll {
+  scrollbar-width: thin;
 }

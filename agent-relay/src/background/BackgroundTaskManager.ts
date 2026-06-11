@@ -2,10 +2,10 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
 
 import { resolveInsideWorkspace } from "../tools/pathSafe.js";
-import { checkCommandRisk } from "../tools/risk.js";
+import { assertBackgroundCommandAllowed } from "../policy/ShellPolicy.js";
 import type { TraceLogger } from "../trace/TraceLogger.js";
 import type { NotificationQueue } from "./NotificationQueue.js";
-import type { BackgroundTaskRecord } from "./types.js";
+import type { BackgroundStartOptions, BackgroundTaskRecord } from "./types.js";
 
 const MAX_OUTPUT_BYTES = 512 * 1024;
 
@@ -14,6 +14,8 @@ export class BackgroundTaskManager {
   private readonly tasks = new Map<string, BackgroundTaskRecord>();
   private readonly processes = new Map<string, ChildProcess>();
   private readonly cancelling = new Set<string>();
+  private readonly timingOut = new Set<string>();
+  private readonly timeouts = new Map<string, ReturnType<typeof setTimeout>>();
 
   constructor(
     private readonly workspaceRoot: string,
@@ -22,21 +24,21 @@ export class BackgroundTaskManager {
     private readonly onTaskDone?: (record: BackgroundTaskRecord) => void,
   ) {}
 
-  start(command: string, cwd?: string): BackgroundTaskRecord {
+  start(command: string, options?: BackgroundStartOptions): BackgroundTaskRecord {
     const trimmed = command.trim();
     if (!trimmed) throw new Error("command 不能为空");
 
-    const risk = checkCommandRisk(trimmed);
-    if (risk.level === "dangerous") {
-      throw new Error(`危险命令被拦截：${risk.reason}`);
-    }
+    assertBackgroundCommandAllowed(trimmed);
 
+    const cwd = options?.cwd;
+    const timeoutMs = options?.timeoutMs;
     const resolvedCwd = cwd ? resolveInsideWorkspace(this.workspaceRoot, cwd) : this.workspaceRoot;
     const id = randomUUID();
     const record: BackgroundTaskRecord = {
       id,
       command: trimmed,
       cwd: resolvedCwd,
+      timeoutMs,
       status: "running",
       stdout: "",
       stderr: "",
@@ -61,7 +63,12 @@ export class BackgroundTaskManager {
       appendOutput(record, "stderr", chunk);
     });
 
+    if (timeoutMs != null) {
+      this.scheduleTimeout(id, timeoutMs);
+    }
+
     child.on("error", (err) => {
+      this.clearTaskTimer(id);
       record.status = "failed";
       record.error = String(err);
       record.endedAt = new Date().toISOString();
@@ -70,12 +77,17 @@ export class BackgroundTaskManager {
     });
 
     child.on("close", (code, signal) => {
+      this.clearTaskTimer(id);
       this.processes.delete(id);
       record.endedAt = new Date().toISOString();
       record.exitCode = code;
 
+      const wasTimeout = this.timingOut.delete(id);
       const wasCancelled = this.cancelling.delete(id);
-      if (wasCancelled || signal === "SIGTERM" || signal === "SIGKILL") {
+      if (wasTimeout) {
+        record.status = "timed_out";
+        record.error = `执行超时（${timeoutMs ?? "?"}ms）`;
+      } else if (wasCancelled || signal === "SIGTERM" || signal === "SIGKILL") {
         record.status = "cancelled";
       } else if (code === 0) {
         record.status = "completed";
@@ -112,13 +124,37 @@ export class BackgroundTaskManager {
     if (task.status !== "running") return this.snapshot(task);
 
     this.cancelling.add(id);
+    this.clearTaskTimer(id);
     killProcessTree(proc);
     return this.snapshot(task);
   }
 
+  private scheduleTimeout(id: string, timeoutMs: number): void {
+    const timer = setTimeout(() => {
+      this.timeouts.delete(id);
+      const task = this.tasks.get(id);
+      const proc = this.processes.get(id);
+      if (!task || !proc || task.status !== "running") return;
+      this.timingOut.add(id);
+      killProcessTree(proc);
+    }, timeoutMs);
+    this.timeouts.set(id, timer);
+  }
+
+  private clearTaskTimer(id: string): void {
+    const timer = this.timeouts.get(id);
+    if (!timer) return;
+    clearTimeout(timer);
+    this.timeouts.delete(id);
+  }
+
   private enqueueDone(record: BackgroundTaskRecord): void {
     const level =
-      record.status === "completed" ? "info" : record.status === "cancelled" ? "warn" : "error";
+      record.status === "completed"
+        ? "info"
+        : record.status === "cancelled" || record.status === "timed_out"
+          ? "warn"
+          : "error";
     this.notifications.enqueue({
       source: "background_task",
       level,
@@ -178,6 +214,8 @@ function statusLabel(status: BackgroundTaskRecord["status"]): string {
       return "失败";
     case "cancelled":
       return "取消";
+    case "timed_out":
+      return "超时";
     default:
       return "结束";
   }

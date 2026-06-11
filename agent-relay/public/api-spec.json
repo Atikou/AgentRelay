@@ -3,7 +3,7 @@
   "info": {
     "title": "AgentRelay HTTP API",
     "version": "0.1.0",
-    "description": "AgentRelay 测试台后端 REST API。默认基址 `http://localhost:18787`。\n\n- 交互文档：[/api-docs](/api-docs)\n- 说明文档：[/docs](/docs)\n- 能力探测：`GET /api/config` → `capabilities`",
+    "description": "AgentRelay 测试台后端 REST API 规范。默认基址 `http://localhost:18787`。\n\n- 交互参考：[/api-docs](/api-docs)\n- 说明文档：[/docs](/docs)\n- 机器可读规范：[/api-spec.json](/api-spec.json)\n- 能力探测：`GET /api/config` → `capabilities`",
     "contact": {
       "name": "AgentRelay"
     }
@@ -24,7 +24,8 @@
     { "name": "子 Agent", "description": "M5 只读子 Agent" },
     { "name": "上下文与记忆", "description": "M6 会话持久化与检索" },
     { "name": "安全与审计", "description": "M7 trace 导出与回放" },
-    { "name": "文档", "description": "Markdown 说明文档元数据" }
+    { "name": "文档", "description": "Markdown 说明文档元数据" },
+    { "name": "编排与 Run", "description": "统一编排执行记录（Orchestrator / RunStore）" }
   ],
   "x-tagGroups": [
     {
@@ -37,7 +38,7 @@
     },
     {
       "name": "编排与状态",
-      "tags": ["后台与通知", "调度", "上下文与记忆"]
+      "tags": ["编排与 Run", "后台与通知", "调度", "上下文与记忆"]
     },
     {
       "name": "可观测性",
@@ -82,6 +83,33 @@
         }
       }
     },
+    "/api/models/catalog": {
+      "get": {
+        "tags": ["配置与模型"],
+        "summary": "探测本地端点已安装模型目录",
+        "description": "仅针对配置中 location=local 的客户端：Ollama 读 /api/tags，openai-compatible 读 /v1/models。不修改 config。",
+        "operationId": "listModelCatalog",
+        "responses": {
+          "200": {
+            "description": "本地模型目录",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "entries": {
+                      "type": "array",
+                      "items": { "$ref": "#/components/schemas/ModelCatalogEntry" }
+                    }
+                  },
+                  "required": ["entries"]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/metrics": {
       "get": {
         "tags": ["配置与模型"],
@@ -116,6 +144,34 @@
           "200": { "description": "模型回复", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ChatResponse" } } } },
           "400": { "$ref": "#/components/responses/BadRequest" },
           "502": { "$ref": "#/components/responses/UpstreamError" }
+        }
+      }
+    },
+    "/api/agent/stream": {
+      "post": {
+        "tags": ["对话与智能体"],
+        "summary": "自主 Agent 循环（SSE 流式推送工具步骤）",
+        "operationId": "runAgentStream",
+        "description": "校验失败时返回 JSON（400/404）；成功时 `text/event-stream`，事件类型：run_start、step、done、error。",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/AgentRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "SSE 事件流",
+            "content": {
+              "text/event-stream": {
+                "schema": { "type": "string", "description": "event: run_start|step|done|error" }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "404": { "$ref": "#/components/responses/NotFound" }
         }
       }
     },
@@ -179,6 +235,59 @@
         "requestBody": { "content": { "application/json": { "schema": { "$ref": "#/components/schemas/TaskRunRequest" } } } },
         "responses": {
           "200": { "description": "步骤状态", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/TaskRunResponse" } } } }
+        }
+      }
+    },
+    "/api/runs": {
+      "get": {
+        "tags": ["编排与 Run"],
+        "summary": "列出最近 Run 记录",
+        "operationId": "listRuns",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": { "type": "integer", "default": 50, "maximum": 200 }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Run 列表",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "runs": { "type": "array", "items": { "$ref": "#/components/schemas/RunRecord" } }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/runs/{runId}": {
+      "get": {
+        "tags": ["编排与 Run"],
+        "summary": "查询单个 Run",
+        "operationId": "getRun",
+        "parameters": [
+          { "name": "runId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }
+        ],
+        "responses": {
+          "200": {
+            "description": "Run 详情",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": { "run": { "$ref": "#/components/schemas/RunRecord" } }
+                }
+              }
+            }
+          },
+          "404": { "$ref": "#/components/responses/NotFound" }
         }
       }
     },
@@ -256,14 +365,21 @@
                 "required": ["command"],
                 "properties": {
                   "command": { "type": "string", "example": "npm test" },
-                  "cwd": { "type": "string", "description": "工作区内相对目录" }
+                  "cwd": { "type": "string", "description": "工作区内相对目录" },
+                  "confirm": { "type": "boolean", "description": "caution 命令需 true" },
+                  "timeoutMs": {
+                    "type": "integer",
+                    "minimum": 1000,
+                    "maximum": 86400000,
+                    "description": "可选；超时后终止进程树，状态为 timed_out"
+                  }
                 }
               }
             }
           }
         },
         "responses": {
-          "200": { "description": "已启动", "content": { "application/json": { "schema": { "type": "object", "properties": { "task": { "$ref": "#/components/schemas/BackgroundTask" } } } } } },
+          "200": { "description": "已启动，或 caution 命令返回 needsConfirmation", "content": { "application/json": { "schema": { "type": "object", "properties": { "task": { "$ref": "#/components/schemas/BackgroundTask" }, "needsConfirmation": { "type": "boolean" }, "risk": { "type": "object", "additionalProperties": true } } } } } },
           "400": { "$ref": "#/components/responses/BadRequest" }
         }
       }
@@ -794,7 +910,32 @@
           "traceReplay": { "type": "boolean" },
           "contextPersistence": { "type": "boolean" },
           "subAgent": { "type": "boolean" },
-          "scheduler": { "type": "boolean" }
+          "scheduler": { "type": "boolean" },
+          "orchestrator": { "type": "boolean" },
+          "runsApi": { "type": "boolean" }
+        }
+      },
+      "RunRecord": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "kind": {
+            "type": "string",
+            "enum": ["agent", "task", "task_dry_run", "chat", "plan", "scheduled"]
+          },
+          "status": {
+            "type": "string",
+            "enum": ["pending", "running", "completed", "failed", "cancelled"]
+          },
+          "sessionId": { "type": "string" },
+          "taskId": { "type": "string" },
+          "triggerId": { "type": "string" },
+          "goal": { "type": "string" },
+          "error": { "type": "string" },
+          "resultJson": { "type": "string" },
+          "correlationJson": { "type": "string" },
+          "createdAt": { "type": "string", "format": "date-time" },
+          "updatedAt": { "type": "string", "format": "date-time" }
         }
       },
       "ConfigResponse": {
@@ -818,6 +959,19 @@
           "available": { "type": "boolean" }
         }
       },
+      "ModelCatalogEntry": {
+        "type": "object",
+        "properties": {
+          "clientName": { "type": "string" },
+          "provider": { "type": "string" },
+          "baseUrl": { "type": "string", "format": "uri" },
+          "configuredModel": { "type": "string" },
+          "reachable": { "type": "boolean" },
+          "models": { "type": "array", "items": { "type": "string" } },
+          "configuredModelInstalled": { "type": "boolean" },
+          "error": { "type": "string" }
+        }
+      },
       "ChatRequest": {
         "type": "object",
         "required": ["message"],
@@ -826,13 +980,34 @@
           "system": { "type": "string" },
           "clientName": { "type": "string", "description": "指定客户端；省略则走路由" },
           "sensitive": { "type": "boolean", "description": "true 时仅本地模型" },
+          "taskType": {
+            "type": "string",
+            "enum": ["simple", "reasoning", "codegen", "long_context"],
+            "description": "（兼容）映射到规则路由任务类型；自动路由时优先用 qualityMode"
+          },
+          "qualityMode": {
+            "type": "string",
+            "enum": ["fast", "balanced", "deep"],
+            "description": "质量偏好：fast 禁用协作；deep 倾向 local_draft_remote_review"
+          },
+          "allowCollaboration": { "type": "boolean", "description": "是否允许多模型协作（默认 true，fast 时 false）" },
+          "forceSingleModel": { "type": "boolean", "description": "强制单模型（调试/省成本）" },
+          "hasAttachments": { "type": "boolean" },
+          "attachmentTypes": {
+            "type": "array",
+            "items": { "type": "string", "enum": ["image", "pdf", "doc", "code", "audio", "unknown"] }
+          },
           "sessionId": { "type": "string", "description": "M6 持久化会话" }
         }
       },
       "ChatResponse": {
         "type": "object",
         "properties": {
+          "runId": { "type": "string", "format": "uuid" },
           "content": { "type": "string" },
+          "routerDecision": { "type": "object", "description": "规则路由摘要（taskType/strategy/模型 id）" },
+          "executionStrategy": { "type": "string", "enum": ["single_model", "local_draft_remote_review"] },
+          "collaborationRunId": { "type": "string", "description": "多模型协作 run id（如有）" },
           "clientName": { "type": "string" },
           "modelName": { "type": "string" },
           "location": { "type": "string" },
@@ -848,6 +1023,11 @@
           "system": { "type": "string" },
           "clientName": { "type": "string" },
           "sensitive": { "type": "boolean" },
+          "taskType": {
+            "type": "string",
+            "enum": ["simple", "reasoning", "codegen", "long_context"],
+            "description": "任务类型路由提示：simple 优先本地；reasoning/codegen/long_context 优先远程"
+          },
           "autoConfirm": { "type": "boolean", "description": "允许写/命令等副作用工具" },
           "maxIterations": { "type": "integer", "default": 8 },
           "sessionId": { "type": "string" }
@@ -856,6 +1036,8 @@
       "AgentResponse": {
         "type": "object",
         "properties": {
+          "runId": { "type": "string", "format": "uuid" },
+          "taskId": { "type": "string", "format": "uuid" },
           "answer": { "type": "string" },
           "steps": { "type": "array", "items": { "type": "object", "additionalProperties": true } },
           "iterations": { "type": "integer" },
@@ -875,19 +1057,56 @@
       },
       "PlanResponse": {
         "type": "object",
-        "properties": { "plan": { "type": "object", "additionalProperties": true } }
+        "properties": {
+          "runId": { "type": "string", "format": "uuid" },
+          "plan": { "type": "object", "additionalProperties": true }
+        }
       },
       "TaskRunRequest": {
         "type": "object",
         "properties": {
           "plan": { "type": "object", "additionalProperties": true },
-          "autoConfirm": { "type": "boolean" }
+          "autoConfirm": { "type": "boolean" },
+          "sessionId": { "type": "string", "format": "uuid" },
+          "runId": { "type": "string", "format": "uuid", "description": "父 Run id（可选）" },
+          "rollbackOnFailure": {
+            "type": "boolean",
+            "default": false,
+            "description": "任务失败或 blocked 时，逆序回滚本次 Run 内成功的 write_file/apply_patch（默认 false）"
+          },
+          "fallbackToPlanOnUncertainty": {
+            "type": "boolean",
+            "default": false,
+            "description": "存在 blocked/failed 步骤时调用 Planner 生成修订计划（modeFallback，默认 false）"
+          }
+        }
+      },
+      "ModeFallbackResult": {
+        "type": "object",
+        "properties": {
+          "triggered": { "type": "boolean", "const": true },
+          "reasons": { "type": "array", "items": { "type": "string" } },
+          "revisedPlan": { "type": "object", "additionalProperties": true },
+          "planRunId": { "type": "string", "format": "uuid" },
+          "error": { "type": "string" }
+        }
+      },
+      "TaskRollbackSummary": {
+        "type": "object",
+        "properties": {
+          "attempted": { "type": "integer", "minimum": 0 },
+          "restored": { "type": "array", "items": { "type": "string" } },
+          "errors": { "type": "array", "items": { "type": "string" } }
         }
       },
       "TaskRunResponse": {
         "type": "object",
         "properties": {
-          "steps": { "type": "array", "items": { "type": "object", "additionalProperties": true } }
+          "runId": { "type": "string", "format": "uuid" },
+          "taskId": { "type": "string", "format": "uuid" },
+          "plan": { "type": "object", "additionalProperties": true },
+          "rollback": { "$ref": "#/components/schemas/TaskRollbackSummary" },
+          "modeFallback": { "$ref": "#/components/schemas/ModeFallbackResult" }
         }
       },
       "ToolSpec": {
@@ -912,7 +1131,10 @@
         "type": "object",
         "properties": {
           "ok": { "type": "boolean" },
+          "needsConfirmation": { "type": "boolean" },
           "tool": { "type": "string" },
+          "permission": { "type": "string" },
+          "preview": { "type": "object", "additionalProperties": true },
           "output": { "type": "object", "additionalProperties": true },
           "error": { "type": "string" },
           "code": { "type": "string" },
@@ -924,7 +1146,11 @@
         "properties": {
           "id": { "type": "string" },
           "command": { "type": "string" },
-          "status": { "type": "string", "enum": ["running", "completed", "failed", "cancelled"] },
+          "status": {
+            "type": "string",
+            "enum": ["running", "completed", "failed", "cancelled", "timed_out"]
+          },
+          "timeoutMs": { "type": "integer", "description": "启动时配置的超时（毫秒），未设置则不自动超时" },
           "stdout": { "type": "string" },
           "stderr": { "type": "string" },
           "exitCode": { "type": "integer", "nullable": true }
@@ -961,7 +1187,7 @@
           "kind": { "type": "string", "enum": ["once", "interval", "cron", "event"] },
           "goal": { "type": "string" },
           "at": { "type": "string", "format": "date-time" },
-          "intervalMs": { "type": "integer" },
+          "intervalMs": { "type": "integer", "minimum": 1000 },
           "cron": { "type": "string" },
           "timezone": { "type": "string" },
           "eventType": { "type": "string", "enum": ["background_completed", "file_changed", "git_changed"] },

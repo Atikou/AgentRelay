@@ -13,6 +13,7 @@ export interface CallMetric {
   outputTokens?: number;
   costUsd?: number;
   strategy?: string;
+  taskType?: string;
   error?: string;
 }
 

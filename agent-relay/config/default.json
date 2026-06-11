@@ -1,5 +1,5 @@
 {
-  "workspaceRoot": ".",
+  "workspaceRoot": "..",
   "models": {
     "default": "local-qwen35",
     "clients": [
@@ -9,7 +9,14 @@
         "location": "local",
         "baseUrl": "http://localhost:11434",
         "model": "qwen3.5:0.8b",
-        "think": false
+        "think": false,
+        "routerProfile": {
+          "defaultLevel": 1,
+          "relativeCost": "free",
+          "canDraft": true,
+          "canReview": false,
+          "allowedRoles": ["primary", "draft"]
+        }
       },
       {
         "name": "local-lmstudio",
@@ -48,7 +55,15 @@
         "model": "claude-3-5-sonnet-latest",
         "maxTokens": 4096,
         "pricePer1kInputUsd": 0.003,
-        "pricePer1kOutputUsd": 0.015
+        "pricePer1kOutputUsd": 0.015,
+        "routerProfile": {
+          "defaultLevel": 3,
+          "relativeCost": "high",
+          "supportsVision": true,
+          "canDraft": true,
+          "canReview": true,
+          "allowedRoles": ["primary", "review", "final"]
+        }
       }
     ]
   },

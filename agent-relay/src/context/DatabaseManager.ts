@@ -2,6 +2,10 @@ import { mkdirSync } from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 
+import { ensureRoutingTables } from "../model-router/route-stores.js";
+
+const SCHEMA_VERSION = 3;
+
 /**
  * SQLite 存储层（Node 内置 node:sqlite，含 FTS5）。
  * 数据目录：{dataDir}/agent_data/memory.db
@@ -108,6 +112,51 @@ export class DatabaseManager {
         updated_at TEXT NOT NULL
       );
 
+      CREATE TABLE IF NOT EXISTS task_steps (
+        id TEXT PRIMARY KEY,
+        task_id TEXT NOT NULL,
+        step_id TEXT NOT NULL,
+        position INTEGER NOT NULL,
+        title TEXT NOT NULL,
+        description TEXT,
+        status TEXT NOT NULL,
+        required_permissions_json TEXT NOT NULL,
+        needs_confirmation INTEGER NOT NULL DEFAULT 0,
+        acceptance TEXT,
+        tool TEXT,
+        tool_input_json TEXT,
+        result TEXT,
+        error TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        UNIQUE(task_id, step_id),
+        FOREIGN KEY (task_id) REFERENCES tasks(id)
+      );
+      CREATE INDEX IF NOT EXISTS idx_task_steps_task ON task_steps(task_id, position);
+
+      CREATE TABLE IF NOT EXISTS task_step_dependencies (
+        task_id TEXT NOT NULL,
+        step_id TEXT NOT NULL,
+        depends_on_step_id TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        PRIMARY KEY(task_id, step_id, depends_on_step_id),
+        FOREIGN KEY (task_id) REFERENCES tasks(id)
+      );
+
+      CREATE TABLE IF NOT EXISTS task_attempts (
+        id TEXT PRIMARY KEY,
+        task_id TEXT NOT NULL,
+        step_id TEXT,
+        run_id TEXT,
+        status TEXT NOT NULL,
+        error TEXT,
+        result TEXT,
+        started_at TEXT NOT NULL,
+        ended_at TEXT,
+        FOREIGN KEY (task_id) REFERENCES tasks(id)
+      );
+      CREATE INDEX IF NOT EXISTS idx_task_attempts_task ON task_attempts(task_id, started_at DESC);
+
       CREATE TABLE IF NOT EXISTS projects (
         id TEXT PRIMARY KEY,
         name TEXT NOT NULL,
@@ -116,6 +165,24 @@ export class DatabaseManager {
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
       );
+
+      CREATE TABLE IF NOT EXISTS runs (
+        id TEXT PRIMARY KEY,
+        kind TEXT NOT NULL,
+        status TEXT NOT NULL,
+        session_id TEXT,
+        task_id TEXT,
+        parent_run_id TEXT,
+        trigger_id TEXT,
+        goal TEXT,
+        error TEXT,
+        result_json TEXT,
+        correlation_json TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_runs_session ON runs(session_id, created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_runs_status ON runs(status, updated_at DESC);
     `);
 
     this.addColumnIfMissing("messages", "is_summarized", "is_summarized INTEGER NOT NULL DEFAULT 0");
@@ -131,6 +198,8 @@ export class DatabaseManager {
     this.ensureFts("messages_fts", "messages", "id", "content");
     this.ensureFts("summaries_fts", "conversation_summaries", "id", "content");
     this.ensureFts("memories_fts", "memories", "id", "value", "summary");
+    ensureRoutingTables(this.db);
+    this.db.exec(`PRAGMA user_version = ${SCHEMA_VERSION};`);
   }
 
   private addColumnIfMissing(table: string, column: string, ddl: string): void {

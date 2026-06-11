@@ -143,7 +143,7 @@ test("集成：危险 shell 经 ToolRegistry 拦截并记录 tool_audit error", 
     const registry = createDefaultRegistry(trace);
     const res = await registry.run("shell_run", { command: "rm -rf /" }, { workspaceRoot: sandbox });
     assert.equal(res.ok, false);
-    assert.match(res.error ?? "", /危险命令被拦截/);
+    assert.match(res.error ?? "", /高风险/);
 
     await flushTrace();
     const audits = auditEvents(readRecentTraceEvents(traceFile, { limit: 20, redact: false }), "shell_run");

@@ -7,12 +7,28 @@ import type {
   NotificationConsumeRecord,
   NotificationJournalLine,
   NotificationLevel,
+  NotificationPriority,
   NotificationSource,
 } from "./types.js";
+
+export interface EnqueueNotificationInput {
+  source: NotificationSource;
+  level: NotificationLevel;
+  message: string;
+  priority?: NotificationPriority;
+  taskId?: string;
+  runId?: string;
+  dedupeKey?: string;
+  mergeKey?: string;
+  payload?: Record<string, unknown>;
+}
 
 /**
  * 线程安全（单进程）通知队列：内存态 + JSONL 持久化。
  * 主 Agent 仅在安全点调用 drain() 消费未读通知。
+ *
+ * - dedupeKey：同一逻辑事件原地更新（保留 id）
+ * - mergeKey：多条不同事件折叠为一条待办（保留 id，payload.mergeCount 递增）
  */
 export class NotificationQueue {
   private readonly items = new Map<string, AgentNotification>();
@@ -23,27 +39,35 @@ export class NotificationQueue {
     this.replay();
   }
 
-  enqueue(input: {
-    source: NotificationSource;
-    level: NotificationLevel;
-    message: string;
-    taskId?: string;
-    payload?: Record<string, unknown>;
-  }): AgentNotification {
+  enqueue(input: EnqueueNotificationInput): AgentNotification {
+    if (input.dedupeKey) {
+      const existing = this.findPending((n) => n.dedupeKey === input.dedupeKey);
+      if (existing) {
+        return this.commit(this.mergeInto(existing, input, { incrementMergeCount: false }));
+      }
+    }
+
+    if (input.mergeKey) {
+      const existing = this.findPending((n) => n.mergeKey === input.mergeKey);
+      if (existing) {
+        return this.commit(this.mergeInto(existing, input, { incrementMergeCount: true }));
+      }
+    }
+
     const notification: AgentNotification = {
       id: randomUUID(),
       consumed: false,
       timestamp: new Date().toISOString(),
+      priority: input.priority ?? "normal",
       ...input,
+      payload: input.payload ? { ...input.payload, mergeCount: 1 } : { mergeCount: 1 },
     };
-    this.items.set(notification.id, notification);
-    this.append(notification);
-    return notification;
+    return this.commit(notification);
   }
 
   /** 返回全部未消费通知并标记为已消费（安全点调用）。 */
   drain(): AgentNotification[] {
-    const pending = [...this.items.values()].filter((n) => !this.consumed.has(n.id));
+    const pending = this.sort([...this.items.values()].filter((n) => !this.consumed.has(n.id)));
     if (pending.length === 0) return [];
 
     const ids = pending.map((n) => n.id);
@@ -63,11 +87,59 @@ export class NotificationQueue {
   }
 
   listPending(): AgentNotification[] {
-    return [...this.items.values()].filter((n) => !this.consumed.has(n.id));
+    return this.sort([...this.items.values()].filter((n) => !this.consumed.has(n.id)));
   }
 
   listAll(): AgentNotification[] {
-    return [...this.items.values()];
+    return this.sort([...this.items.values()]);
+  }
+
+  private findPending(predicate: (n: AgentNotification) => boolean): AgentNotification | undefined {
+    return [...this.items.values()].find((n) => !this.consumed.has(n.id) && predicate(n));
+  }
+
+  private mergeInto(
+    existing: AgentNotification,
+    input: EnqueueNotificationInput,
+    opts: { incrementMergeCount: boolean },
+  ): AgentNotification {
+    const prevCount = readMergeCount(existing.payload);
+    const mergeCount = opts.incrementMergeCount ? prevCount + 1 : prevCount;
+    const mergedMessages = [
+      ...readMergedMessages(existing.payload),
+      input.message,
+    ].slice(-5);
+
+    return {
+      ...existing,
+      ...input,
+      id: existing.id,
+      consumed: false,
+      timestamp: new Date().toISOString(),
+      priority: maxPriority(existing.priority, input.priority),
+      message: formatMergedMessage(input.message, mergeCount),
+      payload: {
+        ...(existing.payload ?? {}),
+        ...(input.payload ?? {}),
+        mergeCount,
+        mergedMessages,
+        latestMessage: input.message,
+      },
+    };
+  }
+
+  private commit(notification: AgentNotification): AgentNotification {
+    this.items.set(notification.id, notification);
+    this.append(notification);
+    return notification;
+  }
+
+  private sort(items: AgentNotification[]): AgentNotification[] {
+    return items.sort((a, b) => {
+      const byPriority = priorityWeight(b.priority) - priorityWeight(a.priority);
+      if (byPriority !== 0) return byPriority;
+      return a.timestamp.localeCompare(b.timestamp);
+    });
   }
 
   private replay(): void {
@@ -92,11 +164,39 @@ export class NotificationQueue {
       }
       const n = parsed as AgentNotification;
       if (!n.id) continue;
-      this.items.set(n.id, { ...n, consumed: this.consumed.has(n.id) });
+      this.items.set(n.id, { ...n, priority: n.priority ?? "normal", consumed: this.consumed.has(n.id) });
     }
   }
 
   private append(line: NotificationJournalLine): void {
     appendFileSync(this.journalFile, `${JSON.stringify(line)}\n`, "utf-8");
   }
+}
+
+export function readMergeCount(payload: Record<string, unknown> | undefined): number {
+  const n = payload?.mergeCount;
+  return typeof n === "number" && n > 0 ? n : 1;
+}
+
+export function readMergedMessages(payload: Record<string, unknown> | undefined): string[] {
+  const raw = payload?.mergedMessages;
+  return Array.isArray(raw) ? raw.filter((m): m is string => typeof m === "string") : [];
+}
+
+export function formatMergedMessage(latestMessage: string, mergeCount: number): string {
+  if (mergeCount <= 1) return latestMessage;
+  return `${latestMessage}（同类通知已合并 ${mergeCount} 条）`;
+}
+
+function priorityWeight(priority: NotificationPriority | undefined): number {
+  if (priority === "high") return 3;
+  if (priority === "low") return 1;
+  return 2;
+}
+
+function maxPriority(
+  a: NotificationPriority | undefined,
+  b: NotificationPriority | undefined,
+): NotificationPriority {
+  return priorityWeight(a) >= priorityWeight(b) ? (a ?? "normal") : (b ?? "normal");
 }

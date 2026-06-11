@@ -12,7 +12,9 @@ import type {
   StructuredSummary,
   SummaryRecord,
   SummaryType,
+  TaskAttemptRecord,
   TaskRecord,
+  TaskStepRecord,
 } from "./types.js";
 
 function nowIso(): string {
@@ -60,6 +62,12 @@ export class SessionStore {
     this.db.connection
       .prepare(`UPDATE sessions SET updated_at=?, last_message_id=COALESCE(?, last_message_id) WHERE id=?`)
       .run(nowIso(), lastMessageId ?? null, id);
+  }
+
+  setActiveTask(sessionId: string, taskId: string | null): void {
+    this.db.connection
+      .prepare(`UPDATE sessions SET active_task_id=?, updated_at=? WHERE id=?`)
+      .run(taskId, nowIso(), sessionId);
   }
 }
 
@@ -549,6 +557,46 @@ export class ProjectStore {
 export class TaskStore {
   constructor(private readonly db: DatabaseManager) {}
 
+  create(input: {
+    goal: string;
+    sessionId?: string;
+    projectId?: string;
+    status?: string;
+    summary?: string;
+  }): TaskRecord {
+    const id = crypto.randomUUID();
+    const ts = new Date().toISOString();
+    const status = input.status ?? "pending";
+    this.db.connection
+      .prepare(
+        `INSERT INTO tasks (id, session_id, project_id, goal, status, summary, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(id, input.sessionId ?? null, input.projectId ?? null, input.goal, status, input.summary ?? null, ts, ts);
+    return this.get(id)!;
+  }
+
+  update(
+    id: string,
+    patch: { status?: string; summary?: string; goal?: string },
+  ): TaskRecord | null {
+    const existing = this.get(id);
+    if (!existing) return null;
+    const ts = new Date().toISOString();
+    this.db.connection
+      .prepare(
+        `UPDATE tasks SET status=?, summary=?, goal=?, updated_at=? WHERE id=?`,
+      )
+      .run(
+        patch.status ?? existing.status,
+        patch.summary ?? existing.summary ?? null,
+        patch.goal ?? existing.goal,
+        ts,
+        id,
+      );
+    return this.get(id);
+  }
+
   get(id: string): TaskRecord | null {
     const row = this.db.connection
       .prepare(`SELECT * FROM tasks WHERE id=?`)
@@ -564,6 +612,147 @@ export class TaskStore {
       )
       .get(sessionId) as Record<string, unknown> | undefined;
     return row ? mapTask(row) : null;
+  }
+
+  upsertSteps(
+    taskId: string,
+    steps: Array<{
+      stepId: string;
+      position: number;
+      title: string;
+      description?: string;
+      status: string;
+      requiredPermissions: string[];
+      needsConfirmation: boolean;
+      acceptance?: string;
+      dependsOn?: string[];
+      tool?: string;
+      toolInput?: Record<string, unknown>;
+      result?: string;
+      error?: string;
+    }>,
+  ): TaskStepRecord[] {
+    const ts = new Date().toISOString();
+    const existingCreated = this.db.connection.prepare(
+      `SELECT id, created_at FROM task_steps WHERE task_id=? AND step_id=?`,
+    );
+    const upsert = this.db.connection.prepare(
+      `INSERT INTO task_steps
+       (id, task_id, step_id, position, title, description, status, required_permissions_json,
+        needs_confirmation, acceptance, tool, tool_input_json, result, error, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(task_id, step_id) DO UPDATE SET
+         position=excluded.position,
+         title=excluded.title,
+         description=excluded.description,
+         status=excluded.status,
+         required_permissions_json=excluded.required_permissions_json,
+         needs_confirmation=excluded.needs_confirmation,
+         acceptance=excluded.acceptance,
+         tool=excluded.tool,
+         tool_input_json=excluded.tool_input_json,
+         result=excluded.result,
+         error=excluded.error,
+         updated_at=excluded.updated_at`,
+    );
+    const clearDeps = this.db.connection.prepare(
+      `DELETE FROM task_step_dependencies WHERE task_id=? AND step_id=?`,
+    );
+    const insertDep = this.db.connection.prepare(
+      `INSERT OR IGNORE INTO task_step_dependencies
+       (task_id, step_id, depends_on_step_id, created_at) VALUES (?, ?, ?, ?)`,
+    );
+
+    for (const step of steps) {
+      const existing = existingCreated.get(taskId, step.stepId) as
+        | { id: string; created_at: string }
+        | undefined;
+      upsert.run(
+        existing?.id ?? randomUUID(),
+        taskId,
+        step.stepId,
+        step.position,
+        step.title,
+        step.description ?? null,
+        step.status,
+        JSON.stringify(step.requiredPermissions),
+        step.needsConfirmation ? 1 : 0,
+        step.acceptance ?? null,
+        step.tool ?? null,
+        step.toolInput ? JSON.stringify(step.toolInput) : null,
+        step.result ?? null,
+        step.error ?? null,
+        existing?.created_at ?? ts,
+        ts,
+      );
+      clearDeps.run(taskId, step.stepId);
+      for (const dep of step.dependsOn ?? []) {
+        insertDep.run(taskId, step.stepId, dep, ts);
+      }
+    }
+    return this.listSteps(taskId);
+  }
+
+  listSteps(taskId: string): TaskStepRecord[] {
+    const rows = this.db.connection
+      .prepare(`SELECT * FROM task_steps WHERE task_id=? ORDER BY position ASC`)
+      .all(taskId) as Record<string, unknown>[];
+    const deps = this.db.connection
+      .prepare(`SELECT step_id, depends_on_step_id FROM task_step_dependencies WHERE task_id=?`)
+      .all(taskId) as Array<{ step_id: string; depends_on_step_id: string }>;
+    const byStep = new Map<string, string[]>();
+    for (const dep of deps) {
+      const list = byStep.get(dep.step_id) ?? [];
+      list.push(dep.depends_on_step_id);
+      byStep.set(dep.step_id, list);
+    }
+    return rows.map((row) => mapTaskStep(row, byStep.get(String(row.step_id)) ?? []));
+  }
+
+  recordAttempt(input: {
+    taskId: string;
+    stepId?: string;
+    runId?: string;
+    status: string;
+    error?: string;
+    result?: string;
+    startedAt?: string;
+    endedAt?: string;
+  }): TaskAttemptRecord {
+    const id = randomUUID();
+    const startedAt = input.startedAt ?? new Date().toISOString();
+    this.db.connection
+      .prepare(
+        `INSERT INTO task_attempts
+         (id, task_id, step_id, run_id, status, error, result, started_at, ended_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        id,
+        input.taskId,
+        input.stepId ?? null,
+        input.runId ?? null,
+        input.status,
+        input.error ?? null,
+        input.result ?? null,
+        startedAt,
+        input.endedAt ?? null,
+      );
+    return this.getAttempt(id)!;
+  }
+
+  getAttempt(id: string): TaskAttemptRecord | null {
+    const row = this.db.connection
+      .prepare(`SELECT * FROM task_attempts WHERE id=?`)
+      .get(id) as Record<string, unknown> | undefined;
+    return row ? mapTaskAttempt(row) : null;
+  }
+
+  listAttempts(taskId: string): TaskAttemptRecord[] {
+    const rows = this.db.connection
+      .prepare(`SELECT * FROM task_attempts WHERE task_id=? ORDER BY started_at DESC`)
+      .all(taskId) as Record<string, unknown>[];
+    return rows.map(mapTaskAttempt);
   }
 }
 
@@ -588,5 +777,62 @@ function mapTask(row: Record<string, unknown>): TaskRecord {
     summary: row.summary ? String(row.summary) : undefined,
     createdAt: String(row.created_at),
     updatedAt: String(row.updated_at),
+  };
+}
+
+function parseJsonArray(value: unknown): string[] {
+  if (value === undefined || value === null || value === "") return [];
+  try {
+    const parsed = JSON.parse(String(value)) as unknown;
+    return Array.isArray(parsed) ? parsed.map(String) : [];
+  } catch {
+    return [];
+  }
+}
+
+function parseJsonObject(value: unknown): Record<string, unknown> | undefined {
+  if (value === undefined || value === null || value === "") return undefined;
+  try {
+    const parsed = JSON.parse(String(value)) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return undefined;
+    return parsed as Record<string, unknown>;
+  } catch {
+    return undefined;
+  }
+}
+
+function mapTaskStep(row: Record<string, unknown>, dependsOn: string[]): TaskStepRecord {
+  return {
+    id: String(row.id),
+    taskId: String(row.task_id),
+    stepId: String(row.step_id),
+    position: Number(row.position ?? 0),
+    title: String(row.title),
+    description: row.description ? String(row.description) : undefined,
+    status: String(row.status),
+    requiredPermissions: parseJsonArray(row.required_permissions_json),
+    needsConfirmation: Number(row.needs_confirmation ?? 0) === 1,
+    acceptance: row.acceptance ? String(row.acceptance) : undefined,
+    dependsOn,
+    tool: row.tool ? String(row.tool) : undefined,
+    toolInput: parseJsonObject(row.tool_input_json),
+    result: row.result ? String(row.result) : undefined,
+    error: row.error ? String(row.error) : undefined,
+    createdAt: String(row.created_at),
+    updatedAt: String(row.updated_at),
+  };
+}
+
+function mapTaskAttempt(row: Record<string, unknown>): TaskAttemptRecord {
+  return {
+    id: String(row.id),
+    taskId: String(row.task_id),
+    stepId: row.step_id ? String(row.step_id) : undefined,
+    runId: row.run_id ? String(row.run_id) : undefined,
+    status: String(row.status),
+    error: row.error ? String(row.error) : undefined,
+    result: row.result ? String(row.result) : undefined,
+    startedAt: String(row.started_at),
+    endedAt: row.ended_at ? String(row.ended_at) : undefined,
   };
 }

@@ -13,6 +13,27 @@ export const RoutingStrategySchema = z.enum([
 ]);
 export type RoutingStrategy = z.infer<typeof RoutingStrategySchema>;
 
+export const ModelRouterProfileSchema = z.object({
+  displayName: z.string().optional(),
+  defaultLevel: z.union([z.literal(1), z.literal(2), z.literal(3)]).optional(),
+  enabled: z.boolean().optional(),
+  supportsStreaming: z.boolean().optional(),
+  supportsTools: z.boolean().optional(),
+  supportsVision: z.boolean().optional(),
+  supportsJsonMode: z.boolean().optional(),
+  maxInputTokens: z.number().int().positive().optional(),
+  maxOutputTokens: z.number().int().positive().optional(),
+  relativeCost: z.enum(["free", "low", "medium", "high"]).optional(),
+  avgLatencyMs: z.number().int().positive().optional(),
+  allowedTaskTypes: z.array(z.string()).optional(),
+  allowedRoles: z.array(z.enum(["primary", "draft", "review", "final"])).optional(),
+  canDraft: z.boolean().optional(),
+  canReview: z.boolean().optional(),
+  canFinal: z.boolean().optional(),
+  tags: z.array(z.string()).optional(),
+});
+export type ModelRouterProfileConfig = z.infer<typeof ModelRouterProfileSchema>;
+
 export const ModelClientConfigSchema = z.object({
   name: z.string().min(1),
   provider: ModelProviderSchema,
@@ -34,6 +55,8 @@ export const ModelClientConfigSchema = z.object({
   pricePer1kInputUsd: z.number().nonnegative().optional(),
   /** 可选计价：每 1k 输出 token 的美元价格。 */
   pricePer1kOutputUsd: z.number().nonnegative().optional(),
+  /** 模型路由协作：等级、角色与能力（省略时按 location/模型名推断）。 */
+  routerProfile: ModelRouterProfileSchema.optional(),
 });
 export type ModelClientConfig = z.infer<typeof ModelClientConfigSchema>;
 

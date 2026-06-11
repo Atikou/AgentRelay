@@ -7,6 +7,8 @@ export interface ToolStepExecutorOptions {
   registry: ToolRegistry;
   workspaceRoot: string;
   taskId?: string;
+  sessionId?: string;
+  requestId?: string;
   allowedPermissions?: ToolPermission[];
 }
 
@@ -25,6 +27,8 @@ export class ToolStepExecutor implements StepExecutor {
     const result = await this.options.registry.run(step.tool, step.toolInput ?? {}, {
       workspaceRoot: this.options.workspaceRoot,
       taskId: this.options.taskId,
+      sessionId: this.options.sessionId,
+      requestId: this.options.requestId,
       signal: ctx.signal,
       allowedPermissions: this.options.allowedPermissions,
     });

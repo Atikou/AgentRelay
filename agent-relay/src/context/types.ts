@@ -115,6 +115,38 @@ export interface TaskRecord {
   updatedAt: string;
 }
 
+export interface TaskStepRecord {
+  id: string;
+  taskId: string;
+  stepId: string;
+  position: number;
+  title: string;
+  description?: string;
+  status: string;
+  requiredPermissions: string[];
+  needsConfirmation: boolean;
+  acceptance?: string;
+  dependsOn: string[];
+  tool?: string;
+  toolInput?: Record<string, unknown>;
+  result?: string;
+  error?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface TaskAttemptRecord {
+  id: string;
+  taskId: string;
+  stepId?: string;
+  runId?: string;
+  status: string;
+  error?: string;
+  result?: string;
+  startedAt: string;
+  endedAt?: string;
+}
+
 export interface SemanticItem {
   id: string;
   itemType: "chat" | "summary" | "memory" | "document" | "image" | "screenshot" | "code";
@@ -146,6 +178,8 @@ export type SystemSectionType =
   | "user_preferences"
   | "session_summary"
   | "task_state"
+  | "current_plan"
+  | "file_snippets"
   | "project_context"
   | "relevant_memories"
   | "semantic_results"
@@ -153,7 +187,7 @@ export type SystemSectionType =
   | "response_rules";
 
 export interface SystemSectionItem {
-  sourceType: "memory" | "summary" | "project" | "task" | "semantic" | "tool";
+  sourceType: "memory" | "summary" | "project" | "task" | "semantic" | "tool" | "file";
   sourceId?: string;
   text: string;
   score?: number;

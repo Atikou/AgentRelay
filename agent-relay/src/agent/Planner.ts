@@ -46,7 +46,7 @@ export class Planner {
         ],
         temperature: 0.2,
       },
-      // 计划模式不需要工具；这里也不传 sensitive，由路由按默认策略选模型。
+      { taskType: "reasoning" },
     );
 
     return normalizePlan(response.content, goal);

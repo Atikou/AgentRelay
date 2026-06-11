@@ -8,7 +8,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 
 import { BackgroundTaskManager } from "../src/background/BackgroundTaskManager.js";
-import { NotificationQueue } from "../src/background/NotificationQueue.js";
+import { NotificationQueue, readMergeCount } from "../src/background/NotificationQueue.js";
 import { matchFilePattern } from "../src/scheduler/FileWatchHub.js";
 import { Scheduler } from "../src/scheduler/Scheduler.js";
 
@@ -42,6 +42,28 @@ test("once 触发器到期后写入 scheduler 通知", async () => {
   sched.stop();
 });
 
+test("scheduler fire handler 返回的 runId 会写入通知", async () => {
+  const journal = path.join(tmpDir, "sched-runid.jsonl");
+  const nqFile = path.join(tmpDir, "nq-runid.jsonl");
+  const nq = new NotificationQueue(nqFile);
+  const sched = new Scheduler(journal, nq);
+  sched.setFireHandler(() => ({ runId: "run-scheduled-1" }));
+  sched.start();
+  sched.register({
+    name: "runid",
+    kind: "once",
+    goal: "create run",
+    at: new Date(Date.now() - 100).toISOString(),
+    missPolicy: "run_once",
+  });
+  await sleep(80);
+  const note = nq.listPending()[0]!;
+  assert.equal(note.runId, "run-scheduled-1");
+  assert.equal((note.payload as Record<string, unknown>).runId, "run-scheduled-1");
+  assert.equal(note.priority, "high");
+  sched.stop();
+});
+
 test("interval 触发器周期性写入通知", async () => {
   const journal = path.join(tmpDir, "sched-interval.jsonl");
   const nqFile = path.join(tmpDir, "nq-interval.jsonl");
@@ -52,11 +74,12 @@ test("interval 触发器周期性写入通知", async () => {
     name: "心跳",
     kind: "interval",
     goal: "周期巡检",
-    intervalMs: 60,
+    intervalMs: 1000,
   });
-  await sleep(180);
+  await sleep(2200);
   const pending = nq.listPending();
-  assert.ok(pending.length >= 2);
+  assert.ok(pending.length >= 1);
+  assert.ok(readMergeCount(pending[0]!.payload) >= 2, "同类 interval 通知应经 mergeKey 折叠");
   sched.stop();
 });
 
@@ -70,12 +93,12 @@ test("pause 后 interval 不再触发", async () => {
     name: "可暂停",
     kind: "interval",
     goal: "暂停测试",
-    intervalMs: 40,
+    intervalMs: 1000,
   });
-  await sleep(100);
+  await sleep(1100);
   const before = nq.listPending().length;
   sched.pause(trigger.id);
-  await sleep(120);
+  await sleep(1200);
   assert.equal(nq.listPending().length, before);
   sched.stop();
 });
@@ -155,7 +178,7 @@ test("handleFileChanged 按 pattern 过滤并去抖", async () => {
     kind: "event",
     eventType: "file_changed",
     goal: "文档有更新",
-    eventFilter: { watchPath: ".", pattern: "*.md", debounceMs: 80 },
+    eventFilter: { watchPath: ".", pattern: "*.md", debounceMs: 100 },
   });
   sched.handleFileChanged({ relativePath: "notes.md", kind: "change" });
   await sleep(150);
@@ -242,11 +265,36 @@ test("cancel 后触发器不再写入通知", async () => {
     name: "将取消",
     kind: "interval",
     goal: "取消测试",
-    intervalMs: 40,
+    intervalMs: 1000,
   });
   sched.cancel(trigger.id);
-  await sleep(120);
+  await sleep(1200);
   assert.equal(nq.listPending().length, 0);
+  sched.stop();
+});
+
+test("拒绝过小 interval/debounce，避免后台高频忙循环", async () => {
+  const journal = path.join(tmpDir, "sched-minimums.jsonl");
+  const nqFile = path.join(tmpDir, "nq-minimums.jsonl");
+  const nq = new NotificationQueue(nqFile);
+  const sched = new Scheduler(journal, nq);
+  assert.throws(() =>
+    sched.register({
+      name: "too-fast",
+      kind: "interval",
+      goal: "过快轮询",
+      intervalMs: 10,
+    }),
+  );
+  assert.throws(() =>
+    sched.register({
+      name: "too-fast-file",
+      kind: "event",
+      eventType: "file_changed",
+      goal: "过快文件监听",
+      eventFilter: { watchPath: ".", debounceMs: 1 },
+    }),
+  );
   sched.stop();
 });
 
