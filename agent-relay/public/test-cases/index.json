@@ -37,60 +37,67 @@
       "order": 4
     },
     {
+      "featureId": "m3-plan-store",
+      "milestone": "M3",
+      "title": "计划存储与执行边界",
+      "file": "m3-plan-store.json",
+      "order": 5
+    },
+    {
       "featureId": "m3-task",
       "milestone": "M3",
       "title": "任务模式",
       "file": "m3-task.json",
-      "order": 5
+      "order": 6
     },
     {
       "featureId": "m4-background",
       "milestone": "M4",
       "title": "后台任务",
       "file": "m4-background.json",
-      "order": 6
+      "order": 7
     },
     {
       "featureId": "m4-notifications",
       "milestone": "M4",
       "title": "通知队列",
       "file": "m4-notifications.json",
-      "order": 7
+      "order": 8
     },
     {
       "featureId": "m5-subagent",
       "milestone": "M5",
       "title": "子 Agent",
       "file": "m5-subagent.json",
-      "order": 8
+      "order": 9
     },
     {
       "featureId": "m6-context",
       "milestone": "M6",
       "title": "上下文压缩与持久化",
       "file": "m6-context.json",
-      "order": 9
+      "order": 10
     },
     {
       "featureId": "m7-security",
       "milestone": "M7",
       "title": "安全与审计",
       "file": "m7-security.json",
-      "order": 10
+      "order": 11
     },
     {
       "featureId": "m8-scheduler",
       "milestone": "M8",
       "title": "定时与事件触发",
       "file": "m8-scheduler.json",
-      "order": 11
+      "order": 12
     },
     {
       "featureId": "m9-orchestrator",
       "milestone": "M9",
       "title": "编排与 Run",
       "file": "m9-orchestrator.json",
-      "order": 12
+      "order": 13
     }
   ]
 }

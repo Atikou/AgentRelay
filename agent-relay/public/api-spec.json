@@ -198,7 +198,8 @@
     "/api/plan": {
       "post": {
         "tags": ["计划与任务"],
-        "summary": "生成结构化计划（只读）",
+        "summary": "生成机器计划草案预览（Markdown + PublicPlanJson，不可直接执行）",
+        "description": "调用 Planner 生成可持久化的 InternalTaskPlan，并返回 previewMarkdown / publicPlanJson（executable=false）。本接口要求模型输出可解析的计划 JSON；给用户看的 Markdown 计划分析报告请改用 `/api/agent` 且传入 `mode=plan`。真实执行请走 `/api/plans/:planId/approve` → `/api/plans/:planId/execute`。",
         "operationId": "createPlan",
         "requestBody": {
           "required": true,
@@ -209,10 +210,211 @@
           }
         },
         "responses": {
-          "200": { "description": "计划对象", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PlanResponse" } } } },
+          "200": { "description": "计划预览", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PlanResponse" } } } },
           "400": { "$ref": "#/components/responses/BadRequest" },
           "404": { "$ref": "#/components/responses/NotFound" },
           "502": { "$ref": "#/components/responses/UpstreamError" }
+        }
+      }
+    },
+    "/api/plans/draft": {
+      "post": {
+        "tags": ["计划与任务"],
+        "summary": "起草 InternalTaskPlan 并返回展示预览",
+        "operationId": "draftPlan",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/PlanRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "planId + previewMarkdown + publicPlanJson", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PlanDraftResponse" } } } },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "502": { "$ref": "#/components/responses/UpstreamError" }
+        }
+      }
+    },
+    "/api/plans/analyze": {
+      "post": {
+        "tags": ["计划与任务"],
+        "summary": "生成用户可见计划报告（UserVisiblePlan）",
+        "description": "走 /api/agent mode=plan 的只读链路，输出并持久化 UserVisiblePlan Markdown；该文档不可直接执行。",
+        "operationId": "analyzePlan",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/PlanAnalyzeRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "UserVisiblePlan + executionMeta", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PlanAnalyzeResponse" } } } },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "502": { "$ref": "#/components/responses/UpstreamError" }
+        }
+      }
+    },
+    "/api/plans/import-preview": {
+      "post": {
+        "tags": ["计划与任务"],
+        "summary": "将用户 PublicPlanJson / 预览内容修订为新 InternalTaskPlan 草案",
+        "description": "外部输入永远不能提升为可执行计划；须重新校验并审批。",
+        "operationId": "importPlanPreview",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["preview"],
+                "properties": {
+                  "preview": { "type": "object", "additionalProperties": true },
+                  "goal": { "type": "string" },
+                  "sessionId": { "type": "string" },
+                  "clientName": { "type": "string" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "新修订版草案", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PlanDraftResponse" } } } },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "502": { "$ref": "#/components/responses/UpstreamError" }
+        }
+      }
+    },
+    "/api/plans/{userVisiblePlanId}/compile": {
+      "post": {
+        "tags": ["计划与任务"],
+        "summary": "将 UserVisiblePlan 中已确认 Todo 编译为内部执行计划草案",
+        "description": "编译结果仍为 awaiting_approval 的 InternalTaskPlan，不会自动执行；执行前必须 approve。",
+        "operationId": "compileUserVisiblePlan",
+        "parameters": [{ "name": "userVisiblePlanId", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/PlanCompileRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "待审批 InternalTaskPlan 草案预览", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PlanCompileResponse" } } } },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+    "/api/plans/{planId}/preview": {
+      "get": {
+        "tags": ["计划与任务"],
+        "summary": "读取已存计划的 Markdown 或 PublicPlanJson 预览",
+        "operationId": "getPlanPreview",
+        "parameters": [
+          { "name": "planId", "in": "path", "required": true, "schema": { "type": "string" } },
+          { "name": "version", "in": "query", "schema": { "type": "integer", "default": 1 } },
+          { "name": "format", "in": "query", "schema": { "type": "string", "enum": ["markdown", "json"], "default": "markdown" } }
+        ],
+        "responses": {
+          "200": {
+            "description": "executable=false 的展示内容",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "planId": { "type": "string" },
+                    "version": { "type": "integer" },
+                    "format": { "type": "string" },
+                    "content": { "type": "string" },
+                    "executable": { "type": "boolean", "const": false }
+                  }
+                }
+              }
+            }
+          },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+    "/api/plans/{planId}/approve": {
+      "post": {
+        "tags": ["计划与任务"],
+        "summary": "审批计划版本（状态 → approved）",
+        "operationId": "approvePlan",
+        "parameters": [{ "name": "planId", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "version": { "type": "integer", "default": 1 },
+                  "comment": { "type": "string" },
+                  "approvedBy": { "type": "string" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "审批成功", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PlanApprovalResponse" } } } },
+          "400": { "$ref": "#/components/responses/BadRequest" }
+        }
+      }
+    },
+    "/api/plans/{planId}/reject": {
+      "post": {
+        "tags": ["计划与任务"],
+        "summary": "拒绝计划版本（状态 → rejected）",
+        "operationId": "rejectPlan",
+        "parameters": [{ "name": "planId", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "version": { "type": "integer", "default": 1 },
+                  "comment": { "type": "string" },
+                  "rejectedBy": { "type": "string" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "拒绝成功", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PlanApprovalResponse" } } } },
+          "400": { "$ref": "#/components/responses/BadRequest" }
+        }
+      }
+    },
+    "/api/plans/{planId}/execute": {
+      "post": {
+        "tags": ["计划与任务"],
+        "summary": "执行已审批的 InternalTaskPlan（仅 planId + version）",
+        "description": "拒绝 body 中的 plan / publicPlanJson / internalPlan。",
+        "operationId": "executePlan",
+        "parameters": [{ "name": "planId", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/PlanExecuteRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "TaskRunner 结果", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/TaskRunResponse" } } } },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "404": { "$ref": "#/components/responses/NotFound" }
         }
       }
     },
@@ -220,21 +422,96 @@
       "post": {
         "tags": ["计划与任务"],
         "summary": "任务模式干跑（不执行副作用）",
+        "description": "接受 planId+version（已存计划）或 legacy plan 对象（自动 ingest + 系统审批）。",
         "operationId": "taskDryRun",
         "requestBody": { "content": { "application/json": { "schema": { "$ref": "#/components/schemas/TaskRunRequest" } } } },
         "responses": {
-          "200": { "description": "步骤状态", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/TaskRunResponse" } } } }
+          "200": { "description": "步骤状态", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/TaskRunResponse" } } } },
+          "400": { "$ref": "#/components/responses/BadRequest" }
         }
       }
     },
     "/api/task/run": {
       "post": {
         "tags": ["计划与任务"],
-        "summary": "任务模式真实执行",
+        "summary": "任务模式真实执行（仅 planId + version）",
+        "description": "不再接受 body.plan JSON（返回 PLAN_BODY_NOT_EXECUTABLE）。请使用 `/api/plans/:planId/execute`。",
         "operationId": "taskRun",
         "requestBody": { "content": { "application/json": { "schema": { "$ref": "#/components/schemas/TaskRunRequest" } } } },
         "responses": {
-          "200": { "description": "步骤状态", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/TaskRunResponse" } } } }
+          "200": { "description": "步骤状态", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/TaskRunResponse" } } } },
+          "400": { "$ref": "#/components/responses/BadRequest" }
+        }
+      }
+    },
+    "/api/tasks": {
+      "get": {
+        "tags": ["计划与任务"],
+        "summary": "按会话列出任务",
+        "operationId": "listTasks",
+        "parameters": [
+          { "name": "sessionId", "in": "query", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": { "description": "任务列表" },
+          "400": { "$ref": "#/components/responses/BadRequest" }
+        }
+      }
+    },
+    "/api/tasks/{taskId}": {
+      "get": {
+        "tags": ["计划与任务"],
+        "summary": "查询任务与步骤状态",
+        "operationId": "getTask",
+        "parameters": [{ "name": "taskId", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": {
+          "200": { "description": "任务详情含 plan 快照" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+    "/api/tasks/{taskId}/resume": {
+      "post": {
+        "tags": ["计划与任务"],
+        "summary": "恢复阻塞/失败任务（retry/skip/confirm）",
+        "operationId": "resumeTask",
+        "parameters": [{ "name": "taskId", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["action", "stepId"],
+                "properties": {
+                  "action": { "type": "string", "enum": ["retry", "skip", "confirm"] },
+                  "stepId": { "type": "string" },
+                  "autoConfirm": { "type": "boolean" },
+                  "dryRun": { "type": "boolean" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "恢复执行结果" },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+    "/api/routing/logs": {
+      "get": {
+        "tags": ["模型与指标"],
+        "summary": "查询模型路由与 fallback 日志",
+        "operationId": "listRoutingLogs",
+        "parameters": [
+          { "name": "sessionId", "in": "query", "schema": { "type": "string" } },
+          { "name": "routeLogId", "in": "query", "schema": { "type": "string", "description": "指定时返回关联 calls/collaborations/fallbacks" } },
+          { "name": "limit", "in": "query", "schema": { "type": "integer", "default": 20, "maximum": 100 } }
+        ],
+        "responses": {
+          "200": { "description": "路由日志列表或详情" },
+          "404": { "$ref": "#/components/responses/NotFound" }
         }
       }
     },
@@ -372,6 +649,31 @@
                     "minimum": 1000,
                     "maximum": 86400000,
                     "description": "可选；超时后终止进程树，状态为 timed_out"
+                  },
+                  "outputRules": {
+                    "type": "array",
+                    "description": "stdout/stderr 匹配规则",
+                    "items": {
+                      "type": "object",
+                      "required": ["name", "pattern"],
+                      "properties": {
+                        "name": { "type": "string" },
+                        "pattern": { "type": "string" },
+                        "regex": { "type": "boolean" },
+                        "ignoreCase": { "type": "boolean" },
+                        "stream": { "type": "string", "enum": ["stdout", "stderr", "both"] },
+                        "fireOnStream": { "type": "boolean" }
+                      }
+                    }
+                  },
+                  "triggerOnMatch": {
+                    "type": "object",
+                    "required": ["goal"],
+                    "properties": {
+                      "goal": { "type": "string" },
+                      "mode": { "type": "string", "enum": ["any", "all"] },
+                      "requireSuccess": { "type": "boolean" }
+                    }
                   }
                 }
               }
@@ -609,7 +911,7 @@
           }
         },
         "responses": {
-          "200": { "description": "批量结果与 summary", "content": { "application/json": { "schema": { "type": "object", "additionalProperties": true } } } }
+          "200": { "description": "批量结果、summary 与 aggregate", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/SubAgentBatchResponse" } } } }
         }
       }
     },
@@ -912,9 +1214,19 @@
           "subAgent": { "type": "boolean" },
           "scheduler": { "type": "boolean" },
           "orchestrator": { "type": "boolean" },
-          "runsApi": { "type": "boolean" }
-        }
-      },
+          "runsApi": { "type": "boolean" },
+          "sensitiveDetection": { "type": "boolean" },
+          "modelPromptRedaction": { "type": "boolean" },
+          "agentDecisionTrace": { "type": "boolean" },
+          "taskStatusTrace": { "type": "boolean" },
+            "toolCallTrace": { "type": "boolean" },
+            "modelUsageTrace": { "type": "boolean" },
+            "toolErrorCategory": { "type": "boolean" },
+            "toolStorageRedaction": { "type": "boolean" },
+            "highRiskConfirmation": { "type": "boolean" },
+            "localFirstPrivacyMode": { "type": "boolean" }
+          }
+        },
       "RunRecord": {
         "type": "object",
         "properties": {
@@ -1006,8 +1318,17 @@
           "runId": { "type": "string", "format": "uuid" },
           "content": { "type": "string" },
           "routerDecision": { "type": "object", "description": "规则路由摘要（taskType/strategy/模型 id）" },
-          "executionStrategy": { "type": "string", "enum": ["single_model", "local_draft_remote_review"] },
+          "executionStrategy": {
+            "type": "string",
+            "enum": ["single_model", "strong_model_direct", "local_draft_remote_review"]
+          },
           "collaborationRunId": { "type": "string", "description": "多模型协作 run id（如有）" },
+          "fallbackCount": { "type": "integer", "description": "V2：本请求触发的模型升级 fallback 次数（0 时省略）" },
+          "fallbackLogIds": {
+            "type": "array",
+            "items": { "type": "string", "format": "uuid" },
+            "description": "V2：fallback_logs 记录 id 列表（无 fallback 时省略）"
+          },
           "clientName": { "type": "string" },
           "modelName": { "type": "string" },
           "location": { "type": "string" },
@@ -1023,14 +1344,80 @@
           "system": { "type": "string" },
           "clientName": { "type": "string" },
           "sensitive": { "type": "boolean" },
+          "mode": {
+            "type": "string",
+            "enum": ["chat", "plan", "implement", "debug", "review"],
+            "description": "运行模式；省略时根据用户消息推断。plan/review 会在执行层限制为只读权限。需要给用户展示 Markdown 计划报告时使用 mode=plan"
+          },
           "taskType": {
             "type": "string",
             "enum": ["simple", "reasoning", "codegen", "long_context"],
             "description": "任务类型路由提示：simple 优先本地；reasoning/codegen/long_context 优先远程"
           },
           "autoConfirm": { "type": "boolean", "description": "允许写/命令等副作用工具" },
-          "maxIterations": { "type": "integer", "default": 8 },
+          "budget": { "$ref": "#/components/schemas/RunBudget" },
           "sessionId": { "type": "string" }
+        }
+      },
+      "RunBudget": {
+        "type": "object",
+        "properties": {
+          "maxModelTurns": { "type": "integer", "description": "最多模型轮次" },
+          "maxToolCalls": { "type": "integer", "description": "最多工具请求次数" },
+          "maxReadCalls": { "type": "integer", "description": "最多成功只读工具调用次数" },
+          "maxWriteCalls": { "type": "integer", "description": "最多成功写入/高风险工具调用次数" },
+          "maxShellCalls": { "type": "integer", "description": "最多成功 shell 工具调用次数" },
+          "maxRuntimeMs": { "type": "integer", "description": "最多运行时长，毫秒" }
+        }
+      },
+      "RunBudgetUsage": {
+        "type": "object",
+        "properties": {
+          "modelTurns": { "type": "integer" },
+          "toolCalls": { "type": "integer" },
+          "readCalls": { "type": "integer" },
+          "writeCalls": { "type": "integer" },
+          "shellCalls": { "type": "integer" },
+          "runtimeMs": { "type": "integer" }
+        }
+      },
+      "LocationExecutionMeta": {
+        "type": "object",
+        "properties": {
+          "usedLocateSteps": { "type": "integer" },
+          "usedSearchCalls": { "type": "integer" },
+          "usedListCalls": { "type": "integer" },
+          "usedReadForLocationCalls": { "type": "integer" },
+          "locatedFiles": { "type": "array", "items": { "type": "string" } },
+          "candidateFiles": { "type": "array", "items": { "type": "string" } },
+          "stopReason": { "type": "string" },
+          "needsContinue": { "type": "boolean" },
+          "confidence": { "type": "number" }
+        }
+      },
+      "AgentExecutionMeta": {
+        "type": "object",
+        "properties": {
+          "mode": { "type": "string", "enum": ["chat", "plan", "implement", "debug", "review"] },
+          "budget": { "$ref": "#/components/schemas/RunBudget" },
+          "usage": { "$ref": "#/components/schemas/RunBudgetUsage" },
+          "location": { "$ref": "#/components/schemas/LocationExecutionMeta" },
+          "budgetExhausted": {
+            "type": "string",
+            "enum": ["maxModelTurns", "maxToolCalls", "maxReadCalls", "maxWriteCalls", "maxShellCalls", "maxRuntimeMs"]
+          },
+          "usedIterations": { "type": "integer" },
+          "usedModelTurns": { "type": "integer" },
+          "usedToolCalls": { "type": "integer" },
+          "usedReadCalls": { "type": "integer" },
+          "usedWriteCalls": { "type": "integer" },
+          "usedShellCalls": { "type": "integer" },
+          "stopReason": {
+            "type": "string",
+            "enum": ["completed", "budget_exhausted", "error", "user_cancelled"]
+          },
+          "needsMoreBudget": { "type": "boolean" },
+          "suggestedBudget": { "$ref": "#/components/schemas/RunBudget" }
         }
       },
       "AgentResponse": {
@@ -1042,6 +1429,7 @@
           "steps": { "type": "array", "items": { "type": "object", "additionalProperties": true } },
           "iterations": { "type": "integer" },
           "reachedLimit": { "type": "boolean" },
+          "executionMeta": { "$ref": "#/components/schemas/AgentExecutionMeta" },
           "sessionId": { "type": "string" },
           "notifications": { "type": "array", "items": { "$ref": "#/components/schemas/Notification" } }
         }
@@ -1050,22 +1438,137 @@
         "type": "object",
         "required": ["goal"],
         "properties": {
-          "goal": { "type": "string" },
+          "goal": {
+            "type": "string",
+            "description": "机器计划目标。不要传入 '# 计划模式分析结果' 这类 Markdown 报告模板；报告型计划请使用 /api/agent mode=plan"
+          },
           "context": { "type": "string" },
           "clientName": { "type": "string" }
+        }
+      },
+      "PlanAnalyzeRequest": {
+        "type": "object",
+        "required": ["goal"],
+        "properties": {
+          "goal": { "type": "string" },
+          "context": { "type": "string" },
+          "sessionId": { "type": "string" },
+          "clientName": { "type": "string" },
+          "budget": { "$ref": "#/components/schemas/RunBudget" }
+        }
+      },
+      "UserVisibleTodo": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "priority": { "type": "string", "enum": ["P0", "P1", "P2", "P3"] },
+          "title": { "type": "string" },
+          "goal": { "type": "string" },
+          "implementationIdea": { "type": "string" },
+          "acceptanceCriteria": { "type": "array", "items": { "type": "string" } },
+          "riskLevel": { "type": "string", "enum": ["low", "medium", "high"] },
+          "allowAutoImplement": { "type": "boolean" },
+          "requiresUserConfirmation": { "type": "boolean" }
+        }
+      },
+      "UserVisiblePlan": {
+        "type": "object",
+        "properties": {
+          "kind": { "type": "string", "const": "user_visible_plan" },
+          "id": { "type": "string" },
+          "sourceRunId": { "type": "string" },
+          "sessionId": { "type": "string" },
+          "title": { "type": "string" },
+          "markdown": { "type": "string" },
+          "todos": { "type": "array", "items": { "$ref": "#/components/schemas/UserVisibleTodo" } },
+          "risks": { "type": "array", "items": { "type": "object", "additionalProperties": true } },
+          "requiresUserConfirmation": { "type": "boolean" },
+          "createdAt": { "type": "string" }
+        }
+      },
+      "PlanAnalyzeResponse": {
+        "type": "object",
+        "properties": {
+          "runId": { "type": "string" },
+          "userVisiblePlan": { "$ref": "#/components/schemas/UserVisiblePlan" },
+          "executionMeta": { "$ref": "#/components/schemas/AgentExecutionMeta" },
+          "warning": { "type": "string" }
+        }
+      },
+      "PlanCompileRequest": {
+        "type": "object",
+        "required": ["confirmedTodoIds"],
+        "properties": {
+          "confirmedTodoIds": { "type": "array", "items": { "type": "string" } },
+          "sessionId": { "type": "string" }
+        }
+      },
+      "PlanCompileResponse": {
+        "allOf": [{ "$ref": "#/components/schemas/PlanResponse" }],
+        "properties": {
+          "status": { "type": "string" },
+          "sourceUserVisiblePlanId": { "type": "string" }
         }
       },
       "PlanResponse": {
         "type": "object",
         "properties": {
           "runId": { "type": "string", "format": "uuid" },
-          "plan": { "type": "object", "additionalProperties": true }
+          "planId": { "type": "string" },
+          "version": { "type": "integer" },
+          "previewMarkdown": { "type": "string" },
+          "publicPlanJson": { "$ref": "#/components/schemas/PublicPlanJson" },
+          "warning": { "type": "string" }
+        }
+      },
+      "PlanDraftResponse": {
+        "allOf": [{ "$ref": "#/components/schemas/PlanResponse" }],
+        "properties": {
+          "status": { "type": "string" }
+        }
+      },
+      "PublicPlanJson": {
+        "type": "object",
+        "properties": {
+          "kind": { "type": "string", "const": "public_plan_preview" },
+          "executable": { "type": "boolean", "const": false },
+          "planId": { "type": "string" },
+          "version": { "type": "integer" },
+          "goal": { "type": "string" },
+          "steps": { "type": "array", "items": { "type": "object", "additionalProperties": true } }
+        }
+      },
+      "PlanApprovalResponse": {
+        "type": "object",
+        "properties": {
+          "planId": { "type": "string" },
+          "version": { "type": "integer" },
+          "status": { "type": "string" },
+          "planHash": { "type": "string" }
+        }
+      },
+      "PlanExecuteRequest": {
+        "type": "object",
+        "required": ["version"],
+        "properties": {
+          "version": { "type": "integer", "minimum": 1 },
+          "autoConfirm": { "type": "boolean" },
+          "sessionId": { "type": "string", "format": "uuid" },
+          "dryRun": { "type": "boolean" },
+          "rollbackOnFailure": { "type": "boolean" },
+          "fallbackToPlanOnUncertainty": { "type": "boolean" }
         }
       },
       "TaskRunRequest": {
         "type": "object",
         "properties": {
-          "plan": { "type": "object", "additionalProperties": true },
+          "planId": { "type": "string", "description": "PlanStore 中的计划 id（真实执行必填）" },
+          "version": { "type": "integer", "description": "计划版本号" },
+          "plan": {
+            "type": "object",
+            "additionalProperties": true,
+            "description": "仅 dry-run 兼容：legacy Plan 对象，会自动 ingest 到 PlanStore"
+          },
           "autoConfirm": { "type": "boolean" },
           "sessionId": { "type": "string", "format": "uuid" },
           "runId": { "type": "string", "format": "uuid", "description": "父 Run id（可选）" },
@@ -1203,7 +1706,7 @@
           "role": { "type": "string", "enum": ["code_review", "test_analyze"] },
           "task": { "type": "string" },
           "sensitive": { "type": "boolean" },
-          "maxIterations": { "type": "integer" },
+          "budget": { "$ref": "#/components/schemas/RunBudget" },
           "timeoutMs": { "type": "integer" }
         }
       },
@@ -1212,7 +1715,51 @@
         "required": ["roles", "task"],
         "properties": {
           "roles": { "type": "array", "items": { "type": "string" } },
-          "task": { "type": "string" }
+          "task": { "type": "string" },
+          "budget": { "$ref": "#/components/schemas/RunBudget" },
+          "timeoutMs": { "type": "integer" },
+          "sensitive": { "type": "boolean" }
+        }
+      },
+      "SubAgentConflict": {
+        "type": "object",
+        "properties": {
+          "topic": { "type": "string" },
+          "roles": { "type": "array", "items": { "type": "string", "enum": ["code_review", "test_analyze"] } },
+          "reason": { "type": "string" },
+          "excerpts": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "role": { "type": "string", "enum": ["code_review", "test_analyze"] },
+                "text": { "type": "string" }
+              }
+            }
+          }
+        }
+      },
+      "SubAgentAggregate": {
+        "type": "object",
+        "properties": {
+          "status": { "type": "string", "enum": ["completed", "partial", "conflict", "failed"] },
+          "completed": { "type": "integer" },
+          "failed": { "type": "integer" },
+          "timedOut": { "type": "integer" },
+          "commonFindings": { "type": "array", "items": { "type": "string" } },
+          "conflicts": { "type": "array", "items": { "$ref": "#/components/schemas/SubAgentConflict" } },
+          "mergedAnswer": { "type": "string" }
+        }
+      },
+      "SubAgentBatchResponse": {
+        "type": "object",
+        "properties": {
+          "runId": { "type": "string" },
+          "parentTaskId": { "type": "string" },
+          "results": { "type": "array", "items": { "type": "object", "additionalProperties": true } },
+          "summary": { "type": "string" },
+          "aggregate": { "$ref": "#/components/schemas/SubAgentAggregate" },
+          "durationMs": { "type": "integer" }
         }
       },
       "TraceListResponse": {

@@ -29,43 +29,17 @@
 
         <nav class="nav-group">
           <div class="nav-title">已实现 · 测试</div>
-          <button class="nav-btn" data-action="test-cases">测试用例</button>
+          <a class="nav-btn nav-link" href="/test-cases.html">测试用例</a>
         </nav>
 
-        <nav class="nav-group">
-          <div class="nav-title">已实现 · 工具系统</div>
-          <button class="nav-btn" data-action="tools">工具系统</button>
-        </nav>
+        <section class="sidebar-history">
+          <div class="nav-title">历史会话</div>
+          <div id="sidebar-history-list" class="sidebar-history-list">
+            <div class="sidebar-history-empty">读取中…</div>
+          </div>
+        </section>
 
-        <nav class="nav-group">
-          <div class="nav-title">已实现 · 后台与通知 (M4)</div>
-          <button class="nav-btn" data-action="background">后台任务</button>
-          <button class="nav-btn" data-action="notifications">通知队列</button>
-        </nav>
-
-        <nav class="nav-group">
-          <div class="nav-title">已实现 · 子 Agent (M5)</div>
-          <button class="nav-btn" data-action="subagent">子 Agent</button>
-        </nav>
-
-        <nav class="nav-group">
-          <div class="nav-title">已实现 · 上下文 (M6)</div>
-          <button class="nav-btn" data-action="context">上下文与记忆</button>
-        </nav>
-
-        <nav class="nav-group">
-          <div class="nav-title">已实现 · 安全 (M7)</div>
-          <button class="nav-btn" data-action="security">安全与审计</button>
-        </nav>
-
-        <nav class="nav-group">
-          <div class="nav-title">已实现 · 调度 (M8)</div>
-          <button class="nav-btn" data-action="scheduler">定时与触发</button>
-        </nav>
-
-        <div class="sidebar-foot">
-          <span id="profile-tag">profile: -</span>
-        </div>
+        <span id="profile-tag" hidden>profile: -</span>
       </aside>
 
       <!-- 主区：对话 / 输出 -->
@@ -84,8 +58,8 @@
             <p>模型路由、工具执行、上下文记忆、后台任务和调度触发集中在一个本地后端里。</p>
             <div class="welcome-actions">
               <button class="action-btn" data-action="check-models">检测模型</button>
-              <button class="action-btn secondary" data-action="test-cases">测试用例</button>
-              <button class="action-btn secondary" data-action="tools">工具系统</button>
+              <a class="action-btn secondary" href="/test-cases.html">测试用例</a>
+              <button class="action-btn secondary" data-action="view-config">查看配置</button>
             </div>
             <div class="welcome-grid">
               <div class="welcome-tile">
@@ -97,12 +71,12 @@
                 <strong>模型路由</strong>
               </div>
               <div class="welcome-tile">
-                <span>安全边界</span>
-                <strong>确认与审计</strong>
+                <span>测试验收</span>
+                <strong>用例工作台</strong>
               </div>
               <div class="welcome-tile">
-                <span>后台队列</span>
-                <strong>通知调度</strong>
+                <span>上下文</span>
+                <strong>历史会话</strong>
               </div>
             </div>
           </div>
@@ -114,7 +88,7 @@
               <span>模式</span>
               <select id="mode-select">
                 <option value="chat">对话</option>
-                <option value="plan">计划</option>
+                <option value="plan">计划报告</option>
                 <option value="agent">智能体</option>
               </select>
             </label>
@@ -141,8 +115,6 @@
         </footer>
       </main>
     </div>
-
-    <script src="/test-runner.js"></script>
     <script src="/app.js"></script>
   </body>
 </html>

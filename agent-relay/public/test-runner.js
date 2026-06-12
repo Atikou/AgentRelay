@@ -25,13 +25,47 @@ const MANUAL_APIS_BY_FEATURE = {
       path: "/api/tools/run",
       sample: { name: "list_files", input: { path: "." } },
     },
+    {
+      label: "POST /api/tools/run · project_scan",
+      method: "POST",
+      path: "/api/tools/run",
+      sample: { name: "project_scan", input: { root: ".", maxDepth: 3 } },
+    },
+    {
+      label: "POST /api/tools/run · locate_relevant_files",
+      method: "POST",
+      path: "/api/tools/run",
+      sample: {
+        name: "locate_relevant_files",
+        input: { goal: "优化 AgentLoop 的相关文件定位流程", possibleSymbols: ["AgentLoop"], limit: 8 },
+      },
+    },
+    {
+      label: "POST /api/tools/run · context_pack",
+      method: "POST",
+      path: "/api/tools/run",
+      sample: {
+        name: "context_pack",
+        input: { files: ["src/agent/AgentLoop.ts", "src/tools/ToolRegistry.ts"], maxFiles: 2, maxTokens: 6000 },
+      },
+    },
   ],
   "m1-agent": [
     {
       label: "POST /api/agent",
       method: "POST",
       path: "/api/agent",
-      sample: { message: "列出工作区根目录有哪些文件", autoConfirm: false, maxIterations: 4 },
+      sample: {
+        message: "列出工作区根目录有哪些文件",
+        autoConfirm: false,
+        budget: { maxModelTurns: 4, maxToolCalls: 4, maxReadCalls: 4, maxWriteCalls: 0, maxShellCalls: 0, maxRuntimeMs: 60000 },
+      },
+    },
+    {
+      label: "POST /api/agent · 计划报告",
+      method: "POST",
+      path: "/api/agent",
+      sample: { message: "只读分析当前项目还能完善哪些方向，并输出计划报告", mode: "plan" },
     },
     {
       label: "POST /api/chat",
@@ -52,7 +86,16 @@ const MANUAL_APIS_BY_FEATURE = {
   ],
   "m3-plan": [
     {
-      label: "POST /api/plan",
+      label: "POST /api/plans/analyze · 计划报告",
+      method: "POST",
+      path: "/api/plans/analyze",
+      sample: {
+        goal: "只读分析当前计划体系还缺什么",
+        budget: { maxModelTurns: 6, maxToolCalls: 8, maxReadCalls: 8, maxWriteCalls: 0, maxShellCalls: 0, maxRuntimeMs: 90000 },
+      },
+    },
+    {
+      label: "POST /api/plan · 机器计划草案",
       method: "POST",
       path: "/api/plan",
       sample: { goal: "为 agent-relay 增加一条单元测试", context: "仅生成计划，不执行" },
@@ -96,7 +139,7 @@ const MANUAL_APIS_BY_FEATURE = {
         role: "code_review",
         task: "审查 src/agent/AgentLoop.ts 的错误处理",
         sensitive: false,
-        maxIterations: 16,
+        budget: { maxModelTurns: 16, maxToolCalls: 20, maxReadCalls: 20, maxWriteCalls: 0, maxShellCalls: 0, maxRuntimeMs: 180000 },
         timeoutMs: 180000,
       },
     },
@@ -205,7 +248,7 @@ async function getSubAgentRolesCached() {
   return subAgentRolesCache;
 }
 
-/** 测试台手动验证：为子 Agent 请求补全角色默认 maxIterations / timeoutMs。 */
+/** 测试台手动验证：为子 Agent 请求补全角色默认 budget / timeoutMs。 */
 async function enrichSubAgentInput(path, input) {
   if (!input || typeof input !== "object") return input;
   if (path !== "/api/subagent/run" && path !== "/api/subagent/batch") return input;
@@ -215,22 +258,31 @@ async function enrichSubAgentInput(path, input) {
     if (!role) return input;
     return {
       ...input,
-      maxIterations: input.maxIterations ?? role.defaultMaxIterations ?? 16,
+      budget: input.budget ?? role.defaultBudget,
       timeoutMs: input.timeoutMs ?? role.defaultTimeoutMs ?? 180000,
     };
   }
   if (path === "/api/subagent/batch" && Array.isArray(input.roles) && input.roles.length > 0) {
-    const maxIterations =
-      input.maxIterations ??
-      Math.max(
-        ...input.roles.map((id) => roles.find((r) => r.id === id)?.defaultMaxIterations ?? 10),
-      );
+    const budget = input.budget ?? mergeBudgets(input.roles.map((id) => roles.find((r) => r.id === id)?.defaultBudget));
     const timeoutMs =
       input.timeoutMs ??
       Math.max(...input.roles.map((id) => roles.find((r) => r.id === id)?.defaultTimeoutMs ?? 120000));
-    return { ...input, maxIterations, timeoutMs };
+    return { ...input, budget, timeoutMs };
   }
   return input;
+}
+
+function mergeBudgets(budgets) {
+  const valid = budgets.filter(Boolean);
+  if (!valid.length) return undefined;
+  return {
+    maxModelTurns: Math.max(...valid.map((b) => b.maxModelTurns ?? 0)),
+    maxToolCalls: Math.max(...valid.map((b) => b.maxToolCalls ?? 0)),
+    maxReadCalls: Math.max(...valid.map((b) => b.maxReadCalls ?? 0)),
+    maxWriteCalls: Math.max(...valid.map((b) => b.maxWriteCalls ?? 0)),
+    maxShellCalls: Math.max(...valid.map((b) => b.maxShellCalls ?? 0)),
+    maxRuntimeMs: Math.max(...valid.map((b) => b.maxRuntimeMs ?? 0)),
+  };
 }
 
 function enrichModelInput(path, input, clientName) {
@@ -549,7 +601,7 @@ async function openTestCasesPanel(deps, initialFeatureId) {
   try {
     index = await fetch("/test-cases/index.json").then((r) => r.json());
   } catch (err) {
-    addMessage("system", `加载 test-cases/index.json 失败：${err.message || err}`);
+    feed.innerHTML = `<div class="test-page-shell"><div class="history-empty is-error">加载 test-cases/index.json 失败：${escapeHtml(err.message || err)}</div></div>`;
     return;
   }
 
@@ -557,16 +609,40 @@ async function openTestCasesPanel(deps, initialFeatureId) {
   const pageCache = new Map();
   let manualFillRef = null;
 
+  const shell = document.createElement("div");
+  shell.className = "test-page-shell";
+  shell.innerHTML = `
+    <section class="test-hero">
+      <div>
+        <p class="eyebrow">测试用例</p>
+        <h1>AgentRelay 验收工作台</h1>
+        <p>按能力域组织 HTTP 用例，运行、比对、复制和手动验证集中在同一页完成。</p>
+      </div>
+      <div class="test-hero-stats">
+        <div><strong>${features.length}</strong><span>功能页</span></div>
+        <div><strong id="test-total-count">-</strong><span>用例</span></div>
+      </div>
+    </section>`;
+
   const panel = document.createElement("div");
-  panel.className = "test-panel";
+  panel.className = "test-workbench";
 
   const toast = document.createElement("div");
   toast.className = "test-copy-toast";
-  panel.appendChild(toast);
+  shell.appendChild(toast);
 
-  const tabBar = document.createElement("div");
+  const layout = document.createElement("div");
+  layout.className = "test-layout";
+  const rail = document.createElement("aside");
+  rail.className = "test-suite-rail";
+  const tabBar = document.createElement("nav");
   tabBar.className = "test-feature-tabs";
-  panel.appendChild(tabBar);
+  rail.appendChild(tabBar);
+  const content = document.createElement("section");
+  content.className = "test-content";
+  layout.appendChild(rail);
+  layout.appendChild(content);
+  panel.appendChild(layout);
 
   const modelBar = document.createElement("div");
   modelBar.className = "test-model-bar";
@@ -590,14 +666,14 @@ async function openTestCasesPanel(deps, initialFeatureId) {
   modelHint.className = "test-model-hint";
   modelHint.textContent = "需模型的用例会使用此处选择；输入 JSON 里已有 clientName 时优先用 JSON";
   modelBar.appendChild(modelHint);
-  panel.appendChild(modelBar);
+  content.appendChild(modelBar);
   void loadTestModelOptions(modelSelect);
 
   const getClientName = () => modelSelect.value || "__default__";
 
   const pageHost = document.createElement("div");
   pageHost.className = "test-feature-page";
-  panel.appendChild(pageHost);
+  content.appendChild(pageHost);
 
   const resultArea = document.createElement("div");
   resultArea.className = "test-result-area is-empty";
@@ -1010,7 +1086,7 @@ async function openTestCasesPanel(deps, initialFeatureId) {
     tab.type = "button";
     tab.className = "test-feature-tab";
     tab.dataset.featureId = meta.featureId;
-    tab.textContent = `${meta.milestone} ${meta.title}`;
+    tab.innerHTML = `<span>${escapeHtml(meta.milestone)}</span><strong>${escapeHtml(meta.title)}</strong>`;
     tab.addEventListener("click", async () => {
       activeId = meta.featureId;
       tabBar.querySelectorAll(".test-feature-tab").forEach((t) => {
@@ -1022,7 +1098,15 @@ async function openTestCasesPanel(deps, initialFeatureId) {
     tabBar.appendChild(tab);
   }
 
-  addMessage("system", panel, null, { scroll: "start" });
+  feed.innerHTML = "";
+  shell.appendChild(panel);
+  feed.appendChild(shell);
+
+  Promise.all(features.map((meta) => loadFeaturePage(meta).catch(() => ({ cases: [] })))).then((pages) => {
+    const total = pages.reduce((sum, page) => sum + (page.cases?.length || 0), 0);
+    const totalEl = shell.querySelector("#test-total-count");
+    if (totalEl) totalEl.textContent = String(total);
+  });
 
   const initial = features.find((f) => f.featureId === activeId) || features[0];
   if (initial) await renderFeaturePage(initial);

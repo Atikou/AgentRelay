@@ -81,18 +81,22 @@ body {
 }
 
 /* Scalar 在 script#api-reference 前插入的挂载 div */
-body > div {
+body > div:first-of-type {
   flex: 1 1 auto;
   min-height: 0;
   height: calc(100vh - 43px);
   overflow: auto;
 }
 
-body > div .t-doc__sidebar {
+body > div:not(:first-of-type) {
+  flex: 0 0 auto;
+}
+
+body > div:first-of-type .t-doc__sidebar {
   top: 0;
   max-height: calc(100vh - 43px);
 }
 
-body > div .custom-scroll {
+body > div:first-of-type .custom-scroll {
   scrollbar-width: thin;
 }
