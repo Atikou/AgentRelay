@@ -13,6 +13,8 @@ export interface OrchestratorInput {
   userInput: string;
   sessionId?: string;
   temperature?: number;
+  /** 隐私/敏感任务：fallback 也只能选择本地模型。 */
+  localOnly?: boolean;
 }
 
 export interface OrchestratorResult {
@@ -22,11 +24,20 @@ export interface OrchestratorResult {
   collaborationRunId?: string;
   modelCallIds: string[];
   reviewResult?: DraftReviewResult;
+  fallbackCount?: number;
+  fallbackLogIds?: string[];
   clientName?: string;
   modelName?: string;
   location?: string;
   latencyMs?: number;
   usage?: ModelResponse["usage"];
+}
+
+export interface PipelineFallbackContext {
+  manager: import("../model-router/fallback-manager.js").FallbackManager;
+  logStore: import("../model-router/route-stores.js").FallbackLogStore;
+  recordFallback: (logId: string) => void;
+  localOnly?: boolean;
 }
 
 export interface ModelChatResult {

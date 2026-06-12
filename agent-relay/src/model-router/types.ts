@@ -21,7 +21,31 @@ export type TaskType =
 
 export type ModelLevel = 0 | 1 | 2 | 3;
 
-export type ExecutionStrategy = "rule_only" | "single_model" | "local_draft_remote_review";
+export type ExecutionStrategy =
+  | "rule_only"
+  | "single_model"
+  | "strong_model_direct"
+  | "local_draft_remote_review";
+
+/** V2 FallbackManager 触发原因（见 Agent_Model_Router_Auto_Upgrade_Roadmap §5.2）。 */
+export type FallbackTrigger =
+  | "model_timeout"
+  | "model_error"
+  | "empty_output"
+  | "json_parse_failed"
+  | "review_rejected"
+  | "review_failed"
+  | "answer_too_short";
+
+export interface FallbackPlan {
+  fromModelId: string;
+  toModelId: string;
+  fromStrategy: ExecutionStrategy;
+  toStrategy: ExecutionStrategy;
+  trigger: FallbackTrigger;
+  reason: string;
+  maxAttempts: number;
+}
 
 export type ModelRole = "primary" | "draft" | "review" | "final";
 

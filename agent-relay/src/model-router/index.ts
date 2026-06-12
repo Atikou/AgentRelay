@@ -8,7 +8,9 @@ export {
   RouteLogStore,
   ModelCallLogStore,
   CollaborationRunStore,
+  FallbackLogStore,
   ensureRoutingTables,
 } from "./route-stores.js";
+export { FallbackManager, MAX_FALLBACKS_PER_REQUEST } from "./fallback-manager.js";
 export { buildRouterInputFromChat } from "./router-input.js";
 export { createModelChatFn } from "./create-model-chat.js";

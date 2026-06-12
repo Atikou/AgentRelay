@@ -3,14 +3,76 @@
  */
 import assert from "node:assert/strict";
 
+import { FallbackManager } from "../src/model-router/fallback-manager.js";
+import { ModelRegistry } from "../src/model-router/model-registry.js";
 import type { CollaborationRunStore } from "../src/model-router/route-stores.js";
-import type { RouterDecision } from "../src/model-router/types.js";
+import type { ModelProfile, RouterDecision } from "../src/model-router/types.js";
 import {
   parseDraftReviewResult,
   runDraftReviewPipeline,
 } from "../src/model-orchestrator/pipelines/draft-review-pipeline.js";
-import type { ModelChatFn, OrchestratorInput } from "../src/model-orchestrator/types.js";
+import type { ModelChatFn, OrchestratorInput, PipelineFallbackContext } from "../src/model-orchestrator/types.js";
 import type { ModelResponse } from "../src/model/types.js";
+
+const localDraft: ModelProfile = {
+  id: "local-small",
+  displayName: "本地轻量",
+  provider: "local",
+  defaultLevel: 1,
+  enabled: true,
+  supportsStreaming: true,
+  supportsTools: false,
+  supportsVision: false,
+  supportsJsonMode: false,
+  maxInputTokens: 8192,
+  maxOutputTokens: 2048,
+  relativeCost: "free",
+  allowedTaskTypes: ["architecture", "document_qa", "technical_qa"],
+  allowedRoles: ["primary", "draft"],
+  canDraft: true,
+  canReview: false,
+  canFinal: true,
+};
+
+const apiGeneral: ModelProfile = {
+  id: "api-general",
+  displayName: "普通 API",
+  provider: "api",
+  defaultLevel: 2,
+  enabled: true,
+  supportsStreaming: true,
+  supportsTools: true,
+  supportsVision: false,
+  supportsJsonMode: true,
+  maxInputTokens: 32000,
+  maxOutputTokens: 4096,
+  relativeCost: "medium",
+  allowedTaskTypes: ["architecture", "document_qa", "technical_qa"],
+  allowedRoles: ["primary", "review", "final"],
+  canDraft: true,
+  canReview: true,
+  canFinal: true,
+};
+
+const apiStrong: ModelProfile = {
+  id: "api-strong",
+  displayName: "强 API",
+  provider: "api",
+  defaultLevel: 3,
+  enabled: true,
+  supportsStreaming: true,
+  supportsTools: true,
+  supportsVision: true,
+  supportsJsonMode: true,
+  maxInputTokens: 128000,
+  maxOutputTokens: 8192,
+  relativeCost: "high",
+  allowedTaskTypes: ["architecture", "document_qa", "technical_qa"],
+  allowedRoles: ["primary", "review", "final"],
+  canDraft: false,
+  canReview: true,
+  canFinal: true,
+};
 
 function mockResponse(content: string, name: string): ModelResponse {
   return {
@@ -34,6 +96,26 @@ class MockCollabStore implements Pick<CollaborationRunStore, "create" | "finish"
     const row = this.runs.find((r) => r.id === id);
     if (row) Object.assign(row, patch);
   }
+}
+
+class MockFallbackLogStore {
+  rows: Array<Record<string, unknown>> = [];
+  create(row: Record<string, unknown>): string {
+    const id = `fb-${this.rows.length + 1}`;
+    this.rows.push({ id, ...row });
+    return id;
+  }
+}
+
+function makeFallbackCtx(): PipelineFallbackContext {
+  const manager = new FallbackManager(new ModelRegistry([localDraft, apiGeneral, apiStrong]));
+  const logStore = new MockFallbackLogStore();
+  const recorded: string[] = [];
+  return {
+    manager,
+    logStore: logStore as unknown as PipelineFallbackContext["logStore"],
+    recordFallback: (id) => recorded.push(id),
+  };
 }
 
 const baseDecision: RouterDecision = {
@@ -75,6 +157,7 @@ test("parseDraftReviewResult 解析 approve JSON", () => {
 
 test("approve 使用 draft 作为 finalAnswer", async () => {
   const store = new MockCollabStore();
+  const fallbackCtx = makeFallbackCtx();
   let call = 0;
   const chat: ModelChatFn = async (modelId) => {
     call += 1;
@@ -89,7 +172,13 @@ test("approve 使用 draft 作为 finalAnswer", async () => {
       callLogId: `log-${call}`,
     };
   };
-  const result = await runDraftReviewPipeline(baseInput, chat, store as CollaborationRunStore, "medium");
+  const result = await runDraftReviewPipeline(
+    baseInput,
+    chat,
+    store as CollaborationRunStore,
+    "medium",
+    fallbackCtx,
+  );
   assert.equal(result.finalAnswer, "草稿内容");
   assert.equal(result.reviewResult?.verdict, "approve");
   assert.equal(result.modelCallIds.length, 2);
@@ -97,6 +186,7 @@ test("approve 使用 draft 作为 finalAnswer", async () => {
 
 test("revise 使用 revisedAnswer", async () => {
   const store = new MockCollabStore();
+  const fallbackCtx = makeFallbackCtx();
   const chat: ModelChatFn = async (modelId, _req, meta) => {
     if (meta.role === "draft") {
       return { response: mockResponse("草稿", "local-small"), callLogId: "1" };
@@ -109,15 +199,25 @@ test("revise 使用 revisedAnswer", async () => {
       callLogId: "2",
     };
   };
-  const result = await runDraftReviewPipeline(baseInput, chat, store as CollaborationRunStore, "medium");
+  const result = await runDraftReviewPipeline(
+    baseInput,
+    chat,
+    store as CollaborationRunStore,
+    "medium",
+    fallbackCtx,
+  );
   assert.equal(result.finalAnswer, "修正版答案");
 });
 
-test("reject 高风险且无 revisedAnswer 抛错", async () => {
+test("reject 高风险且无 revisedAnswer 走强模型 fallback", async () => {
   const store = new MockCollabStore();
+  const fallbackCtx = makeFallbackCtx();
   const chat: ModelChatFn = async (modelId, _req, meta) => {
     if (meta.role === "draft") {
       return { response: mockResponse("坏草稿", "local-small"), callLogId: "1" };
+    }
+    if (modelId === "api-strong") {
+      return { response: mockResponse("强模型重写答案", "api-strong"), callLogId: "3" };
     }
     return {
       response: mockResponse(
@@ -127,9 +227,19 @@ test("reject 高风险且无 revisedAnswer 抛错", async () => {
       callLogId: "2",
     };
   };
-  await assert.rejects(() =>
-    runDraftReviewPipeline(baseInput, chat, store as CollaborationRunStore, "high"),
+  const highInput: OrchestratorInput = {
+    ...baseInput,
+    routerDecision: { ...baseDecision, risk: "high" },
+  };
+  const result = await runDraftReviewPipeline(
+    highInput,
+    chat,
+    store as CollaborationRunStore,
+    "high",
+    fallbackCtx,
   );
+  assert.equal(result.finalAnswer, "强模型重写答案");
+  assert.equal(result.usedStrategy, "strong_model_direct");
 });
 
 let passed = 0;

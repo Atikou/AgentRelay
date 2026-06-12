@@ -2,10 +2,31 @@ import { randomUUID } from "node:crypto";
 
 import type { DatabaseSync } from "node:sqlite";
 
-import type { RouterDecision } from "./types.js";
+import type { ExecutionStrategy, FallbackTrigger, RouterDecision } from "./types.js";
 
 function preview(text: string, max = 500): string {
   return text.length <= max ? text : `${text.slice(0, max)}…`;
+}
+
+export interface RouteLogRow {
+  id: string;
+  sessionId?: string;
+  projectId?: string;
+  userInputPreview: string;
+  taskType: string;
+  selectedLevel: number;
+  executionStrategy: string;
+  selectedModelId?: string;
+  draftModelId?: string;
+  reviewModelId?: string;
+  finalModelId?: string;
+  risk: string;
+  reason: string;
+  source: string;
+  candidates: string[];
+  requireUserConfirmation: boolean;
+  fallbackNote?: string;
+  createdAt: string;
 }
 
 export class RouteLogStore {
@@ -41,6 +62,56 @@ export class RouteLogStore {
         decision.createdAt,
       );
   }
+
+  get(id: string): RouteLogRow | null {
+    const row = this.db.prepare(`SELECT * FROM model_route_logs WHERE id=?`).get(id) as
+      | Record<string, unknown>
+      | undefined;
+    return row ? mapRouteRow(row) : null;
+  }
+
+  listRecent(limit = 20, sessionId?: string): RouteLogRow[] {
+    const capped = Math.min(Math.max(limit, 1), 100);
+    const rows = sessionId
+      ? (this.db
+          .prepare(
+            `SELECT * FROM model_route_logs WHERE session_id=? ORDER BY created_at DESC LIMIT ?`,
+          )
+          .all(sessionId, capped) as Array<Record<string, unknown>>)
+      : (this.db
+          .prepare(`SELECT * FROM model_route_logs ORDER BY created_at DESC LIMIT ?`)
+          .all(capped) as Array<Record<string, unknown>>);
+    return rows.map(mapRouteRow);
+  }
+}
+
+function mapRouteRow(r: Record<string, unknown>): RouteLogRow {
+  let candidates: string[] = [];
+  try {
+    candidates = JSON.parse(String(r.candidates_json ?? "[]")) as string[];
+  } catch {
+    candidates = [];
+  }
+  return {
+    id: String(r.id),
+    sessionId: r.session_id ? String(r.session_id) : undefined,
+    projectId: r.project_id ? String(r.project_id) : undefined,
+    userInputPreview: String(r.user_input_preview),
+    taskType: String(r.task_type),
+    selectedLevel: Number(r.selected_level),
+    executionStrategy: String(r.execution_strategy),
+    selectedModelId: r.selected_model_id ? String(r.selected_model_id) : undefined,
+    draftModelId: r.draft_model_id ? String(r.draft_model_id) : undefined,
+    reviewModelId: r.review_model_id ? String(r.review_model_id) : undefined,
+    finalModelId: r.final_model_id ? String(r.final_model_id) : undefined,
+    risk: String(r.risk),
+    reason: String(r.reason),
+    source: String(r.source),
+    candidates,
+    requireUserConfirmation: Number(r.require_user_confirmation) === 1,
+    fallbackNote: r.fallback_note ? String(r.fallback_note) : undefined,
+    createdAt: String(r.created_at),
+  };
 }
 
 export interface ModelCallLogRow {
@@ -184,6 +255,32 @@ export class CollaborationRunStore {
         id,
       );
   }
+
+  listByRoute(routeLogId: string): CollaborationRunRow[] {
+    const rows = this.db
+      .prepare(`SELECT * FROM model_collaboration_runs WHERE route_log_id=? ORDER BY created_at`)
+      .all(routeLogId) as Array<Record<string, unknown>>;
+    return rows.map(mapCollabRow);
+  }
+}
+
+function mapCollabRow(r: Record<string, unknown>): CollaborationRunRow {
+  return {
+    id: String(r.id),
+    sessionId: r.session_id ? String(r.session_id) : undefined,
+    projectId: r.project_id ? String(r.project_id) : undefined,
+    routeLogId: r.route_log_id ? String(r.route_log_id) : undefined,
+    strategy: String(r.strategy),
+    draftModelId: r.draft_model_id ? String(r.draft_model_id) : undefined,
+    reviewModelId: r.review_model_id ? String(r.review_model_id) : undefined,
+    finalModelId: r.final_model_id ? String(r.final_model_id) : undefined,
+    verdict: r.verdict ? String(r.verdict) : undefined,
+    confidence: r.confidence != null ? Number(r.confidence) : undefined,
+    issuesJson: r.issues_json ? String(r.issues_json) : undefined,
+    status: String(r.status),
+    createdAt: String(r.created_at),
+    updatedAt: String(r.updated_at),
+  };
 }
 
 function mapCallRow(r: Record<string, unknown>): ModelCallLogRow {
@@ -201,6 +298,70 @@ function mapCallRow(r: Record<string, unknown>): ModelCallLogRow {
     promptTokens: r.prompt_tokens != null ? Number(r.prompt_tokens) : undefined,
     completionTokens: r.completion_tokens != null ? Number(r.completion_tokens) : undefined,
     durationMs: r.duration_ms != null ? Number(r.duration_ms) : undefined,
+    createdAt: String(r.created_at),
+  };
+}
+
+export interface FallbackLogRow {
+  id: string;
+  routeLogId: string;
+  sessionId?: string;
+  fromModelId: string;
+  toModelId: string;
+  fromStrategy: ExecutionStrategy;
+  toStrategy: ExecutionStrategy;
+  triggerType: FallbackTrigger;
+  reason: string;
+  createdAt: string;
+}
+
+export class FallbackLogStore {
+  constructor(private readonly db: DatabaseSync) {}
+
+  create(row: Omit<FallbackLogRow, "id" | "createdAt">): string {
+    const id = randomUUID();
+    const createdAt = new Date().toISOString();
+    this.db
+      .prepare(
+        `INSERT INTO fallback_logs (
+          id, route_log_id, session_id, from_model_id, to_model_id,
+          from_strategy, to_strategy, trigger_type, reason, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        id,
+        row.routeLogId,
+        row.sessionId ?? null,
+        row.fromModelId,
+        row.toModelId,
+        row.fromStrategy,
+        row.toStrategy,
+        row.triggerType,
+        row.reason,
+        createdAt,
+      );
+    return id;
+  }
+
+  listByRoute(routeLogId: string): FallbackLogRow[] {
+    const rows = this.db
+      .prepare(`SELECT * FROM fallback_logs WHERE route_log_id = ? ORDER BY created_at`)
+      .all(routeLogId) as Array<Record<string, unknown>>;
+    return rows.map(mapFallbackRow);
+  }
+}
+
+function mapFallbackRow(r: Record<string, unknown>): FallbackLogRow {
+  return {
+    id: String(r.id),
+    routeLogId: String(r.route_log_id),
+    sessionId: r.session_id ? String(r.session_id) : undefined,
+    fromModelId: String(r.from_model_id),
+    toModelId: String(r.to_model_id),
+    fromStrategy: String(r.from_strategy) as ExecutionStrategy,
+    toStrategy: String(r.to_strategy) as ExecutionStrategy,
+    triggerType: String(r.trigger_type) as FallbackTrigger,
+    reason: String(r.reason),
     createdAt: String(r.created_at),
   };
 }
@@ -246,6 +407,20 @@ export function ensureRoutingTables(db: DatabaseSync): void {
       created_at TEXT NOT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_call_logs_route ON model_call_logs(route_log_id, created_at);
+
+    CREATE TABLE IF NOT EXISTS fallback_logs (
+      id TEXT PRIMARY KEY,
+      route_log_id TEXT NOT NULL,
+      session_id TEXT,
+      from_model_id TEXT NOT NULL,
+      to_model_id TEXT NOT NULL,
+      from_strategy TEXT NOT NULL,
+      to_strategy TEXT NOT NULL,
+      trigger_type TEXT NOT NULL,
+      reason TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_fallback_logs_route ON fallback_logs(route_log_id, created_at);
 
     CREATE TABLE IF NOT EXISTS model_collaboration_runs (
       id TEXT PRIMARY KEY,

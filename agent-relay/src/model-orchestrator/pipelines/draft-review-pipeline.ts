@@ -8,7 +8,9 @@ import type {
   ModelChatResult,
   OrchestratorInput,
   OrchestratorResult,
+  PipelineFallbackContext,
 } from "../types.js";
+import { runSingleModelPipeline } from "./single-model-pipeline.js";
 
 function extractJson(text: string): unknown {
   const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
@@ -42,11 +44,32 @@ export function parseDraftReviewResult(content: string): DraftReviewResult {
   };
 }
 
+function recordAndApply(
+  ctx: PipelineFallbackContext,
+  decision: RouterDecision,
+  sessionId: string | undefined,
+  plan: NonNullable<ReturnType<PipelineFallbackContext["manager"]["planDraftFailure"]>>,
+): RouterDecision {
+  const logId = ctx.logStore.create({
+    routeLogId: decision.id,
+    sessionId,
+    fromModelId: plan.fromModelId,
+    toModelId: plan.toModelId,
+    fromStrategy: plan.fromStrategy,
+    toStrategy: plan.toStrategy,
+    triggerType: plan.trigger,
+    reason: plan.reason,
+  });
+  ctx.recordFallback(logId);
+  return ctx.manager.applyPlan(decision, plan);
+}
+
 export async function runDraftReviewPipeline(
   input: OrchestratorInput,
   chat: ModelChatFn,
   collaborationStore: CollaborationRunStore,
   risk: RiskLevel,
+  fallbackCtx: PipelineFallbackContext,
 ): Promise<OrchestratorResult> {
   const decision = input.routerDecision;
   const draftId = decision.draftModelId;
@@ -81,27 +104,28 @@ export async function runDraftReviewPipeline(
     lastResponse = draftRes.response;
     draftText = draftRes.response.content;
   } catch {
-    if (risk === "low") {
-      const fallback = await chat(
-        reviewId,
-        {
-          messages: input.renderedPrompt.finalMessages,
-          temperature: input.temperature ?? 0.3,
-        },
-        { role: "primary", routeLogId: decision.id, collaborationRunId, sessionId: input.sessionId },
-      );
-      modelCallIds.push(fallback.callLogId);
-      collaborationStore.finish(collaborationRunId, { status: "draft_failed_single", verdict: "revise" });
-      return finalize(fallback.response, "single_model", [reviewId], modelCallIds, collaborationRunId);
-    }
-    const regen = await chat(
+    const plan = fallbackCtx.manager.planDraftFailure(
+      decision,
+      risk,
+      draftId,
       reviewId,
-      { messages: input.renderedPrompt.finalMessages, temperature: input.temperature ?? 0.3 },
-      { role: "final", routeLogId: decision.id, collaborationRunId, sessionId: input.sessionId },
+      fallbackCtx.localOnly,
     );
-    modelCallIds.push(regen.callLogId);
-    collaborationStore.finish(collaborationRunId, { status: "draft_failed_final", verdict: "reject" });
-    return finalize(regen.response, "local_draft_remote_review", [reviewId], modelCallIds, collaborationRunId);
+    if (!plan) {
+      throw new Error("草稿模型失败且无法生成 fallback 计划");
+    }
+    const nextDecision = recordAndApply(fallbackCtx, decision, input.sessionId, plan);
+    const direct = await runSingleModelPipeline({ ...input, routerDecision: nextDecision }, chat);
+    collaborationStore.finish(collaborationRunId, {
+      status: plan.toStrategy === "strong_model_direct" ? "draft_failed_strong" : "draft_failed_single",
+      verdict: "revise",
+    });
+    return {
+      ...direct,
+      collaborationRunId,
+      modelCallIds: [...modelCallIds, ...direct.modelCallIds],
+      usedModelIds: [...usedModelIds, ...direct.usedModelIds],
+    };
   }
 
   let reviewResult: DraftReviewResult | undefined;
@@ -146,14 +170,24 @@ export async function runDraftReviewPipeline(
         usage: lastResponse?.usage,
       };
     }
-    const regen = await chat(
+    const plan = fallbackCtx.manager.planReviewParseFailure(
+      decision,
+      risk,
       reviewId,
-      { messages: input.renderedPrompt.finalMessages, temperature: input.temperature ?? 0.3 },
-      { role: "final", routeLogId: decision.id, collaborationRunId, sessionId: input.sessionId },
+      fallbackCtx.localOnly,
     );
-    modelCallIds.push(regen.callLogId);
+    if (!plan) {
+      throw new Error("审查失败且无法生成 fallback 计划");
+    }
+    const nextDecision = recordAndApply(fallbackCtx, decision, input.sessionId, plan);
+    const direct = await runSingleModelPipeline({ ...input, routerDecision: nextDecision }, chat);
     collaborationStore.finish(collaborationRunId, { status: "review_failed_regen", verdict: "reject" });
-    return finalize(regen.response, "local_draft_remote_review", usedModelIds, modelCallIds, collaborationRunId);
+    return {
+      ...direct,
+      collaborationRunId,
+      modelCallIds: [...modelCallIds, ...direct.modelCallIds],
+      usedModelIds: [...usedModelIds, ...direct.usedModelIds],
+    };
   }
 
   if (!reviewResult) {
@@ -165,8 +199,25 @@ export async function runDraftReviewPipeline(
     finalAnswer = draftText;
   } else if (reviewResult.revisedAnswer?.trim()) {
     finalAnswer = reviewResult.revisedAnswer.trim();
-  } else if (risk === "high") {
-    throw new Error("审查 reject 且无 revisedAnswer，高风险任务拒绝使用草稿");
+  } else if (reviewResult.verdict === "reject" && risk === "high") {
+    const plan = fallbackCtx.manager.planReviewRejected(decision, reviewId, fallbackCtx.localOnly);
+    if (!plan) {
+      throw new Error("审查 reject 且无 revisedAnswer，高风险任务拒绝使用草稿");
+    }
+    const nextDecision = recordAndApply(fallbackCtx, decision, input.sessionId, plan);
+    const direct = await runSingleModelPipeline({ ...input, routerDecision: nextDecision }, chat);
+    collaborationStore.finish(collaborationRunId, {
+      status: "review_rejected_fallback",
+      verdict: "reject",
+      issuesJson: JSON.stringify(reviewResult.issues),
+    });
+    return {
+      ...direct,
+      collaborationRunId,
+      modelCallIds: [...modelCallIds, ...direct.modelCallIds],
+      usedModelIds: [...usedModelIds, ...direct.usedModelIds],
+      reviewResult,
+    };
   } else {
     finalAnswer = draftText;
   }
@@ -190,26 +241,5 @@ export async function runDraftReviewPipeline(
     location: lastResponse?.location,
     latencyMs: lastResponse?.latencyMs,
     usage: lastResponse?.usage,
-  };
-}
-
-function finalize(
-  response: ModelChatResult["response"],
-  strategy: OrchestratorResult["usedStrategy"],
-  usedModelIds: string[],
-  modelCallIds: string[],
-  collaborationRunId?: string,
-): OrchestratorResult {
-  return {
-    finalAnswer: response.content,
-    usedStrategy: strategy,
-    usedModelIds,
-    collaborationRunId,
-    modelCallIds,
-    clientName: response.clientName,
-    modelName: response.modelName,
-    location: response.location,
-    latencyMs: response.latencyMs,
-    usage: response.usage,
   };
 }

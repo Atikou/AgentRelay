@@ -4,8 +4,14 @@ export async function runSingleModelPipeline(
   input: OrchestratorInput,
   chat: ModelChatFn,
 ): Promise<OrchestratorResult> {
-  const modelId = input.routerDecision.selectedModelId;
+  const modelId =
+    input.routerDecision.selectedModelId ?? input.routerDecision.finalModelId;
   if (!modelId) throw new Error("single_model 缺少 selectedModelId");
+
+  const usedStrategy =
+    input.routerDecision.executionStrategy === "strong_model_direct"
+      ? "strong_model_direct"
+      : "single_model";
 
   const { response, callLogId } = await chat(
     modelId,
@@ -22,7 +28,7 @@ export async function runSingleModelPipeline(
 
   return {
     finalAnswer: response.content,
-    usedStrategy: "single_model",
+    usedStrategy,
     usedModelIds: [modelId],
     modelCallIds: [callLogId],
     clientName: response.clientName,
