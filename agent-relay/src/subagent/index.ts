@@ -2,12 +2,15 @@ export { SUB_AGENT_ROLES, getSubAgentRole, listSubAgentRoles, resolveGrantedPerm
 export {
   SubAgentRunner,
   aggregateSubAgentResults,
+  aggregateSubAgentResultsStructured,
   type SubAgentRunnerDeps,
 } from "./SubAgentRunner.js";
 export { SubAgentCoordinator } from "./SubAgentCoordinator.js";
 export type {
   SubAgentBatchOptions,
   SubAgentBatchResult,
+  SubAgentAggregate,
+  SubAgentConflict,
   SubAgentRoleDefinition,
   SubAgentRoleId,
   SubAgentRunOptions,

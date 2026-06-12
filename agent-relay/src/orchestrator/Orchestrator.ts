@@ -12,7 +12,11 @@ import { DryRunExecutor, TaskRunner } from "../agent/TaskRunner.js";
 
 import { ToolStepExecutor } from "../agent/ToolStepExecutor.js";
 
+import { planFromTask } from "../agent/planFromTask.js";
+import { finalizePlan } from "../agent/taskGraph.js";
+import { aggregateTaskStatus } from "../agent/taskStatus.js";
 import { PlanSchema, type Plan } from "../agent/types.js";
+import { parseRunMode, resolveRunPolicy, type RunBudget } from "../agent/RunPolicy.js";
 
 import type { NotificationQueue } from "../background/NotificationQueue.js";
 
@@ -29,6 +33,10 @@ import { buildRouterInputFromChat } from "../model-router/router-input.js";
 import type { SmartModelRouter } from "../model-router/smart-model-router.js";
 import { RouterError } from "../model-router/types.js";
 import { parseModelTaskTypeOrError, type ModelTaskType } from "../model/taskType.js";
+import { detectPlanReportRequest } from "../plan/planIntent.js";
+import { legacyPlanFromInternal } from "../plan/planConverter.js";
+import type { PlanService } from "../plan/PlanService.js";
+import { PlanValidationError } from "../plan/types.js";
 
 import type { ToolPermission } from "../agent/permissions.js";
 
@@ -79,6 +87,8 @@ export interface OrchestratorDeps {
   smartModelRouter?: SmartModelRouter;
 
   modelOrchestrator?: ModelOrchestrator;
+
+  planService: PlanService;
 
 }
 
@@ -252,6 +262,8 @@ export class Orchestrator {
       let routerDecision: unknown;
       let collaborationRunId: string | undefined;
       let executionStrategy: string | undefined;
+      let fallbackCount: number | undefined;
+      let fallbackLogIds: string[] | undefined;
 
       if (useSmart) {
         const routerInput = buildRouterInputFromChat({
@@ -278,6 +290,7 @@ export class Orchestrator {
           routerDecision: decision,
           userInput: message,
           sessionId,
+          localOnly: routerInput.localOnly,
           renderedPrompt: {
             systemSectionsText: systemBase,
             finalMessages: chatMessages,
@@ -302,6 +315,8 @@ export class Orchestrator {
         };
         collaborationRunId = orchestrated.collaborationRunId;
         executionStrategy = orchestrated.usedStrategy;
+        fallbackCount = orchestrated.fallbackCount;
+        fallbackLogIds = orchestrated.fallbackLogIds;
       } else {
         const response = await this.deps.modelRouter.chat(
           { messages, temperature: 0.3 },
@@ -341,6 +356,8 @@ export class Orchestrator {
         routerDecision,
         collaborationRunId,
         executionStrategy,
+        fallbackCount,
+        fallbackLogIds,
         compressed: finalized?.compressed ? true : undefined,
         phase: finalized?.postCall.phase,
         contextPackage: finalized?.postCall.contextPackage,
@@ -382,6 +399,9 @@ export class Orchestrator {
 
     if (!goal) return { status: 400, body: { error: "goal 不能为空" } };
 
+    const reportRequest = detectPlanReportRequest(goal);
+    if (reportRequest) return { status: 400, body: reportRequest };
+
 
 
     const run = this.deps.runs.create({
@@ -410,25 +430,47 @@ export class Orchestrator {
 
       const activePlanner = planner ?? this.deps.planner;
 
-      const plan = await activePlanner.generatePlan(goal, payload.context);
+      const draft = await this.deps.planService.createDraftFromPlanner({
+        goal,
+        context: payload.context,
+        sessionId: (payload as { sessionId?: string }).sessionId,
+        requestId: run.id,
+        planner: activePlanner,
+      });
 
       this.deps.runs.update(run.id, {
 
         status: "completed",
 
-        resultJson: JSON.stringify({ goal: plan.goal, stepCount: plan.steps.length }),
+        resultJson: JSON.stringify({ planId: draft.planId, version: draft.version }),
 
       });
 
       this.deps.trace?.write({ type: "run_end", runId: run.id, kind: "plan", status: "completed" });
 
-      return { status: 200, body: { runId: run.id, plan } };
+      return {
+        status: 200,
+        body: {
+          runId: run.id,
+          planId: draft.planId,
+          version: draft.version,
+          status: draft.status,
+          planHash: draft.planHash,
+          previewMarkdown: draft.previewMarkdown,
+          publicPlanJson: draft.publicPlanJson,
+          warning: "publicPlanJson.executable 恒为 false，不可作为执行体提交",
+        },
+      };
 
     } catch (error) {
 
       this.deps.runs.update(run.id, { status: "failed", error: String(error) });
 
       this.deps.trace?.write({ type: "run_end", runId: run.id, kind: "plan", status: "failed" });
+
+      if (error instanceof PlanValidationError) {
+        return { status: 400, body: { error: error.message, code: error.code, runId: run.id } };
+      }
 
       return { status: 502, body: { error: `生成计划失败：${String(error)}`, runId: run.id } };
 
@@ -444,31 +486,117 @@ export class Orchestrator {
 
       plan?: unknown;
 
+      planId?: string;
+
+      version?: number;
+
+      internalPlan?: unknown;
+
       autoConfirm?: boolean;
 
       sessionId?: string;
 
       runId?: string;
 
-      /** 任务失败时逆序回滚本次 Run 内成功的 write_file / apply_patch（默认 false）。 */
       rollbackOnFailure?: boolean;
 
-      /** 遇 blocked/failed 时调用 Planner 生成修订计划（默认 false）。 */
       fallbackToPlanOnUncertainty?: boolean;
 
     };
 
-    const parsed = PlanSchema.safeParse(payload.plan);
-
-    if (!parsed.success) {
-
-      return { status: 400, body: { error: `计划格式不合法：${parsed.error.message}` } };
-
+    const bodyReject = this.deps.planService.rejectExecutionBody(payload as Record<string, unknown>);
+    if (bodyReject && !dryRun) {
+      return { status: 400, body: bodyReject };
     }
 
+    if (payload.internalPlan !== undefined) {
+      return {
+        status: 400,
+        body: {
+          error: "执行 API 不接受 internalPlan 字段",
+          code: "INTERNAL_PLAN_BODY_REJECTED",
+        },
+      };
+    }
+
+    if (payload.planId && payload.version) {
+      return this.executeStoredPlan(payload.planId, payload.version, payload, dryRun, planner);
+    }
+
+    if (payload.plan !== undefined) {
+      if (!dryRun) {
+        return {
+          status: 400,
+          body: {
+            error: "POST /api/task/run 不再接受 plan JSON。请 POST /api/plans/draft → approve → POST /api/plans/:planId/execute",
+            code: "PLAN_BODY_NOT_EXECUTABLE",
+          },
+        };
+      }
+      try {
+        const ingested = this.deps.planService.ingestLegacyPlanBody(payload.plan, true);
+        this.deps.planService.approve(ingested.planId, ingested.version, "system:dry-run", "legacy dry-run");
+        return this.executeStoredPlan(
+          ingested.planId,
+          ingested.version,
+          payload,
+          true,
+          planner,
+        );
+      } catch (error) {
+        if (error instanceof PlanValidationError) {
+          return { status: 400, body: { error: error.message, code: error.code } };
+        }
+        throw error;
+      }
+    }
+
+    return {
+      status: 400,
+      body: {
+        error: "缺少可执行计划：需要 planId + version，或在 dry-run 下提供 plan 对象",
+        code: "MISSING_PLAN_REF",
+      },
+    };
+
+  }
 
 
-    const planGoal = parsed.data.goal ?? parsed.data.steps[0]?.title ?? "任务";
+
+  async executeStoredPlan(
+    planId: string,
+    version: number,
+    payload: {
+      autoConfirm?: boolean;
+      sessionId?: string;
+      runId?: string;
+      rollbackOnFailure?: boolean;
+      fallbackToPlanOnUncertainty?: boolean;
+    },
+    dryRun = false,
+    planner?: Planner,
+  ): Promise<ApiResult> {
+    let internal;
+    try {
+      if (dryRun) {
+        if (!this.deps.planService.getRecord(planId, version)) {
+          return { status: 404, body: { error: "计划不存在", code: "PLAN_NOT_FOUND" } };
+        }
+        this.deps.planService.ensureApprovedForDryRun(planId, version);
+      }
+      internal = this.deps.planService.loadExecutable(planId, version);
+    } catch (error) {
+      if (error instanceof PlanValidationError) {
+        return { status: 400, body: { error: error.message, code: error.code } };
+      }
+      return { status: 404, body: { error: String(error) } };
+    }
+
+    const planRun = this.deps.planService.createPlanRun(planId, version);
+
+    this.deps.planService.markRunning(planId, version);
+    const plan = legacyPlanFromInternal(internal);
+    const planGoal = plan.goal ?? plan.steps[0]?.title ?? "任务";
 
     const sessionId = payload.sessionId
 
@@ -477,7 +605,7 @@ export class Orchestrator {
       : undefined;
 
     const task = this.resolveOrCreateTask(sessionId, planGoal);
-    this.persistTaskPlan(task.id, parsed.data);
+    this.persistTaskPlan(task.id, plan);
 
 
 
@@ -527,7 +655,7 @@ export class Orchestrator {
 
 
 
-    const runner = new TaskRunner(parsed.data, {
+    const runner = new TaskRunner(plan, {
 
       executor,
 
@@ -536,6 +664,12 @@ export class Orchestrator {
       onUpdate: (plan) => this.persistTaskPlan(task.id, plan),
 
       trace: this.deps.trace,
+
+      runId: run.id,
+
+      taskId: task.id,
+
+      sessionId,
 
     });
 
@@ -557,26 +691,38 @@ export class Orchestrator {
 
       });
 
-      const plan = await runner.run();
+      const executedPlan = await runner.run();
 
-      this.persistTaskPlan(task.id, plan);
+      this.persistTaskPlan(task.id, executedPlan);
 
-      const blocked = plan.steps.some((s) => s.status === "blocked");
-      const failed = plan.steps.some((s) => s.status === "failed") || blocked;
-      const runStatus = blocked ? "blocked" : failed ? "failed" : "completed";
+      const blocked = executedPlan.steps.some((s) => s.status === "blocked");
+      const failed = executedPlan.steps.some((s) => s.status === "failed");
+      const taskStatus = aggregateTaskStatus(executedPlan.steps);
+      const runStatus =
+        taskStatus === "blocked"
+          ? "blocked"
+          : taskStatus === "failed"
+            ? "failed"
+            : taskStatus === "completed"
+              ? "completed"
+              : "running";
+
+      this.deps.planService.markCompleted(planId, version, taskStatus === "completed");
 
       this.deps.tasks.update(task.id, {
-
-        status: failed ? "failed" : "done",
-
-        summary: failed ? "部分步骤未完成" : "全部步骤完成",
-
+        status: taskStatus,
+        summary:
+          taskStatus === "completed"
+            ? "全部步骤完成"
+            : taskStatus === "blocked"
+              ? "存在阻塞步骤，可 resume"
+              : "部分步骤未完成",
       });
 
-      if (!failed) this.releaseTaskFromSession(sessionId, task.id);
+      if (taskStatus === "completed") this.releaseTaskFromSession(sessionId, task.id);
 
       let rollback: TaskRollbackResult | undefined;
-      if (failed && !dryRun && payload.rollbackOnFailure) {
+      if (taskStatus === "failed" && !dryRun && payload.rollbackOnFailure) {
         rollback = await this.tryRollbackTaskFiles(run.id, sessionId, task.id);
       }
 
@@ -584,14 +730,17 @@ export class Orchestrator {
         enabled: payload.fallbackToPlanOnUncertainty ?? false,
         planner,
         planGoal,
-        executedPlan: plan,
+        executedPlan,
         taskRunId: run.id,
         sessionId,
         taskId: task.id,
       });
 
       const resultPayload = {
-        plan,
+        planId,
+        version,
+        planRunId: planRun.id,
+        plan: executedPlan,
         ...(rollback ? { rollback } : {}),
         ...(modeFallback ? { modeFallback } : {}),
       };
@@ -607,7 +756,7 @@ export class Orchestrator {
         taskId: task.id,
         runId: run.id,
         status: runStatus,
-        result: JSON.stringify({ stepCount: plan.steps.length, rollback, modeFallback }),
+        result: JSON.stringify({ stepCount: executedPlan.steps.length, rollback, modeFallback, planId, version }),
         endedAt: new Date().toISOString(),
       });
 
@@ -787,7 +936,11 @@ export class Orchestrator {
 
         status: result.reachedLimit ? "failed" : "completed",
 
-        resultJson: JSON.stringify({ answer: result.answer, iterations: result.iterations }),
+        resultJson: JSON.stringify({
+          answer: result.answer,
+          iterations: result.iterations,
+          executionMeta: result.executionMeta,
+        }),
 
       });
 
@@ -879,7 +1032,7 @@ export class Orchestrator {
 
       grantedPermissions?: string[];
 
-      maxIterations?: number;
+      budget?: Partial<RunBudget>;
 
       timeoutMs?: number;
 
@@ -943,7 +1096,7 @@ export class Orchestrator {
 
         grantedPermissions: payload.grantedPermissions as ToolPermission[] | undefined,
 
-        maxIterations: payload.maxIterations ?? roleDef.defaultMaxIterations,
+        budget: payload.budget ?? roleDef.defaultBudget,
 
         timeoutMs: payload.timeoutMs ?? roleDef.defaultTimeoutMs,
 
@@ -991,7 +1144,7 @@ export class Orchestrator {
 
       grantedPermissions?: string[];
 
-      maxIterations?: number;
+      budget?: Partial<RunBudget>;
 
       timeoutMs?: number;
 
@@ -1039,12 +1192,6 @@ export class Orchestrator {
 
       const { getSubAgentRole } = await import("../subagent/index.js");
 
-      const maxIterations =
-
-        payload.maxIterations ??
-
-        Math.max(...payload.roles.map((r) => getSubAgentRole(r).defaultMaxIterations));
-
       const timeoutMs =
 
         payload.timeoutMs ??
@@ -1075,7 +1222,7 @@ export class Orchestrator {
 
         grantedPermissions: payload.grantedPermissions as ToolPermission[] | undefined,
 
-        maxIterations,
+        budget: payload.budget,
 
         timeoutMs,
 
@@ -1137,7 +1284,8 @@ export class Orchestrator {
       autoConfirm?: boolean;
       sensitive?: boolean;
       taskType?: string;
-      maxIterations?: number;
+      mode?: string;
+      budget?: Partial<RunBudget>;
       sessionId?: string;
       persist?: boolean;
     };
@@ -1148,6 +1296,15 @@ export class Orchestrator {
     if (!taskTypeParsed.ok) {
       return { error: { status: 400, body: { error: taskTypeParsed.error } } };
     }
+    if (payload.mode && !parseRunMode(payload.mode)) {
+      return { error: { status: 400, body: { error: "mode 必须是 chat/plan/implement/debug/review" } } };
+    }
+    const policy = resolveRunPolicy({
+      requestedMode: payload.mode,
+      budget: payload.budget,
+      taskType: taskTypeParsed.taskType,
+      message,
+    });
 
     const persist = payload.persist !== false;
     const sessionId = persist ? this.ensureSession(payload.sessionId, "智能体会话") : undefined;
@@ -1171,7 +1328,7 @@ export class Orchestrator {
       autoConfirm: payload.autoConfirm ?? false,
       sensitive: payload.sensitive,
       taskType: taskTypeParsed.taskType,
-      maxIterations: payload.maxIterations,
+      policy,
       trace: this.deps.trace,
       notificationQueue: this.deps.notificationQueue,
       contextManager: persist ? this.deps.contextManager : undefined,
@@ -1183,7 +1340,14 @@ export class Orchestrator {
     });
 
     return {
-      ctx: { message, system: payload.system, sessionId, task, run, loop },
+      ctx: {
+        message,
+        system: payload.system,
+        sessionId,
+        task,
+        run,
+        loop,
+      },
     };
   }
 
@@ -1212,7 +1376,11 @@ export class Orchestrator {
     if (!result.reachedLimit) this.releaseTaskFromSession(ctx.sessionId, ctx.task.id);
     this.deps.runs.update(ctx.run.id, {
       status: result.reachedLimit ? "failed" : "completed",
-      resultJson: JSON.stringify({ answer: result.answer, iterations: result.iterations }),
+      resultJson: JSON.stringify({
+        answer: result.answer,
+        iterations: result.iterations,
+        executionMeta: result.executionMeta,
+      }),
     });
     this.deps.trace?.write({
       type: "run_end",
@@ -1329,44 +1497,165 @@ export class Orchestrator {
     });
   }
 
+  getTask(taskId: string): ApiResult {
+    const task = this.deps.tasks.get(taskId);
+    if (!task) return { status: 404, body: { error: "任务不存在" } };
+    const steps = this.deps.tasks.listSteps(taskId);
+    const plan = planFromTask(task, steps);
+    return {
+      status: 200,
+      body: {
+        task: { ...task, status: aggregateTaskStatus(plan.steps) },
+        steps,
+        plan,
+      },
+    };
+  }
+
+  async resumeTask(taskId: string, body: unknown): Promise<ApiResult> {
+    const payload = (body ?? {}) as {
+      action?: string;
+      stepId?: string;
+      autoConfirm?: boolean;
+      dryRun?: boolean;
+    };
+    if (!payload.action || !payload.stepId) {
+      return { status: 400, body: { error: "需要 action 与 stepId" } };
+    }
+    if (payload.action !== "retry" && payload.action !== "skip" && payload.action !== "confirm") {
+      return { status: 400, body: { error: "action 须为 retry | skip | confirm" } };
+    }
+
+    const task = this.deps.tasks.get(taskId);
+    if (!task) return { status: 404, body: { error: "任务不存在" } };
+    const steps = this.deps.tasks.listSteps(taskId);
+    const plan = planFromTask(task, steps);
+
+    const sessionId = task.sessionId;
+    const dryRun = payload.dryRun ?? false;
+    const run = this.deps.runs.create({
+      kind: dryRun ? "task_dry_run" : "task",
+      status: "running",
+      sessionId,
+      taskId,
+      goal: task.goal,
+    });
+
+    const executor = dryRun
+      ? new DryRunExecutor()
+      : new ToolStepExecutor({
+          registry: this.deps.registry,
+          workspaceRoot: this.deps.workspaceRoot,
+          taskId,
+          sessionId,
+          requestId: run.id,
+        });
+
+    const runner = new TaskRunner(plan, {
+      executor,
+      autoConfirm: payload.autoConfirm ?? false,
+      onUpdate: (updated) => this.persistTaskPlan(taskId, updated),
+      trace: this.deps.trace,
+      runId: run.id,
+      taskId,
+      sessionId,
+    });
+
+    try {
+      this.deps.trace?.write({
+        type: "run_start",
+        runId: run.id,
+        kind: dryRun ? "task_dry_run" : "task",
+        sessionId,
+        taskId,
+        resumeAction: payload.action,
+        resumeStepId: payload.stepId,
+      });
+
+      const executedPlan = await runner.resume(
+        payload.action,
+        payload.stepId,
+      );
+      this.persistTaskPlan(taskId, executedPlan);
+
+      const taskStatus = aggregateTaskStatus(executedPlan.steps);
+      this.deps.tasks.update(taskId, {
+        status: taskStatus,
+        summary:
+          taskStatus === "completed"
+            ? "全部步骤完成"
+            : taskStatus === "blocked"
+              ? "存在阻塞步骤，可 resume"
+              : "部分步骤未完成",
+      });
+      if (taskStatus === "completed") this.releaseTaskFromSession(sessionId, taskId);
+
+      const runStatus =
+        taskStatus === "blocked"
+          ? "blocked"
+          : taskStatus === "failed"
+            ? "failed"
+            : taskStatus === "completed"
+              ? "completed"
+              : "running";
+
+      this.deps.runs.update(run.id, {
+        status: runStatus,
+        resultJson: JSON.stringify({ plan: executedPlan, resumeAction: payload.action }),
+      });
+      this.deps.tasks.recordAttempt({
+        taskId,
+        runId: run.id,
+        status: runStatus,
+        result: JSON.stringify({ action: payload.action, stepId: payload.stepId }),
+      });
+
+      return {
+        status: 200,
+        body: {
+          runId: run.id,
+          taskId,
+          taskStatus,
+          plan: executedPlan,
+          resumeAction: payload.action,
+        },
+      };
+    } catch (error) {
+      this.deps.runs.update(run.id, { status: "failed", error: String(error) });
+      return { status: 400, body: { error: String(error) } };
+    }
+  }
+
   private persistTaskPlan(taskId: string, plan: Plan): void {
+    this.deps.tasks.update(taskId, {
+      inputs: plan.inputs,
+      outputs: plan.outputs,
+      acceptanceCriteria: plan.acceptanceCriteria,
+    });
 
     this.deps.tasks.upsertSteps(
-
       taskId,
-
       plan.steps.map((step, index) => ({
-
         stepId: step.id,
-
         position: index,
-
         title: step.title,
-
+        objective: step.objective,
         description: step.description,
-
         status: step.status,
-
         requiredPermissions: step.requiredPermissions,
-
         needsConfirmation: step.needsConfirmation,
-
         acceptance: step.acceptance,
-
         dependsOn: step.dependsOn,
-
+        requiredContext: step.requiredContext,
+        availableTools: step.availableTools,
+        expectedArtifacts: step.expectedArtifacts,
+        priority: step.priority,
         tool: step.tool,
-
         toolInput: step.toolInput,
-
         result: step.result,
-
         error: step.error,
-
       })),
-
     );
-
   }
 
 
@@ -1422,5 +1711,3 @@ export class Orchestrator {
   }
 
 }
-
-

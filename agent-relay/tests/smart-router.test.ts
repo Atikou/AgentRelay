@@ -7,6 +7,7 @@ import { DecisionEngine } from "../src/model-router/decision-engine.js";
 import { ModelRegistry } from "../src/model-router/model-registry.js";
 import { RuleRouter } from "../src/model-router/route-rules.js";
 import { SmartModelRouter } from "../src/model-router/smart-model-router.js";
+import { validateModelProfiles } from "../src/model-router/model-profiles.js";
 import type { ModelProfile } from "../src/model-router/types.js";
 
 const localDraft: ModelProfile = {
@@ -160,6 +161,16 @@ test("qualityMode=deep 倾向协作", () => {
     qualityMode: "deep",
   });
   assert.equal(d.executionStrategy, "local_draft_remote_review");
+});
+
+test("validateModelProfiles 对完整配置无错误", () => {
+  assert.deepEqual(validateModelProfiles(profiles), []);
+});
+
+test("validateModelProfiles 缺少 canFinal 时报错", () => {
+  const bad = profiles.map((p) => ({ ...p, canFinal: false }));
+  const errors = validateModelProfiles(bad);
+  assert.ok(errors.some((e) => e.includes("canFinal")));
 });
 
 test("无 review 模型时文档协作降级 single_model", () => {

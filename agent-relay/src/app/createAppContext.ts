@@ -11,11 +11,18 @@ import { createModelClient } from "../model/ModelFactory.js";
 import { MetricsRegistry } from "../model/MetricsRegistry.js";
 import { ModelRouter, type ClientPricing } from "../model/ModelRouter.js";
 import type { ModelClient } from "../model/types.js";
+import {
+  PlanApprovalManager,
+  PlanService,
+  PlanStore,
+  PlanValidator,
+} from "../plan/index.js";
 import { Orchestrator } from "../orchestrator/Orchestrator.js";
 import { RunStore } from "../orchestrator/RunStore.js";
 import { Scheduler } from "../scheduler/index.js";
 import { SubAgentCoordinator } from "../subagent/index.js";
 import { createDefaultRegistry } from "../tools/index.js";
+import { createShellPolicy } from "../policy/ShellPolicy.js";
 import { ModelOrchestrator } from "../model-orchestrator/index.js";
 import {
   buildModelProfiles,
@@ -25,6 +32,9 @@ import {
   ModelRegistry,
   RouteLogStore,
   SmartModelRouter,
+  FallbackManager,
+  FallbackLogStore,
+  validateModelProfiles,
 } from "../model-router/index.js";
 import { TraceLogger } from "../trace/TraceLogger.js";
 
@@ -59,6 +69,11 @@ export class AppContext {
   readonly subAgentCoordinator: SubAgentCoordinator;
   readonly smartModelRouter: SmartModelRouter;
   readonly modelOrchestrator: ModelOrchestrator;
+  readonly planService: PlanService;
+  readonly routeLogStore: RouteLogStore;
+  readonly modelCallLogStore: ModelCallLogStore;
+  readonly collaborationRunStore: CollaborationRunStore;
+  readonly fallbackLogStore: FallbackLogStore;
 
   constructor(opts: {
     profile: string;
@@ -80,6 +95,11 @@ export class AppContext {
     subAgentCoordinator: SubAgentCoordinator;
     smartModelRouter: SmartModelRouter;
     modelOrchestrator: ModelOrchestrator;
+    planService: PlanService;
+    routeLogStore: RouteLogStore;
+    modelCallLogStore: ModelCallLogStore;
+    collaborationRunStore: CollaborationRunStore;
+    fallbackLogStore: FallbackLogStore;
   }) {
     this.profile = opts.profile;
     this.config = opts.config;
@@ -100,6 +120,11 @@ export class AppContext {
     this.subAgentCoordinator = opts.subAgentCoordinator;
     this.smartModelRouter = opts.smartModelRouter;
     this.modelOrchestrator = opts.modelOrchestrator;
+    this.planService = opts.planService;
+    this.routeLogStore = opts.routeLogStore;
+    this.modelCallLogStore = opts.modelCallLogStore;
+    this.collaborationRunStore = opts.collaborationRunStore;
+    this.fallbackLogStore = opts.fallbackLogStore;
   }
 
   makeChatFn(forceClient?: string): LoopChatFn {
@@ -149,6 +174,16 @@ export class AppContext {
         traceReplay: true,
         orchestrator: true,
         runsApi: true,
+        sensitiveDetection: true,
+        modelPromptRedaction: true,
+        agentDecisionTrace: true,
+        taskStatusTrace: true,
+        toolCallTrace: true,
+        modelUsageTrace: true,
+        toolErrorCategory: true,
+        toolStorageRedaction: true,
+        highRiskConfirmation: true,
+        localFirstPrivacyMode: true,
       },
     };
   }
@@ -177,6 +212,7 @@ export function createAppContext(): AppContext {
   };
 
   const { profile, config, workspaceRoot } = loadConfig();
+  const shellPolicy = createShellPolicy(config.security?.shell);
 
   const clientMap = new Map<string, ModelClient>();
   const pricing = new Map<string, ClientPricing>();
@@ -206,11 +242,33 @@ export function createAppContext(): AppContext {
     },
   );
 
+  const orchestratorHolder: { current?: Orchestrator } = {};
+
   const backgroundTasks = new BackgroundTaskManager(
     workspaceRoot,
     notificationQueue,
     trace,
     (record) => scheduler.handleBackgroundCompleted(record),
+    (input) => {
+      const orch = orchestratorHolder.current;
+      if (!orch) return;
+      void orch
+        .executeUnattendedTrigger({
+          triggerId: `background:${input.record.id}`,
+          goal: input.goal,
+        })
+        .then(({ runId }) => {
+          backgroundTasks.markTriggeredRun(input.record.id, runId);
+        })
+        .catch((error) => {
+          trace.write({
+            type: "background_trigger_next_error",
+            taskId: input.record.id,
+            error: String(error),
+          });
+        });
+    },
+    shellPolicy,
   );
 
   const modelRouter = new ModelRouter([...clientMap.values()], {
@@ -222,18 +280,28 @@ export function createAppContext(): AppContext {
   });
 
   const planner = new Planner((request, opts) => modelRouter.chat(request, opts));
-  const registry = createDefaultRegistry({ trace, dataDir });
+  const registry = createDefaultRegistry({ trace, dataDir, shellPolicy });
   const contextManager = new ContextManager({ dataDir, useLanceDb: true });
   const runs = new RunStore(contextManager.db);
 
   const modelProfiles = buildModelProfiles(config.models.clients);
+  for (const msg of validateModelProfiles(modelProfiles)) {
+    console.warn(`[model-router] 配置校验：${msg}`);
+  }
   const profileRegistry = new ModelRegistry(modelProfiles);
   const routeLogStore = new RouteLogStore(contextManager.db.connection);
   const modelCallLogStore = new ModelCallLogStore(contextManager.db.connection);
   const collaborationRunStore = new CollaborationRunStore(contextManager.db.connection);
+  const fallbackLogStore = new FallbackLogStore(contextManager.db.connection);
+  const fallbackManager = new FallbackManager(profileRegistry);
   const smartModelRouter = new SmartModelRouter(profileRegistry, routeLogStore);
   const modelChatFn = createModelChatFn(clientMap, modelCallLogStore, trace);
-  const modelOrchestrator = new ModelOrchestrator(modelChatFn, collaborationRunStore);
+  const modelOrchestrator = new ModelOrchestrator(
+    modelChatFn,
+    collaborationRunStore,
+    fallbackManager,
+    fallbackLogStore,
+  );
 
   const makeChatFn = (forceClient?: string): LoopChatFn => (req, opts) =>
     modelRouter.chat(req, {
@@ -247,6 +315,21 @@ export function createAppContext(): AppContext {
       modelRouter.chat(req, { sensitive: opts?.sensitive, taskType: opts?.taskType }),
     registry,
     workspaceRoot,
+    trace,
+  });
+
+  const planStore = new PlanStore(contextManager.db);
+  const planValidator = new PlanValidator({
+    workspaceRoot,
+    registry,
+  });
+  const planApproval = new PlanApprovalManager(planStore);
+  const planService = new PlanService({
+    workspaceRoot,
+    store: planStore,
+    validator: planValidator,
+    approval: planApproval,
+    registry,
     trace,
   });
 
@@ -275,7 +358,9 @@ export function createAppContext(): AppContext {
       }),
     smartModelRouter,
     modelOrchestrator,
+    planService,
   });
+  orchestratorHolder.current = orchestrator;
 
   scheduler.setFireHandler((ctx) => {
     if (ctx.unattended) {
@@ -314,8 +399,12 @@ export function createAppContext(): AppContext {
     subAgentCoordinator,
     smartModelRouter,
     modelOrchestrator,
+    planService,
+    routeLogStore,
+    modelCallLogStore,
+    collaborationRunStore,
+    fallbackLogStore,
   });
-
   scheduler.start();
   if (schedCfg?.dailySummaryCron && schedCfg.dailySummaryGoal) {
     const hasDaily = scheduler.list().some((t) => t.name === "__daily_summary__");

@@ -4,7 +4,7 @@ import { DatabaseSync } from "node:sqlite";
 
 import { ensureRoutingTables } from "../model-router/route-stores.js";
 
-const SCHEMA_VERSION = 3;
+const SCHEMA_VERSION = 7;
 
 /**
  * SQLite 存储层（Node 内置 node:sqlite，含 FTS5）。
@@ -183,6 +183,78 @@ export class DatabaseManager {
       );
       CREATE INDEX IF NOT EXISTS idx_runs_session ON runs(session_id, created_at DESC);
       CREATE INDEX IF NOT EXISTS idx_runs_status ON runs(status, updated_at DESC);
+
+      CREATE TABLE IF NOT EXISTS task_plans (
+        id TEXT PRIMARY KEY,
+        version INTEGER NOT NULL,
+        status TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        goal TEXT NOT NULL,
+        mode TEXT NOT NULL,
+        internal_json TEXT NOT NULL,
+        plan_hash TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS task_plan_versions (
+        id TEXT PRIMARY KEY,
+        plan_id TEXT NOT NULL,
+        version INTEGER NOT NULL,
+        internal_json TEXT NOT NULL,
+        plan_hash TEXT NOT NULL,
+        change_reason TEXT,
+        created_at TEXT NOT NULL,
+        UNIQUE(plan_id, version)
+      );
+      CREATE INDEX IF NOT EXISTS idx_plan_versions_plan ON task_plan_versions(plan_id, version);
+
+      CREATE TABLE IF NOT EXISTS task_plan_previews (
+        id TEXT PRIMARY KEY,
+        plan_id TEXT NOT NULL,
+        version INTEGER NOT NULL,
+        format TEXT NOT NULL,
+        content TEXT NOT NULL,
+        source_plan_hash TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_plan_previews_plan ON task_plan_previews(plan_id, version, format);
+
+      CREATE TABLE IF NOT EXISTS task_plan_approvals (
+        id TEXT PRIMARY KEY,
+        plan_id TEXT NOT NULL,
+        version INTEGER NOT NULL,
+        approved_by TEXT NOT NULL,
+        approval_status TEXT NOT NULL,
+        comment TEXT,
+        created_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS task_plan_runs (
+        id TEXT PRIMARY KEY,
+        plan_id TEXT NOT NULL,
+        version INTEGER NOT NULL,
+        status TEXT NOT NULL,
+        started_at TEXT,
+        finished_at TEXT,
+        stop_reason TEXT,
+        created_at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_plan_runs_plan ON task_plan_runs(plan_id, created_at DESC);
+
+      CREATE TABLE IF NOT EXISTS user_visible_plans (
+        id TEXT PRIMARY KEY,
+        source_run_id TEXT NOT NULL,
+        session_id TEXT,
+        title TEXT NOT NULL,
+        markdown TEXT NOT NULL,
+        todos_json TEXT NOT NULL,
+        risks_json TEXT NOT NULL,
+        requires_user_confirmation INTEGER NOT NULL DEFAULT 1,
+        created_at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_user_visible_plans_run ON user_visible_plans(source_run_id, created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_user_visible_plans_session ON user_visible_plans(session_id, created_at DESC);
     `);
 
     this.addColumnIfMissing("messages", "is_summarized", "is_summarized INTEGER NOT NULL DEFAULT 0");
@@ -194,6 +266,14 @@ export class DatabaseManager {
     );
     this.addColumnIfMissing("memories", "source_id", "source_id TEXT");
     this.addColumnIfMissing("memories", "supersedes_id", "supersedes_id TEXT");
+    this.addColumnIfMissing("tasks", "inputs_json", "inputs_json TEXT");
+    this.addColumnIfMissing("tasks", "outputs_json", "outputs_json TEXT");
+    this.addColumnIfMissing("tasks", "acceptance_criteria_json", "acceptance_criteria_json TEXT");
+    this.addColumnIfMissing("task_steps", "objective", "objective TEXT");
+    this.addColumnIfMissing("task_steps", "required_context_json", "required_context_json TEXT");
+    this.addColumnIfMissing("task_steps", "available_tools_json", "available_tools_json TEXT");
+    this.addColumnIfMissing("task_steps", "expected_artifacts_json", "expected_artifacts_json TEXT");
+    this.addColumnIfMissing("task_steps", "priority", "priority INTEGER NOT NULL DEFAULT 100");
 
     this.ensureFts("messages_fts", "messages", "id", "content");
     this.ensureFts("summaries_fts", "conversation_summaries", "id", "content");

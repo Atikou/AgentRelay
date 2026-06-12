@@ -1,10 +1,13 @@
 /** 从持久化的 tool 消息提取文件路径与代码片段，供 systemSections 注入。 */
 
+import { inferFileSnippetTags } from "./contextTags.js";
+
 export interface FileSnippetItem {
   path: string;
   tool: string;
   preview: string;
   messageId: string;
+  tags: string[];
 }
 
 const FILE_SNIPPET_TOOLS = new Set(["read_file", "search_text", "git_diff", "apply_patch", "diff_file"]);
@@ -20,7 +23,7 @@ function unwrapPayload(parsed: unknown): unknown {
   return parsed;
 }
 
-function parseToolBody(tool: string, body: string): Array<Omit<FileSnippetItem, "messageId">> {
+function parseToolBody(tool: string, body: string): Array<{ path: string; tool: string; preview: string }> {
   let parsed: unknown;
   try {
     parsed = JSON.parse(body);
@@ -38,7 +41,7 @@ function parseToolBody(tool: string, body: string): Array<Omit<FileSnippetItem, 
   }
 
   if (tool === "search_text" && Array.isArray(record.results)) {
-    const out: Array<Omit<FileSnippetItem, "messageId">> = [];
+    const out: Array<{ path: string; tool: string; preview: string }> = [];
     for (const hit of record.results as Array<Record<string, unknown>>) {
       if (typeof hit.path !== "string") continue;
       const line = typeof hit.line === "number" ? hit.line : "?";
@@ -92,7 +95,12 @@ export function extractFileSnippetsFromToolMessages(
         raw.preview.length > maxPreviewChars
           ? `${raw.preview.slice(0, maxPreviewChars)}…`
           : raw.preview;
-      byPath.set(raw.path, { ...raw, preview, messageId: m.id });
+      byPath.set(raw.path, {
+        ...raw,
+        preview,
+        messageId: m.id,
+        tags: inferFileSnippetTags({ path: raw.path, tool: raw.tool }),
+      });
     }
   }
 

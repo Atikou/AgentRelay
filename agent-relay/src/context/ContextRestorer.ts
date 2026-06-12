@@ -1,4 +1,5 @@
 import { extractFileSnippetsFromToolMessages } from "./fileSnippets.js";
+import { flattenTaggedFragments } from "./contextTags.js";
 import type { MemoryManager } from "./MemoryManager.js";
 import type { MemoryRetriever } from "./MemoryRetriever.js";
 import type { SemanticRetriever } from "./SemanticRetriever.js";
@@ -104,6 +105,7 @@ export class ContextRestorer {
       projectId,
       taskId,
       systemSections,
+      taggedFragments: flattenTaggedFragments(systemSections),
       messages: chatMessages,
       summaries: sessionSummary ? [sessionSummary, ...chunkSummaries] : chunkSummaries,
       memories: retrievedMemories,

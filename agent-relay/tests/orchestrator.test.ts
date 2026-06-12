@@ -15,6 +15,7 @@ import { RunStore } from "../src/orchestrator/RunStore.js";
 import { DryRunExecutor, TaskRunner } from "../src/agent/TaskRunner.js";
 import { PlanSchema } from "../src/agent/types.js";
 import { createDefaultRegistry } from "../src/tools/index.js";
+import { createTestPlanService } from "./planTestHelper.js";
 
 const tests: Array<{ name: string; fn: () => Promise<void> }> = [];
 function test(name: string, fn: () => Promise<void>) {
@@ -25,6 +26,29 @@ let sandbox = "";
 let dataDir = "";
 let ctx: ContextManager;
 let runs: RunStore;
+
+function baseOrchestrator(
+  registry: ReturnType<typeof createDefaultRegistry>,
+  extra?: Record<string, unknown>,
+) {
+  const ps = createTestPlanService({ workspaceRoot: sandbox, db: ctx.db, registry });
+  const orchestrator = new Orchestrator({
+    workspaceRoot: sandbox,
+    modelRouter: {} as never,
+    planner: {} as never,
+    registry,
+    contextManager: ctx,
+    tasks: ctx.tasks,
+    runs,
+    notificationQueue: {} as never,
+    makeChatFn: () => async () => {
+      throw new Error("no chat in test");
+    },
+    planService: ps,
+    ...extra,
+  });
+  return { orchestrator, planService: ps };
+}
 
 test("RunStore 创建与查询", async () => {
   const run = runs.create({ kind: "agent", status: "running", goal: "test" });
@@ -104,21 +128,22 @@ test("ContextManager setActiveTask 绑定与释放", async () => {
   assert.equal(ctx.getSession(session.id)?.activeTaskId, undefined);
 });
 
+test("Orchestrator task/run 拒绝 body 中的 plan JSON", async () => {
+  const registry = createDefaultRegistry({ dataDir });
+  const { orchestrator } = baseOrchestrator(registry);
+  const plan = PlanSchema.parse({
+    goal: "x",
+    steps: [{ id: "s1", title: "t", status: "pending" }],
+  });
+  const result = await orchestrator.runTask({ plan, autoConfirm: true }, false);
+  assert.equal(result.status, 400);
+  assert.equal((result.body as { code?: string }).code, "PLAN_BODY_NOT_EXECUTABLE");
+  registry.close();
+});
+
 test("Orchestrator task dry-run 产生 runId 与 taskId", async () => {
   const registry = createDefaultRegistry({ dataDir });
-  const orchestrator = new Orchestrator({
-    workspaceRoot: sandbox,
-    modelRouter: {} as never,
-    planner: {} as never,
-    registry,
-    contextManager: ctx,
-    tasks: ctx.tasks,
-    runs,
-    notificationQueue: {} as never,
-    makeChatFn: () => async () => {
-      throw new Error("no chat in test");
-    },
-  });
+  const { orchestrator } = baseOrchestrator(registry);
 
   const plan = PlanSchema.parse({
     goal: "dry",
@@ -145,14 +170,7 @@ test("Orchestrator runAgentStream 推送 run_start 与 done", async () => {
     location: "local",
     latencyMs: 1,
   });
-  const orchestrator = new Orchestrator({
-    workspaceRoot: sandbox,
-    modelRouter: {} as never,
-    planner: {} as never,
-    registry,
-    contextManager: ctx,
-    tasks: ctx.tasks,
-    runs,
+  const { orchestrator } = baseOrchestrator(registry, {
     notificationQueue: { drain: () => [] } as never,
     makeChatFn: () => makeChat,
   });
@@ -170,21 +188,63 @@ test("Orchestrator runAgentStream 推送 run_start 与 done", async () => {
   registry.close();
 });
 
-test("Orchestrator rollbackOnFailure 失败时逆序回滚写文件", async () => {
+test("Orchestrator runAgent 推断计划模式并返回 executionMeta", async () => {
   const registry = createDefaultRegistry({ dataDir });
-  const orchestrator = new Orchestrator({
-    workspaceRoot: sandbox,
-    modelRouter: {} as never,
-    planner: {} as never,
-    registry,
-    contextManager: ctx,
-    tasks: ctx.tasks,
-    runs,
-    notificationQueue: {} as never,
+  const makeChat: LoopChatFn = async () => ({
+    content: '{"action":"final","answer":"只读计划完成"}',
+    toolCalls: [],
+    clientName: "fake",
+    modelName: "fake",
+    location: "local",
+    latencyMs: 1,
+  });
+  const { orchestrator } = baseOrchestrator(registry, {
+    notificationQueue: { drain: () => [] } as never,
+    makeChatFn: () => makeChat,
+  });
+  const result = await orchestrator.runAgent(
+    { message: "请进入计划模式，只读分析项目", persist: false },
+    makeChat,
+  );
+  assert.equal(result.status, 200);
+  const body = result.body as { executionMeta: { mode: string; budget: { maxModelTurns: number; maxWriteCalls: number } } };
+  assert.equal(body.executionMeta.mode, "plan");
+  assert.equal(body.executionMeta.budget.maxModelTurns, 16);
+  assert.equal(body.executionMeta.budget.maxWriteCalls, 0);
+  registry.close();
+});
+
+test("Orchestrator runAgent 拒绝非法 mode", async () => {
+  const registry = createDefaultRegistry({ dataDir });
+  const { orchestrator } = baseOrchestrator(registry, {
+    notificationQueue: { drain: () => [] } as never,
     makeChatFn: () => async () => {
-      throw new Error("no chat in test");
+      throw new Error("no chat in validation test");
     },
   });
+  const result = await orchestrator.runAgent({ message: "hello", mode: "invalid", persist: false });
+  assert.equal(result.status, 400);
+  assert.match(String((result.body as { error?: string }).error), /mode/);
+  registry.close();
+});
+
+test("Orchestrator generatePlan 拒绝 Markdown 报告型提示", async () => {
+  const registry = createDefaultRegistry({ dataDir });
+  const { orchestrator } = baseOrchestrator(registry);
+  const result = await orchestrator.generatePlan({
+    goal: "# 计划模式分析结果\n\n## 1. 目标理解\n\n本次仅生成计划，未修改任何文件。",
+  });
+  assert.equal(result.status, 400);
+  const body = result.body as { code?: string; suggestedEndpoint?: string };
+  assert.equal(body.code, "PLAN_REPORT_REQUEST");
+  assert.equal(body.suggestedEndpoint, "/api/agent");
+  registry.close();
+});
+
+
+test("Orchestrator rollbackOnFailure 失败时逆序回滚写文件", async () => {
+  const registry = createDefaultRegistry({ dataDir });
+  const { orchestrator, planService } = baseOrchestrator(registry);
 
   const target = path.join(sandbox, "rollback-task.txt");
   await fs.writeFile(target, "original", "utf-8");
@@ -213,7 +273,17 @@ test("Orchestrator rollbackOnFailure 失败时逆序回滚写文件", async () =
     ],
   });
 
-  const result = await orchestrator.runTask({ plan, autoConfirm: true, rollbackOnFailure: true }, false);
+  const ingested = planService.persistLegacyAsDraft(plan, { originType: "legacy_ingest" });
+  planService.approve(ingested.planId, ingested.version, "test");
+  const result = await orchestrator.runTask(
+    {
+      planId: ingested.planId,
+      version: ingested.version,
+      autoConfirm: true,
+      rollbackOnFailure: true,
+    },
+    false,
+  );
   assert.equal(result.status, 200);
   const body = result.body as {
     rollback?: { attempted: number; restored: string[]; errors: string[] };
@@ -230,19 +300,7 @@ test("Orchestrator rollbackOnFailure 失败时逆序回滚写文件", async () =
 
 test("Orchestrator 默认不回滚失败任务中的写操作", async () => {
   const registry = createDefaultRegistry({ dataDir });
-  const orchestrator = new Orchestrator({
-    workspaceRoot: sandbox,
-    modelRouter: {} as never,
-    planner: {} as never,
-    registry,
-    contextManager: ctx,
-    tasks: ctx.tasks,
-    runs,
-    notificationQueue: {} as never,
-    makeChatFn: () => async () => {
-      throw new Error("no chat in test");
-    },
-  });
+  const { orchestrator, planService } = baseOrchestrator(registry);
 
   const target = path.join(sandbox, "no-rollback-task.txt");
   await fs.writeFile(target, "original", "utf-8");
@@ -271,7 +329,12 @@ test("Orchestrator 默认不回滚失败任务中的写操作", async () => {
     ],
   });
 
-  const result = await orchestrator.runTask({ plan, autoConfirm: true }, false);
+  const ingested = planService.persistLegacyAsDraft(plan, { originType: "legacy_ingest" });
+  planService.approve(ingested.planId, ingested.version, "test");
+  const result = await orchestrator.runTask(
+    { planId: ingested.planId, version: ingested.version, autoConfirm: true },
+    false,
+  );
   assert.equal(result.status, 200);
   const body = result.body as { rollback?: unknown };
   assert.equal(body.rollback, undefined);

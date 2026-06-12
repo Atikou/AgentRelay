@@ -6,6 +6,7 @@ import assert from "node:assert/strict";
 
 import { normalizePlan } from "../src/agent/Planner.js";
 import { DryRunExecutor, TaskRunner, type StepExecutor } from "../src/agent/TaskRunner.js";
+import { sortSubtasksByPriority } from "../src/agent/taskGraph.js";
 import type { Plan, PlanStep } from "../src/agent/types.js";
 
 const tests: Array<{ name: string; fn: () => Promise<void> }> = [];
@@ -17,16 +18,24 @@ function makePlan(steps: Array<Partial<PlanStep> & { id: string; title: string }
   return {
     goal: "test",
     scope: { inScope: [], outOfScope: [] },
+    inputs: [],
+    outputs: [],
+    acceptanceCriteria: [],
     risks: [],
     dependencies: [],
-    steps: steps.map((s) => ({
+    steps: steps.map((s, index) => ({
       id: s.id,
       title: s.title,
+      objective: s.objective ?? s.title,
       description: s.description ?? "",
       requiredPermissions: s.requiredPermissions ?? ["read"],
       needsConfirmation: s.needsConfirmation ?? false,
       acceptance: s.acceptance,
       dependsOn: s.dependsOn ?? [],
+      requiredContext: s.requiredContext ?? [],
+      availableTools: s.availableTools ?? ["read_file"],
+      expectedArtifacts: s.expectedArtifacts ?? [],
+      priority: s.priority ?? (index + 1) * 10,
       status: s.status ?? "pending",
     })),
   };
@@ -54,6 +63,82 @@ test("normalizePlan 解析带围栏的 JSON 并补全 id/确认标志", async ()
 
 test("normalizePlan 纯文本无 JSON 时抛错", async () => {
   await assert.rejects(async () => normalizePlan("这里没有 JSON", "g"));
+});
+
+test("normalizePlan 解析子任务元数据并拓扑排序", async () => {
+  const content = JSON.stringify({
+    goal: "实现登录",
+    inputs: ["现有用户表"],
+    outputs: ["登录 API"],
+    acceptanceCriteria: ["单元测试通过"],
+    steps: [
+      {
+        id: "b",
+        title: "实现接口",
+        objective: "完成 POST /login",
+        dependsOn: ["a"],
+        requiredContext: ["src/auth.ts"],
+        availableTools: ["read_file", "write_file"],
+        expectedArtifacts: ["src/routes/login.ts"],
+        acceptance: "curl 返回 200",
+        priority: 20,
+        requiredPermissions: ["write"],
+      },
+      {
+        id: "a",
+        title: "调研现状",
+        objective: "阅读现有认证代码",
+        requiredContext: ["README"],
+        expectedArtifacts: ["调研笔记"],
+        acceptance: "列出改动点",
+        priority: 10,
+        requiredPermissions: ["read"],
+      },
+    ],
+  });
+  const plan = normalizePlan(content, "fallback");
+  assert.equal(plan.inputs[0], "现有用户表");
+  assert.equal(plan.outputs[0], "登录 API");
+  assert.equal(plan.steps[0]!.id, "a");
+  assert.equal(plan.steps[1]!.id, "b");
+  assert.equal(plan.steps[0]!.objective, "阅读现有认证代码");
+  assert.ok(plan.steps[1]!.availableTools.includes("write_file"));
+  assert.equal(plan.steps[1]!.expectedArtifacts[0], "src/routes/login.ts");
+});
+
+test("sortSubtasksByPriority 同层按 priority 排序", async () => {
+  const sorted = sortSubtasksByPriority([
+    {
+      id: "b",
+      title: "B",
+      description: "",
+      requiredPermissions: ["read"],
+      needsConfirmation: false,
+      dependsOn: [],
+      requiredContext: [],
+      availableTools: [],
+      expectedArtifacts: [],
+      priority: 20,
+      status: "pending",
+    },
+    {
+      id: "a",
+      title: "A",
+      description: "",
+      requiredPermissions: ["read"],
+      needsConfirmation: false,
+      dependsOn: [],
+      requiredContext: [],
+      availableTools: [],
+      expectedArtifacts: [],
+      priority: 10,
+      status: "pending",
+    },
+  ]);
+  assert.deepEqual(
+    sorted.map((s) => s.id),
+    ["a", "b"],
+  );
 });
 
 test("TaskRunner 顺序执行全部完成", async () => {

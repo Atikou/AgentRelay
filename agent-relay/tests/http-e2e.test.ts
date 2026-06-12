@@ -38,16 +38,25 @@ async function get(path: string): Promise<Response> {
   return fetch(`${baseUrl}${path}`);
 }
 
+async function postJson(path: string, body: unknown): Promise<Response> {
+  return fetch(`${baseUrl}${path}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
 test("GET /api/config 返回 capabilities", async () => {
   const res = await get("/api/config");
   assert.equal(res.status, 200);
   const body = (await res.json()) as {
     profile: string;
-    capabilities: { orchestrator?: boolean; runsApi?: boolean };
+    capabilities: { orchestrator?: boolean; runsApi?: boolean; highRiskConfirmation?: boolean };
   };
   assert.ok(body.profile);
   assert.equal(body.capabilities.orchestrator, true);
   assert.equal(body.capabilities.runsApi, true);
+  assert.equal(body.capabilities.highRiskConfirmation, true);
 });
 
 test("GET /api/runs 返回 runs 数组", async () => {
@@ -89,24 +98,62 @@ test("GET /api/models/catalog 返回 entries 数组", async () => {
 });
 
 test("POST /api/agent/stream 空 message 返回 400 JSON", async () => {
-  const res = await fetch(`${baseUrl}/api/agent/stream`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ message: "" }),
-  });
+  const res = await postJson("/api/agent/stream", { message: "" });
   assert.equal(res.status, 400);
   assert.match(res.headers.get("content-type") ?? "", /application\/json/);
 });
 
 test("POST /api/task/dry-run 缺 plan 返回 400", async () => {
-  const res = await fetch(`${baseUrl}/api/task/dry-run`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({}),
-  });
+  const res = await postJson("/api/task/dry-run", {});
   assert.equal(res.status, 400);
   const body = (await res.json()) as { error: string };
   assert.ok(body.error.includes("计划"));
+});
+
+test("POST /api/tools/run 高风险 shell 未确认时只返回预览", async () => {
+  const res = await postJson("/api/tools/run", {
+    name: "shell_run",
+    input: { command: "rm -rf /" },
+  });
+  assert.equal(res.status, 200);
+  const body = (await res.json()) as {
+    needsConfirmation?: boolean;
+    tool?: string;
+    preview?: { kind?: string; risk?: { level?: string } };
+  };
+  assert.equal(body.needsConfirmation, true);
+  assert.equal(body.tool, "shell_run");
+  assert.equal(body.preview?.kind, "shell_run");
+  assert.equal(body.preview?.risk?.level, "dangerous");
+});
+
+test("POST /api/tools/run 高风险 shell 确认后仍被策略拒绝", async () => {
+  const res = await postJson("/api/tools/run", {
+    name: "shell_run",
+    input: { command: "rm -rf /" },
+    confirm: true,
+  });
+  assert.equal(res.status, 400);
+  const body = (await res.json()) as { ok?: boolean; code?: string; category?: string; error?: string };
+  assert.equal(body.ok, false);
+  assert.equal(body.code, "error");
+  assert.equal(body.category, "permission_error");
+  assert.match(body.error ?? "", /高风险命令被拒绝|命令被策略拒绝/);
+});
+
+test("POST /api/plans/analyze 空 goal 返回 400", async () => {
+  const res = await postJson("/api/plans/analyze", { goal: "" });
+  assert.equal(res.status, 400);
+});
+
+test("POST /api/plans/:id/compile 缺 confirmedTodoIds 返回 400", async () => {
+  const res = await postJson("/api/plans/uvp_missing/compile", { confirmedTodoIds: [] });
+  assert.equal(res.status, 400);
+});
+
+test("POST /api/plans/:id/compile 不存在的 UserVisiblePlan 返回 404", async () => {
+  const res = await postJson("/api/plans/uvp_missing/compile", { confirmedTodoIds: ["todo-1"] });
+  assert.equal(res.status, 404);
 });
 
 async function main() {

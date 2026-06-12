@@ -7,7 +7,7 @@ import {
   DEFAULT_SHELL_TIMEOUT_MS,
 } from "./constants.js";
 import { resolveInsideWorkspace } from "./pathSafe.js";
-import { classifyShellCommand, assertShellAllowed } from "../policy/ShellPolicy.js";
+import { classifyShellCommand } from "../policy/ShellPolicy.js";
 import type { Tool } from "./types.js";
 
 const execAsync = promisify(exec);
@@ -49,9 +49,14 @@ export const shellRunTool: Tool<
     maxOutputBytes: z.number().int().positive().max(2_000_000).default(DEFAULT_SHELL_MAX_OUTPUT_BYTES),
   }),
   async execute(input, ctx) {
-    const { tier: riskLevel, blocked, verdict } = classifyShellCommand(input.command);
-    if (blocked) {
-      throw new Error(`高风险命令被拒绝：${verdict.reason}`);
+    const decision = ctx.shellPolicy?.evaluate(input.command);
+    if (decision?.blocked) {
+      throw new Error(`命令被策略拒绝：${decision.reason ?? decision.verdict.reason}`);
+    }
+    const baseRisk = classifyShellCommand(input.command);
+    const riskLevel = decision?.tier ?? baseRisk.tier;
+    if (!decision && baseRisk.blocked) {
+      throw new Error(`高风险命令被拒绝：${baseRisk.verdict.reason}`);
     }
 
     const cwdRel = input.cwd ?? ".";

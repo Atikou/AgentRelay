@@ -126,7 +126,14 @@ export async function handleToolRun(app: AppContext, body: unknown): Promise<Api
   if (!parsed.success) {
     return {
       status: 400,
-      body: { ok: false, code: "VALIDATION_ERROR", error: "输入校验失败", issues: parsed.error.issues },
+      body: {
+        ok: false,
+        tool: name,
+        code: "invalid_input",
+        category: "user_error",
+        error: "输入校验失败",
+        issues: parsed.error.issues,
+      },
     };
   }
 

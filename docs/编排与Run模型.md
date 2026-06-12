@@ -27,14 +27,18 @@ AppContext         →  依赖容器（单例装配）
 | **Run** | 一次编排执行单元（`runs` 表），含 `kind` / `status` / `sessionId` / `taskId` |
 | **Task** | 持久化任务记录（`tasks` 表），与 Run 关联 |
 | **Correlation** | `runId` / `sessionId` / `taskId` / `triggerId` 写入 `runs.correlation_json`，并贯穿 trace 与 `tool_audit` |
-| **TaskStep** | `task_steps` 表持久化 Plan 步骤状态、权限、确认门、工具输入、结果与错误 |
+| **TaskStep** | `task_steps` 表持久化 Plan 子任务：`objective`、`dependsOn`、`requiredContext`、`availableTools`、`expectedArtifacts`、`acceptance`（验证方式）、`priority`、权限、确认门、工具绑定、结果与错误 |
 | **TaskAttempt** | `task_attempts` 表记录一次 task/dry-run 执行尝试，可关联 `runId` 与具体 `stepId` |
 
 ### 任务步骤持久化
 
 `Orchestrator.runTask()` 在执行前把 `Plan.steps` 写入 `task_steps`，执行过程中通过 `TaskRunner.onUpdate` 同步状态，结束后写入 `task_attempts`。`PlanStep.dependsOn` 会落到 `task_step_dependencies`，为后续 DAG、并行步骤、失败续跑和单步骤重试保留结构化数据。
 
+**计划 JSON / Markdown 分离**：真实执行须 `planId + version`（PlanStore 内已审批的 `InternalTaskPlan`）。`POST /api/task/run` 拒绝 inline `plan`；展示用 `previewMarkdown` / `PublicPlanJson`（`executable: false`）不可直接执行。见 [计划JSON与Markdown分离](计划JSON与Markdown分离.md)。
+
 `TaskRunner` 按 `dependsOn` 构建依赖图：**依赖已完成的 pending 步骤在同一波次并行执行**；无依赖步骤默认同波并行。校验未知依赖与环路；上游 `failed`/`blocked`/`cancelled` 会向依赖方传播阻塞。某步 `blocked`（如确认门）时**继续调度其他可执行分支**；仅 `failed` 后不再启动新波次。
+
+每次步骤状态从 `pending/running/blocked/completed/failed/cancelled/skipped` 迁移时会写入 `task_status_change` trace（`scope=step`）。当聚合后的任务状态变化时，也会写入 `scope=task` 事件，包含 `runId`、`taskId`、`sessionId`、前后状态、步骤总数与状态计数，供 `/api/trace/replay` 和后续运行报告复盘。
 
 ### 任务失败回滚（`rollbackOnFailure`）
 
@@ -61,10 +65,10 @@ AppContext         →  依赖容器（单例装配）
 | kind | 来源 API | 说明 |
 | --- | --- | --- |
 | `agent` | `POST /api/agent` | AgentLoop 自主循环 |
-| `task` | `POST /api/task/run` | TaskRunner 真实执行 |
-| `task_dry_run` | `POST /api/task/dry-run` | 干跑 |
+| `task` | `POST /api/plans/:id/execute`、`POST /api/task/run`（planId+version） | TaskRunner 真实执行 |
+| `task_dry_run` | `POST /api/task/dry-run` | 干跑（可 legacy ingest plan） |
 | `chat` | `POST /api/chat` | 单次对话 |
-| `plan` | `POST /api/plan` | 计划生成 |
+| `plan` | `POST /api/plan`、`POST /api/plans/draft` | 计划生成（预览，非可执行体） |
 | `scheduled` | 调度器（预留） | 触发待执行 Run |
 
 ## 数据流

@@ -5,6 +5,7 @@ import { redactValue } from "../util/redact.js";
 
 import type { ChatMessage } from "../model/types.js";
 import { ContextRestorer } from "./ContextRestorer.js";
+import { extractFileSnippetsFromToolMessages } from "./fileSnippets.js";
 import { DatabaseManager } from "./DatabaseManager.js";
 import { EmbeddingService, MockEmbeddingProvider } from "./EmbeddingService.js";
 import { MemoryExtractor, type IMemoryExtractor } from "./MemoryExtractor.js";
@@ -251,10 +252,33 @@ export class ContextManager {
         "session",
         sessionId,
         compressed.content.current_goal,
+        compressed.summaryType,
+        compressed.content,
       );
       const fromSummary = await this.memoryExtractor.extractFromSummary(compressed);
       this.upsertCandidates(fromSummary);
     }
+
+    const recentTools = this.messages.listRecentByRole(sessionId, "tool", 8);
+    for (const snippet of extractFileSnippetsFromToolMessages(recentTools)) {
+      void this.semanticRetriever
+        .indexCodeFragment({
+          sourceId: snippet.messageId,
+          path: snippet.path,
+          content: snippet.preview,
+          scope: "session",
+          scopeId: sessionId,
+          tags: snippet.tags,
+        })
+        .catch((error) => {
+          this.logContextError("context_index_code_fragment_failed", {
+            messageId: snippet.messageId,
+            path: snippet.path,
+            error: String(error),
+          });
+        });
+    }
+
     const postCall = await this.buildContextSnapshot(sessionId, {
       phase: "post_call",
       userInput: query,
@@ -294,7 +318,14 @@ export class ContextManager {
   }): MemoryRecord {
     const record = this.memoryManager.upsert(input);
     void this.retriever
-      .indexMemory(record.id, record.value, record.scope, record.scopeId, record.summary)
+      .indexMemory(
+        record.id,
+        record.value,
+        record.scope,
+        record.scopeId,
+        record.summary,
+        record.memoryType,
+      )
       .catch((error) => {
         this.logContextError("context_index_memory_failed", {
           memoryId: record.id,
@@ -326,8 +357,13 @@ export class ContextManager {
     return this.memories.listActive(scope, scopeId);
   }
 
-  search(query: string, scope?: MemoryScope, scopeId?: string): Promise<SearchHit[]> {
-    return this.retriever.search(query, scope, scopeId);
+  search(
+    query: string,
+    scope?: MemoryScope,
+    scopeId?: string,
+    tags?: string[],
+  ): Promise<SearchHit[]> {
+    return this.retriever.search(query, scope, scopeId, tags);
   }
 
   close(): void {

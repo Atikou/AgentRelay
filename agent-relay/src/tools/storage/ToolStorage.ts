@@ -127,6 +127,45 @@ export class ToolStorage {
     return id;
   }
 
+  /** 读取近期工具调用日志（用于测试、审计与调试视图）。 */
+  listRecentToolLogs(limit = 50): ToolLogRecord[] {
+    const safeLimit = Math.max(1, Math.min(500, Math.floor(limit)));
+    const rows = this.db
+      .prepare(
+        `SELECT id, session_id, request_id, tool_name, input_json, output_json, ok, error_code, error_message, started_at, ended_at, duration_ms
+         FROM tool_logs ORDER BY started_at DESC LIMIT ?`,
+      )
+      .all(safeLimit) as Array<{
+      id: string;
+      session_id: string | null;
+      request_id: string | null;
+      tool_name: string;
+      input_json: string | null;
+      output_json: string | null;
+      ok: number;
+      error_code: string | null;
+      error_message: string | null;
+      started_at: string;
+      ended_at: string;
+      duration_ms: number;
+    }>;
+
+    return rows.map((row) => ({
+      id: row.id,
+      sessionId: row.session_id ?? undefined,
+      requestId: row.request_id ?? undefined,
+      toolName: row.tool_name,
+      inputJson: row.input_json ?? "",
+      outputJson: row.output_json ?? "",
+      ok: row.ok === 1,
+      errorCode: row.error_code ?? undefined,
+      errorMessage: row.error_message ?? undefined,
+      startedAt: row.started_at,
+      endedAt: row.ended_at,
+      durationMs: row.duration_ms,
+    }));
+  }
+
   /** 记录一次文件变更。 */
   insertFileChange(record: Omit<FileChangeRecord, "createdAt"> & { createdAt?: string }): void {
     this.db

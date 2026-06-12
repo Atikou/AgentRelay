@@ -17,6 +17,7 @@ import {
   detectTaskUncertainty,
 } from "../src/orchestrator/taskUncertainty.js";
 import { createDefaultRegistry } from "../src/tools/index.js";
+import { createTestPlanService } from "./planTestHelper.js";
 
 const tests: Array<{ name: string; fn: () => Promise<void> }> = [];
 function test(name: string, fn: () => Promise<void>) {
@@ -89,6 +90,7 @@ test("Orchestrator fallbackToPlanOnUncertainty 返回 revisedPlan", async () => 
     makeChatFn: () => async () => {
       throw new Error("不应调用 chat");
     },
+    planService: createTestPlanService({ workspaceRoot: sandbox, db: ctx.db, registry }),
   });
 
   const plan = PlanSchema.parse({
@@ -134,6 +136,7 @@ test("Orchestrator 未开启 fallback 时不生成 modeFallback", async () => {
     makeChatFn: () => async () => {
       throw new Error("no chat");
     },
+    planService: createTestPlanService({ workspaceRoot: sandbox, db: ctx.db, registry }),
   });
   const plan = PlanSchema.parse({
     goal: "x",

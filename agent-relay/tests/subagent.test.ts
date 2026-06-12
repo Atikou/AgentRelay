@@ -13,6 +13,7 @@ import { createDefaultRegistry } from "../src/tools/index.js";
 import {
   SubAgentCoordinator,
   SubAgentRunner,
+  aggregateSubAgentResultsStructured,
   listSubAgentRoles,
   resolveGrantedPermissions,
 } from "../src/subagent/index.js";
@@ -60,7 +61,8 @@ test("listSubAgentRoles 包含两个只读角色", async () => {
   const roles = listSubAgentRoles();
   assert.equal(roles.length, 2);
   assert.ok(roles.every((r) => r.allowedPermissions.join() === "read"));
-  assert.ok(SUB_AGENT_ROLES.code_review.defaultMaxIterations >= 10);
+  assert.ok(SUB_AGENT_ROLES.code_review.defaultBudget.maxModelTurns >= 10);
+  assert.equal(SUB_AGENT_ROLES.code_review.defaultBudget.maxWriteCalls, 0);
 });
 
 test("extractFilePaths 从任务描述提取路径", async () => {
@@ -162,6 +164,40 @@ test("SubAgentCoordinator 并行汇总多个角色", async () => {
   assert.ok(batch.results.every((r) => r.status === "completed"));
   assert.match(batch.summary, /code_review/);
   assert.match(batch.summary, /test_analyze/);
+  assert.equal(batch.aggregate.status, "completed");
+  assert.equal(batch.aggregate.completed, 2);
+  assert.equal(batch.aggregate.conflicts.length, 0);
+});
+
+test("aggregateSubAgentResultsStructured 检测角色冲突并合并摘要", async () => {
+  const aggregate = aggregateSubAgentResultsStructured([
+    {
+      id: "a",
+      role: "code_review",
+      status: "completed",
+      answer: "login 模块通过 ok。",
+      steps: [],
+      iterations: 1,
+      durationMs: 10,
+      grantedPermissions: ["read"],
+    },
+    {
+      id: "b",
+      role: "test_analyze",
+      status: "completed",
+      answer: "login 模块失败 error。",
+      steps: [],
+      iterations: 1,
+      durationMs: 12,
+      grantedPermissions: ["read"],
+    },
+  ]);
+  assert.equal(aggregate.status, "conflict");
+  assert.equal(aggregate.conflicts.length, 1);
+  assert.equal(aggregate.conflicts[0]!.topic, "login");
+  assert.match(aggregate.mergedAnswer, /冲突/);
+  assert.match(aggregate.mergedAnswer, /code_review/);
+  assert.match(aggregate.mergedAnswer, /test_analyze/);
 });
 
 async function main() {

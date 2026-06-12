@@ -42,6 +42,48 @@
       }
     },
     {
+      "id": "m5-batch-aggregate-contract",
+      "title": "batch 返回结构化 aggregate",
+      "purpose": "确认并行子 Agent 成功响应除 summary 外，还返回 aggregate 结构，便于父 Agent 读取共同结论与冲突信息。",
+      "method": "POST",
+      "path": "/api/subagent/batch",
+      "input": {
+        "roles": ["code_review", "test_analyze"],
+        "task": "检查 README.md 的风险",
+        "timeoutMs": 120000
+      },
+      "expect": {
+        "status": 200,
+        "bodyHasKeys": ["runId", "parentTaskId", "results", "summary", "aggregate"],
+        "bodyPaths": {
+          "results": "array",
+          "aggregate.conflicts": "array",
+          "aggregate.mergedAnswer": "string"
+        }
+      }
+    },
+    {
+      "id": "m5-batch-conflict-fields",
+      "title": "aggregate 暴露冲突检测字段",
+      "purpose": "确认 aggregate 至少包含 status/commonFindings/conflicts，供测试台和父 Agent 判断是否需要人工复核。",
+      "method": "POST",
+      "path": "/api/subagent/batch",
+      "input": {
+        "roles": ["code_review", "test_analyze"],
+        "task": "分别审查当前改动是否存在相反结论",
+        "timeoutMs": 120000
+      },
+      "expect": {
+        "status": 200,
+        "bodyHasKeys": ["aggregate"],
+        "bodyPaths": {
+          "aggregate.status": "string",
+          "aggregate.commonFindings": "array",
+          "aggregate.conflicts": "array"
+        }
+      }
+    },
+    {
       "id": "m5-run-invalid-grant",
       "title": "授予 write 权限被拒绝",
       "purpose": "验证父 Agent 不能为只读子 Agent 授予 write 等非允许权限。",

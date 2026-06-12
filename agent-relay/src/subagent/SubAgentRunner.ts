@@ -8,10 +8,16 @@ import type { TraceLogger } from "../trace/TraceLogger.js";
 import { getSubAgentRole, resolveGrantedPermissions } from "./roles.js";
 import { runSingleShotReview } from "./singleShot.js";
 import { hasSuccessfulPreload, preloadReferencedFiles } from "./taskContext.js";
-import type { SubAgentRunOptions, SubAgentRunResult, SubAgentStatus } from "./types.js";
+import type {
+  SubAgentAggregate,
+  SubAgentConflict,
+  SubAgentRoleId,
+  SubAgentRunOptions,
+  SubAgentRunResult,
+  SubAgentStatus,
+} from "./types.js";
 
 const DEFAULT_TIMEOUT_MS = 120_000;
-const DEFAULT_MAX_ITERATIONS = 10;
 
 export interface SubAgentRunnerDeps {
   chat: LoopChatFn;
@@ -29,8 +35,7 @@ export class SubAgentRunner {
     const role = getSubAgentRole(options.role);
     const granted = resolveGrantedPermissions(role, options.grantedPermissions);
     const timeoutMs = options.timeoutMs ?? role.defaultTimeoutMs ?? DEFAULT_TIMEOUT_MS;
-    const maxIterations =
-      options.maxIterations ?? role.defaultMaxIterations ?? DEFAULT_MAX_ITERATIONS;
+    const budget = { ...role.defaultBudget, ...options.budget };
     const parentTaskId = options.parentTaskId;
     const start = performance.now();
 
@@ -111,7 +116,7 @@ export class SubAgentRunner {
     const systemExtra = [
       role.systemPrompt,
       parentTaskId ? `父任务 ID：${parentTaskId}` : "",
-      `\n本轮最多 ${maxIterations} 次模型迭代；请优先基于预读内容给出 final，避免无谓工具调用。`,
+      `\n本轮预算：最多 ${budget.maxModelTurns} 次模型轮次、${budget.maxToolCalls} 次工具请求、${budget.maxReadCalls} 次只读工具。请优先基于预读内容给出 final，避免无谓工具调用。`,
     ]
       .filter(Boolean)
       .join("\n");
@@ -121,7 +126,7 @@ export class SubAgentRunner {
       registry: this.deps.registry,
       workspaceRoot: this.deps.workspaceRoot,
       allowedPermissions: granted,
-      maxIterations,
+      budget,
       autoConfirm: false,
       sensitive: options.sensitive,
       trace: this.deps.trace,
@@ -143,7 +148,7 @@ export class SubAgentRunner {
       iterations = result.iterations;
       if (result.reachedLimit) {
         status = "failed";
-        error = `达到子 Agent 迭代上限（${maxIterations} 次，已执行 ${result.steps.length} 个工具步）；可增大 maxIterations 或换用更擅长 JSON 协议的模型`;
+        error = `达到子 Agent 运行预算（耗尽 ${result.executionMeta.budgetExhausted ?? "unknown"}，已执行 ${result.steps.length} 个工具步）；可提高对应预算或换用更擅长 JSON 协议的模型`;
       }
     } catch (err) {
       const msg = String(err);
@@ -195,12 +200,178 @@ async function raceTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T
 export function aggregateSubAgentResults(
   results: SubAgentRunResult[],
 ): string {
-  if (results.length === 0) return "（无子 Agent 结果）";
-  return results
+  return aggregateSubAgentResultsStructured(results).mergedAnswer;
+}
+
+export function aggregateSubAgentResultsStructured(
+  results: SubAgentRunResult[],
+): SubAgentAggregate {
+  if (results.length === 0) {
+    return {
+      status: "failed",
+      completed: 0,
+      failed: 0,
+      timedOut: 0,
+      commonFindings: [],
+      conflicts: [],
+      mergedAnswer: "（无子 Agent 结果）",
+    };
+  }
+  const completed = results.filter((r) => r.status === "completed");
+  const failed = results.filter((r) => r.status === "failed");
+  const timedOut = results.filter((r) => r.status === "timeout");
+  const commonFindings = findCommonFindings(completed);
+  const conflicts = detectConflicts(completed);
+  const status: SubAgentAggregate["status"] =
+    conflicts.length > 0
+      ? "conflict"
+      : completed.length === 0
+        ? "failed"
+        : failed.length > 0 || timedOut.length > 0
+          ? "partial"
+          : "completed";
+  const sections = [
+    `子 Agent 汇总：${status}（完成 ${completed.length}/${results.length}，失败 ${failed.length}，超时 ${timedOut.length}）`,
+    commonFindings.length > 0
+      ? `共同结论：\n${commonFindings.map((f) => `- ${f}`).join("\n")}`
+      : "共同结论：未发现跨角色重复结论。",
+    conflicts.length > 0
+      ? `冲突：\n${conflicts.map(renderConflict).join("\n")}`
+      : "冲突：未发现明显相反结论。",
+    results
     .map((r) => {
       const head = `[${r.role}] ${r.status} · ${r.durationMs}ms · 权限 ${r.grantedPermissions.join(",")}`;
       const body = r.error ? `错误：${r.error}` : r.answer;
       return `${head}\n${body}`;
     })
-    .join("\n\n---\n\n");
+      .join("\n\n---\n\n"),
+  ];
+  return {
+    status,
+    completed: completed.length,
+    failed: failed.length,
+    timedOut: timedOut.length,
+    commonFindings,
+    conflicts,
+    mergedAnswer: sections.join("\n\n"),
+  };
+}
+
+function findCommonFindings(results: SubAgentRunResult[]): string[] {
+  const byNormalized = new Map<string, { text: string; roles: Set<SubAgentRoleId> }>();
+  for (const result of results) {
+    for (const sentence of splitFindings(result.answer)) {
+      const normalized = normalizeFinding(sentence);
+      if (normalized.length < 6) continue;
+      const existing = byNormalized.get(normalized) ?? { text: sentence, roles: new Set<SubAgentRoleId>() };
+      existing.roles.add(result.role);
+      byNormalized.set(normalized, existing);
+    }
+  }
+  return [...byNormalized.values()]
+    .filter((item) => item.roles.size >= 2)
+    .map((item) => item.text)
+    .slice(0, 8);
+}
+
+function detectConflicts(results: SubAgentRunResult[]): SubAgentConflict[] {
+  const conflicts: SubAgentConflict[] = [];
+  for (let i = 0; i < results.length; i += 1) {
+    for (let j = i + 1; j < results.length; j += 1) {
+      const left = results[i]!;
+      const right = results[j]!;
+      const pair = detectPairConflict(left, right);
+      if (pair) conflicts.push(pair);
+    }
+  }
+  return conflicts.slice(0, 10);
+}
+
+function detectPairConflict(
+  left: SubAgentRunResult,
+  right: SubAgentRunResult,
+): SubAgentConflict | undefined {
+  const leftFindings = splitFindings(left.answer);
+  const rightFindings = splitFindings(right.answer);
+  for (const l of leftFindings) {
+    for (const r of rightFindings) {
+      const topic = sharedTopic(l, r);
+      if (!topic) continue;
+      const lPolarity = findingPolarity(l);
+      const rPolarity = findingPolarity(r);
+      if (lPolarity === "neutral" || rPolarity === "neutral" || lPolarity === rPolarity) continue;
+      return {
+        topic,
+        roles: [left.role, right.role],
+        excerpts: [
+          { role: left.role, text: l },
+          { role: right.role, text: r },
+        ],
+        reason: "同一主题出现相反结论",
+      };
+    }
+  }
+  return undefined;
+}
+
+function splitFindings(answer: string): string[] {
+  return answer
+    .split(/\r?\n|[。；;]+/g)
+    .map((line) => line.replace(/^[-*•\d.、\s]+/, "").trim())
+    .filter((line) => line.length >= 4)
+    .slice(0, 20);
+}
+
+function normalizeFinding(text: string): string {
+  return text.toLowerCase().replace(/[`"'“”‘’\s，,。；;：:！!？?()[\]{}]/g, "");
+}
+
+function sharedTopic(left: string, right: string): string | undefined {
+  const leftTokens = topicTokens(left);
+  const rightTokens = topicTokens(right);
+  const shared = [...leftTokens].filter((token) => rightTokens.has(token));
+  return shared[0];
+}
+
+function topicTokens(text: string): Set<string> {
+  const ascii = text.match(/[A-Za-z_./-]{3,}/g) ?? [];
+  const chinese = text.match(/[\u4e00-\u9fa5]{2,}/g) ?? [];
+  const tokens = [...ascii, ...chinese]
+    .map((token) => token.toLowerCase())
+    .filter((token) => !POLARITY_WORDS.has(token));
+  return new Set(tokens);
+}
+
+const POSITIVE_RE = /通过|正常|无问题|没有问题|未发现|可用|成功|pass|passed|ok|green/i;
+const NEGATIVE_RE = /失败|错误|异常|风险|缺陷|不通过|不可用|未通过|fail|failed|error|bug|broken|red/i;
+const POLARITY_WORDS = new Set([
+  "通过",
+  "正常",
+  "无问题",
+  "没有问题",
+  "未发现",
+  "失败",
+  "错误",
+  "异常",
+  "风险",
+  "缺陷",
+  "pass",
+  "passed",
+  "fail",
+  "failed",
+  "error",
+]);
+
+function findingPolarity(text: string): "positive" | "negative" | "neutral" {
+  const positive = POSITIVE_RE.test(text);
+  const negative = NEGATIVE_RE.test(text);
+  if (positive && !negative) return "positive";
+  if (negative && !positive) return "negative";
+  return "neutral";
+}
+
+function renderConflict(conflict: SubAgentConflict): string {
+  const roles = conflict.roles.join(" vs ");
+  const excerpts = conflict.excerpts.map((e) => `${e.role}: ${e.text}`).join(" / ");
+  return `- ${conflict.topic}（${roles}）：${conflict.reason}；${excerpts}`;
 }

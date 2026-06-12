@@ -1,5 +1,6 @@
 import type { AgentToolStep } from "../agent/AgentLoop.js";
 import type { ToolPermission } from "../agent/permissions.js";
+import type { RunBudget } from "../agent/RunPolicy.js";
 
 /** 第一版只读子 Agent 角色。 */
 export type SubAgentRoleId = "code_review" | "test_analyze";
@@ -13,8 +14,8 @@ export interface SubAgentRoleDefinition {
   /** 父 Agent 可授予的权限（第一版固定只读）。 */
   allowedPermissions: ToolPermission[];
   systemPrompt: string;
-  /** 该角色推荐的迭代上限（审查类任务通常需要更多步）。 */
-  defaultMaxIterations: number;
+  /** 该角色推荐的运行预算。 */
+  defaultBudget: RunBudget;
   defaultTimeoutMs: number;
   /** 任务中文件已预读成功时，跳过 ReAct 循环，单次模型调用直接出结论。 */
   singleShotWhenPreloaded: boolean;
@@ -27,7 +28,7 @@ export interface SubAgentRunOptions {
   parentTaskId?: string;
   /** 显式授予权限，必须是角色允许集的子集；默认等于角色权限。 */
   grantedPermissions?: ToolPermission[];
-  maxIterations?: number;
+  budget?: Partial<RunBudget>;
   timeoutMs?: number;
   sensitive?: boolean;
 }
@@ -51,14 +52,32 @@ export interface SubAgentBatchOptions {
   context?: string;
   parentTaskId?: string;
   grantedPermissions?: ToolPermission[];
-  maxIterations?: number;
+  budget?: Partial<RunBudget>;
   timeoutMs?: number;
   sensitive?: boolean;
+}
+
+export interface SubAgentConflict {
+  topic: string;
+  roles: SubAgentRoleId[];
+  excerpts: Array<{ role: SubAgentRoleId; text: string }>;
+  reason: string;
+}
+
+export interface SubAgentAggregate {
+  status: "completed" | "partial" | "conflict" | "failed";
+  completed: number;
+  failed: number;
+  timedOut: number;
+  commonFindings: string[];
+  conflicts: SubAgentConflict[];
+  mergedAnswer: string;
 }
 
 export interface SubAgentBatchResult {
   parentTaskId: string;
   results: SubAgentRunResult[];
   summary: string;
+  aggregate: SubAgentAggregate;
   durationMs: number;
 }

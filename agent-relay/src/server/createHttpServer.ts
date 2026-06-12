@@ -9,6 +9,8 @@ import {
   handleTaskDryRun,
   handleTaskRun,
 } from "./handlers/agent.handlers.js";
+import { handleRoutingLogs } from "./handlers/routing.handlers.js";
+import { handleTaskGet, handleTaskResume, handleTasksList } from "./handlers/task.handlers.js";
 import {
   handleBackgroundCancel,
   handleBackgroundGet,
@@ -38,6 +40,16 @@ import {
   handleSchedulerPause,
   handleSchedulerResume,
 } from "./handlers/scheduler.handlers.js";
+import {
+  handlePlanApprove,
+  handlePlanAnalyze,
+  handlePlanCompile,
+  handlePlanDraft,
+  handlePlanExecute,
+  handlePlanImportPreview,
+  handlePlanPreview,
+  handlePlanReject,
+} from "./handlers/plan.handlers.js";
 import { handleSubAgentBatch, handleSubAgentRoles, handleSubAgentRun } from "./handlers/subagent.handlers.js";
 import { handleToolsList, handleToolRun } from "./handlers/tools.handlers.js";
 import { handleTraceExport, handleTraceRecent, handleTraceReplay } from "./handlers/trace.handlers.js";
@@ -100,6 +112,67 @@ export function createHttpServer(app: AppContext, opts?: HttpServerOptions): Ser
           sendJson(res, result.status, result.body);
           return;
         }
+        if (pathname === "/api/plans/draft" && method === "POST") {
+          const result = await handlePlanDraft(app, await readBody(req, maxBodyBytes));
+          sendJson(res, result.status, result.body);
+          return;
+        }
+        if (pathname === "/api/plans/analyze" && method === "POST") {
+          const result = await handlePlanAnalyze(app, await readBody(req, maxBodyBytes));
+          sendJson(res, result.status, result.body);
+          return;
+        }
+        if (pathname === "/api/plans/import-preview" && method === "POST") {
+          const result = await handlePlanImportPreview(app, await readBody(req, maxBodyBytes));
+          sendJson(res, result.status, result.body);
+          return;
+        }
+        const planCompileMatch = pathname.match(/^\/api\/plans\/([^/]+)\/compile$/);
+        if (planCompileMatch && method === "POST") {
+          const result = await handlePlanCompile(
+            app,
+            planCompileMatch[1]!,
+            await readBody(req, maxBodyBytes),
+          );
+          sendJson(res, result.status, result.body);
+          return;
+        }
+        const planPreviewMatch = pathname.match(/^\/api\/plans\/([^/]+)\/preview$/);
+        if (planPreviewMatch && method === "GET") {
+          const result = await handlePlanPreview(app, planPreviewMatch[1]!, url);
+          sendJson(res, result.status, result.body);
+          return;
+        }
+        const planApproveMatch = pathname.match(/^\/api\/plans\/([^/]+)\/approve$/);
+        if (planApproveMatch && method === "POST") {
+          const result = await handlePlanApprove(
+            app,
+            planApproveMatch[1]!,
+            await readBody(req, maxBodyBytes),
+          );
+          sendJson(res, result.status, result.body);
+          return;
+        }
+        const planRejectMatch = pathname.match(/^\/api\/plans\/([^/]+)\/reject$/);
+        if (planRejectMatch && method === "POST") {
+          const result = await handlePlanReject(
+            app,
+            planRejectMatch[1]!,
+            await readBody(req, maxBodyBytes),
+          );
+          sendJson(res, result.status, result.body);
+          return;
+        }
+        const planExecuteMatch = pathname.match(/^\/api\/plans\/([^/]+)\/execute$/);
+        if (planExecuteMatch && method === "POST") {
+          const result = await handlePlanExecute(
+            app,
+            planExecuteMatch[1]!,
+            await readBody(req, maxBodyBytes),
+          );
+          sendJson(res, result.status, result.body);
+          return;
+        }
         if (pathname === "/api/task/dry-run" && method === "POST") {
           const result = await handleTaskDryRun(app, await readBody(req, maxBodyBytes));
           sendJson(res, result.status, result.body);
@@ -107,6 +180,29 @@ export function createHttpServer(app: AppContext, opts?: HttpServerOptions): Ser
         }
         if (pathname === "/api/task/run" && method === "POST") {
           const result = await handleTaskRun(app, await readBody(req, maxBodyBytes));
+          sendJson(res, result.status, result.body);
+          return;
+        }
+        if (pathname === "/api/routing/logs" && method === "GET") {
+          const result = handleRoutingLogs(app, url);
+          sendJson(res, result.status, result.body);
+          return;
+        }
+        if (pathname === "/api/tasks" && method === "GET") {
+          const result = handleTasksList(app, url.searchParams.get("sessionId") ?? undefined);
+          sendJson(res, result.status, result.body);
+          return;
+        }
+        if (pathname.startsWith("/api/tasks/") && pathname.endsWith("/resume") && method === "POST") {
+          const rest = pathname.slice("/api/tasks/".length, -"/resume".length);
+          const taskId = decodeURIComponent(rest);
+          const result = await handleTaskResume(app, taskId, await readBody(req, maxBodyBytes));
+          sendJson(res, result.status, result.body);
+          return;
+        }
+        if (pathname.startsWith("/api/tasks/") && method === "GET") {
+          const taskId = decodeURIComponent(pathname.slice("/api/tasks/".length));
+          const result = handleTaskGet(app, taskId);
           sendJson(res, result.status, result.body);
           return;
         }

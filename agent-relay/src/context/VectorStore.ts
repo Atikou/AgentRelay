@@ -1,6 +1,7 @@
 import { mkdirSync } from "node:fs";
 import path from "node:path";
 
+import { matchesTagFilter } from "./contextTags.js";
 import { EMBEDDING_DIMENSION } from "./EmbeddingService.js";
 import type { MemoryScope, SemanticItem } from "./types.js";
 
@@ -8,6 +9,8 @@ export interface VectorSearchFilter {
   scope?: MemoryScope;
   scopeId?: string;
   itemType?: SemanticItem["itemType"];
+  /** 至少命中其一的标签。 */
+  tags?: string[];
 }
 
 export interface VectorStore {
@@ -50,6 +53,7 @@ export class InMemoryVectorStore implements VectorStore {
       if (filter?.scope && item.scope !== filter.scope) continue;
       if (filter?.scopeId && item.scopeId !== filter.scopeId) continue;
       if (filter?.itemType && item.itemType !== filter.itemType) continue;
+      if (!matchesTagFilter(item.tags, filter?.tags)) continue;
       scored.push({ item, score: cosine(queryVector, item.vector) });
     }
     scored.sort((a, b) => b.score - a.score);
@@ -226,7 +230,7 @@ export class LanceDbVectorStore implements VectorStore {
       query = query.where(clauses.join(" AND "));
     }
     const rows = (await query.toArray()) as LanceRow[];
-    return rows.map(fromRow);
+    return rows.map(fromRow).filter((item) => matchesTagFilter(item.tags, filter?.tags));
   }
 
   async deleteItem(id: string): Promise<void> {

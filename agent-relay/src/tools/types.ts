@@ -1,6 +1,7 @@
 import type { z } from "zod";
 
 import type { ToolPermission } from "../agent/permissions.js";
+import type { ShellPolicy } from "../policy/ShellPolicy.js";
 
 export type { ToolPermission };
 
@@ -14,8 +15,12 @@ export interface ToolContext {
   sessionId?: string;
   /** 请求 id，可选。 */
   requestId?: string;
+  /** 单次工具调用 id，用于串联 agent_tool / task_step / tool_audit。 */
+  toolCallId?: string;
   /** 工具层持久化（备份/变更/日志），可选。 */
   storage?: import("./storage/ToolStorage.js").ToolStorage;
+  /** Shell 执行策略（allowlist / denylist / 风险拦截），可选。 */
+  shellPolicy?: ShellPolicy;
   /** 取消信号。 */
   signal?: AbortSignal;
 }
@@ -54,7 +59,22 @@ export type ToolErrorCode =
   | "timeout"
   | "error";
 
+export type ToolErrorCategory =
+  | "user_error"
+  | "environment_error"
+  | "permission_error"
+  | "temporary_error"
+  | "unknown_error";
+
 /** 注册表执行工具后的归一化结果（不抛异常，便于服务端/执行器分支处理）。 */
 export type ToolRunResult =
-  | { ok: true; tool: string; output: unknown; durationMs: number }
-  | { ok: false; tool: string; code: ToolErrorCode; error: string; durationMs: number };
+  | { ok: true; tool: string; output: unknown; durationMs: number; toolCallId?: string }
+  | {
+      ok: false;
+      tool: string;
+      code: ToolErrorCode;
+      category: ToolErrorCategory;
+      error: string;
+      durationMs: number;
+      toolCallId?: string;
+    };

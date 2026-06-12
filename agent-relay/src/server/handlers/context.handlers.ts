@@ -52,8 +52,12 @@ export async function handleContextSearch(app: AppContext, url: URL): Promise<Ap
   if (!q) return { status: 400, body: { error: "q 不能为空" } };
   const scope = url.searchParams.get("scope") as MemoryScope | null;
   const scopeId = url.searchParams.get("scopeId") ?? undefined;
+  const tagsParam = url.searchParams.get("tags")?.trim();
+  const tags = tagsParam
+    ? tagsParam.split(",").map((t) => t.trim()).filter(Boolean)
+    : undefined;
   try {
-    const hits = await app.contextManager.search(q, scope ?? undefined, scopeId);
+    const hits = await app.contextManager.search(q, scope ?? undefined, scopeId, tags);
     return { status: 200, body: { hits } };
   } catch (error) {
     return {

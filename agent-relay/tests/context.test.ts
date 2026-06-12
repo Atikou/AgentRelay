@@ -186,6 +186,43 @@ test("current_plan section 从 task_steps 注入", async () => {
   mgr.close();
 });
 
+test("task_steps 持久化子任务元数据", async () => {
+  const mgr = new ContextManager({
+    dataDir: path.join(tmpDir, "subtask-meta"),
+    useLanceDb: false,
+    vectorStore: new InMemoryVectorStore(),
+  });
+  const task = mgr.tasks.create({ goal: "子任务拆分测试", status: "pending" });
+  mgr.tasks.update(task.id, {
+    inputs: ["需求文档"],
+    outputs: ["PR"],
+    acceptanceCriteria: ["CI 通过"],
+  });
+  mgr.tasks.upsertSteps(task.id, [
+    {
+      stepId: "s1",
+      position: 0,
+      title: "调研",
+      objective: "阅读现有代码",
+      status: "pending",
+      requiredPermissions: ["read"],
+      needsConfirmation: false,
+      requiredContext: ["src/index.ts"],
+      availableTools: ["read_file"],
+      expectedArtifacts: ["调研摘要"],
+      priority: 10,
+      acceptance: "列出改动文件",
+    },
+  ]);
+  const steps = mgr.tasks.listSteps(task.id);
+  assert.equal(steps[0]!.objective, "阅读现有代码");
+  assert.deepEqual(steps[0]!.requiredContext, ["src/index.ts"]);
+  assert.equal(steps[0]!.priority, 10);
+  const updated = mgr.tasks.get(task.id);
+  assert.deepEqual(updated!.inputs, ["需求文档"]);
+  mgr.close();
+});
+
 test("ContextPackage 含结构化 systemSections", async () => {
   const mgr = new ContextManager({
     dataDir: path.join(tmpDir, "pkg"),
@@ -271,6 +308,39 @@ test("pre_call 不含本次 assistant 回复", async () => {
   mgr.close();
 });
 
+test("PromptBuilder converts persisted tool messages before model calls", async () => {
+  const mgr = new ContextManager({
+    dataDir: path.join(tmpDir, "tool-role-sanitize"),
+    useLanceDb: false,
+    vectorStore: new InMemoryVectorStore(),
+  });
+  const session = mgr.createSession();
+  mgr.saveUserMessage(session.id, "inspect file");
+  mgr.saveToolMessage(
+    session.id,
+    'tool read_file result JSON:\n{"path":"src/index.ts","content":"export const x = 1;\\n"}',
+  );
+  mgr.saveUserMessage(session.id, "continue");
+
+  const snap = await mgr.buildContextSnapshot(session.id, {
+    phase: "pre_call",
+    userInput: "continue",
+    currentUser: "continue",
+  });
+  const final = snap.renderedPrompt.finalMessages;
+  assert.equal(final.some((m) => m.role === "tool"), false);
+  assert.ok(
+    final.some(
+      (m) =>
+        m.role === "user" &&
+        m.content.includes("历史工具执行结果") &&
+        m.content.includes("read_file"),
+    ),
+  );
+  assert.equal(snap.contextPackage.messages.some((m) => m.role === "tool"), true);
+  mgr.close();
+});
+
 test("file_snippets 从 read_file 工具消息注入", async () => {
   const mgr = new ContextManager({
     dataDir: path.join(tmpDir, "file-snippets"),
@@ -287,6 +357,54 @@ test("file_snippets 从 read_file 工具消息注入", async () => {
   assert.ok(section);
   assert.ok(section!.items.some((i) => i.text.includes("src/index.ts")));
   assert.ok(section!.items.some((i) => i.text.includes("export const x")));
+  const fileItem = section!.items.find((i) => i.text.includes("src/index.ts"));
+  assert.ok(fileItem?.tags?.includes("code-fragment"));
+  assert.ok(fileItem?.tags?.includes("ext:ts"));
+  assert.ok(fileItem?.tags?.includes("lang:typescript"));
+  assert.ok(pkg.taggedFragments.some((f) => f.tags.includes("section:file_snippets")));
+  mgr.close();
+});
+
+test("记忆写入带 memoryType 标签且可按标签检索", async () => {
+  const vectors = new InMemoryVectorStore();
+  const mgr = new ContextManager({
+    dataDir: path.join(tmpDir, "tag-search"),
+    useLanceDb: false,
+    vectorStore: vectors,
+  });
+  mgr.upsertMemory({
+    scope: "global",
+    memoryType: "preference",
+    key: "lang",
+    value: "偏好 Rust 实现底层模块",
+    summary: "Rust 偏好",
+    importance: 0.9,
+  });
+  const hits = await mgr.search("Rust", "global", undefined, ["memory:preference"]);
+  assert.ok(hits.length >= 1);
+  assert.ok(hits[0]!.tags?.includes("memory:preference"));
+  mgr.close();
+});
+
+test("finalizeTurn 索引代码片段到向量库", async () => {
+  const vectors = new InMemoryVectorStore();
+  const mgr = new ContextManager({
+    dataDir: path.join(tmpDir, "index-snippet"),
+    useLanceDb: false,
+    vectorStore: vectors,
+    messageThreshold: 100,
+  });
+  const session = mgr.createSession();
+  mgr.saveUserMessage(session.id, "读文件");
+  mgr.saveToolMessage(
+    session.id,
+    '工具「read_file」执行结果（JSON）：\n{"path":"lib/main.rs","content":"fn main() {}"}',
+  );
+  mgr.saveAssistantMessage(session.id, "已读取");
+  await mgr.finalizeTurn(session.id, "读文件");
+  const indexed = vectors.listAll().filter((i) => i.itemType === "code");
+  assert.ok(indexed.length >= 1);
+  assert.ok(indexed.some((i) => i.tags?.includes("lang:rust")));
   mgr.close();
 });
 

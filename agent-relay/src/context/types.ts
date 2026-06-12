@@ -111,6 +111,9 @@ export interface TaskRecord {
   goal: string;
   status: string;
   summary?: string;
+  inputs?: string[];
+  outputs?: string[];
+  acceptanceCriteria?: string[];
   createdAt: string;
   updatedAt: string;
 }
@@ -121,12 +124,17 @@ export interface TaskStepRecord {
   stepId: string;
   position: number;
   title: string;
+  objective?: string;
   description?: string;
   status: string;
   requiredPermissions: string[];
   needsConfirmation: boolean;
   acceptance?: string;
   dependsOn: string[];
+  requiredContext: string[];
+  availableTools: string[];
+  expectedArtifacts: string[];
+  priority: number;
   tool?: string;
   toolInput?: Record<string, unknown>;
   result?: string;
@@ -191,6 +199,17 @@ export interface SystemSectionItem {
   sourceId?: string;
   text: string;
   score?: number;
+  /** 片段标签，用于检索过滤与按标签重组上下文。 */
+  tags?: string[];
+}
+
+export interface TaggedFragment {
+  id: string;
+  tags: string[];
+  sourceType: SystemSectionItem["sourceType"];
+  sourceId?: string;
+  sectionType: SystemSectionType;
+  text: string;
 }
 
 export interface SystemSection {
@@ -214,6 +233,8 @@ export interface ContextPackage {
   projectId?: string;
   taskId?: string;
   systemSections: SystemSection[];
+  /** 扁平化带标签片段，便于按标签检索与重组。 */
+  taggedFragments: TaggedFragment[];
   messages: ContextMessage[];
   summaries: SummaryRecord[];
   memories: RetrievedMemory[];
@@ -251,6 +272,8 @@ export interface MemoryRetrieveInput {
   taskId?: string;
   scopes?: MemoryScope[];
   limit?: number;
+  /** 至少命中其一的标签过滤。 */
+  tags?: string[];
 }
 
 export interface SemanticSearchInput {
@@ -259,6 +282,7 @@ export interface SemanticSearchInput {
   projectId?: string;
   taskId?: string;
   limit?: number;
+  tags?: string[];
 }
 
 export type SummarizeFn = (messages: MessageRecord[]) => Promise<StructuredSummary>;
@@ -269,6 +293,7 @@ export interface SearchHit {
   sourceId: string;
   content: string;
   score: number;
+  tags?: string[];
 }
 
 export interface MemoryCandidate {

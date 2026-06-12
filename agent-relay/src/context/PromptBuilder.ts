@@ -39,7 +39,17 @@ export class PromptBuilder {
 }
 
 function toChatMessage(m: ContextMessage): ChatMessage {
+  if (m.role === "tool") {
+    return { role: "user", content: renderHistoricalToolMessage(m.content) };
+  }
   return { role: m.role, content: m.content };
+}
+
+function renderHistoricalToolMessage(content: string): string {
+  return [
+    "历史工具执行结果（AgentRelay ReAct 记录，不是 OpenAI 原生 tool_calls）：",
+    content,
+  ].join("\n");
 }
 
 /** pre_call：仅保留 system + 历史 + 最后一条 user，截断其后的 assistant/tool。 */

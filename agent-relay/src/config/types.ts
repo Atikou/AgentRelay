@@ -71,6 +71,18 @@ export const SchedulerConfigSchema = z.object({
 });
 export type SchedulerConfig = z.infer<typeof SchedulerConfigSchema>;
 
+export const SecurityConfigSchema = z.object({
+  shell: z
+    .object({
+      /** 正则列表：命中任一条时拒绝 shell_run / 后台命令。 */
+      denyCommands: z.array(z.string().min(1)).default([]),
+      /** 正则列表：配置后 shell_run / 后台命令必须命中任一条。 */
+      allowCommands: z.array(z.string().min(1)).default([]),
+    })
+    .default({}),
+});
+export type SecurityConfig = z.infer<typeof SecurityConfigSchema>;
+
 export const AppConfigSchema = z.object({
   workspaceRoot: z.string().min(1),
   models: z.object({
@@ -82,5 +94,6 @@ export const AppConfigSchema = z.object({
     fallback: z.boolean(),
   }),
   scheduler: SchedulerConfigSchema.optional(),
+  security: SecurityConfigSchema.optional(),
 });
 export type AppConfig = z.infer<typeof AppConfigSchema>;

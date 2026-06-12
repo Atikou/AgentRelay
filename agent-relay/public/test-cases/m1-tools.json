@@ -2,18 +2,18 @@
   "milestone": "M1",
   "feature": "工具系统",
   "featureId": "m1-tools",
-  "summary": "验证 ToolRegistry 暴露的第一阶段 11 个内置工具、安全写入/补丁/回滚与命令风险拦截。",
+  "summary": "验证 ToolRegistry 暴露的内置工具、安全写入/补丁/回滚、命令风险拦截与相关文件定位工具。",
   "cases": [
     {
       "id": "m1-tools-list",
-      "title": "工具列表包含 11 个第一阶段工具",
-      "purpose": "确认注册表暴露 read/list/search/write/patch/diff/backup/rollback/shell/git 全套工具。",
+      "title": "工具列表包含 14 个内置工具",
+      "purpose": "确认注册表暴露 read/list/search/write/patch/diff/backup/rollback/shell/git 与相关文件定位工具。",
       "method": "GET",
       "path": "/api/tools",
       "input": null,
       "expect": {
         "status": 200,
-        "bodyPaths": { "tools.length": 11 },
+        "bodyPaths": { "tools.length": 14 },
         "bodyContainsNames": [
           "read_file",
           "write_file",
@@ -21,8 +21,75 @@
           "shell_run",
           "list_files",
           "search_text",
+          "project_scan",
+          "locate_relevant_files",
+          "context_pack",
           "git_status",
           "git_diff"
+        ]
+      }
+    },
+    {
+      "id": "m1-tools-error-category-capability",
+      "title": "配置暴露工具错误分类能力",
+      "purpose": "确认服务端声明工具失败会返回 category，便于前端区分用户错误、权限错误、环境错误、临时错误和未知错误。",
+      "method": "GET",
+      "path": "/api/config",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyHasKeys": ["capabilities"],
+        "bodyPaths": {
+          "capabilities.toolErrorCategory": true
+        }
+      }
+    },
+    {
+      "id": "m1-tools-invalid-input-category",
+      "title": "非法工具入参返回用户错误分类",
+      "purpose": "验证 ToolRegistry 对 zod 入参校验失败返回 code=invalid_input 且 category=user_error。",
+      "method": "POST",
+      "path": "/api/tools/run",
+      "input": { "name": "read_file", "input": {} },
+      "expect": {
+        "status": 400,
+        "bodyPaths": {
+          "ok": false,
+          "code": "invalid_input",
+          "category": "user_error"
+        }
+      }
+    },
+    {
+      "id": "m1-tools-mock-helper-documented",
+      "title": "工具系统文档包含 mock 工具测试辅助",
+      "purpose": "确认 mock 工具作为测试专用能力已进入文档站内容，便于后续 AgentLoop/TaskRunner 测试复用。",
+      "method": "GET",
+      "path": "/api/docs/content?slug=工具系统",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyPaths": {
+          "slug": "工具系统",
+          "markdown": "string"
+        }
+      }
+    },
+    {
+      "id": "m1-tools-default-registry-excludes-mock",
+      "title": "默认工具注册表不暴露 mock 工具",
+      "purpose": "验证 mock 工具仅用于测试辅助，不进入生产默认注册表和 /api/tools 工具列表。",
+      "method": "GET",
+      "path": "/api/tools",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyPaths": { "tools.length": 14 },
+        "bodyContainsNames": [
+          "read_file",
+          "write_file",
+          "context_pack",
+          "shell_run"
         ]
       }
     },
@@ -123,6 +190,69 @@
       "expect": {
         "status": 400,
         "bodyPaths": { "ok": false }
+      }
+    },
+    {
+      "id": "m1-tools-project-scan",
+      "title": "project_scan 返回重要文件",
+      "purpose": "验证相关文件定位前置扫描可一次返回项目类型、源码根和重要文件，减少低层 list_files 探索。",
+      "method": "POST",
+      "path": "/api/tools/run",
+      "input": { "name": "project_scan", "input": { "root": ".", "maxDepth": 3 } },
+      "expect": {
+        "status": 200,
+        "bodyPaths": {
+          "ok": true,
+          "tool": "project_scan",
+          "output.importantFiles": "array"
+        }
+      }
+    },
+    {
+      "id": "m1-tools-locate-relevant-files",
+      "title": "locate_relevant_files 返回候选文件",
+      "purpose": "验证相关文件定位工具能根据目标生成搜索计划并返回 primaryFiles/candidateFiles。",
+      "method": "POST",
+      "path": "/api/tools/run",
+      "input": {
+        "name": "locate_relevant_files",
+        "input": {
+          "goal": "优化 AgentLoop 的相关文件定位流程",
+          "possibleSymbols": ["AgentLoop", "ToolRegistry"],
+          "limit": 8
+        }
+      },
+      "expect": {
+        "status": 200,
+        "bodyPaths": {
+          "ok": true,
+          "output.searchPlan": "object",
+          "output.candidateFiles": "array",
+          "output.confidence": "number"
+        }
+      }
+    },
+    {
+      "id": "m1-tools-context-pack",
+      "title": "context_pack 打包多个文件",
+      "purpose": "验证上下文打包工具能一次读取并摘要多个文件，避免 Agent 连续 read_file。",
+      "method": "POST",
+      "path": "/api/tools/run",
+      "input": {
+        "name": "context_pack",
+        "input": {
+          "files": ["src/agent/AgentLoop.ts", "src/tools/ToolRegistry.ts"],
+          "maxFiles": 2,
+          "maxTokens": 6000
+        }
+      },
+      "expect": {
+        "status": 200,
+        "bodyPaths": {
+          "ok": true,
+          "output.files": "array",
+          "output.combinedSummary": "string"
+        }
       }
     },
     {

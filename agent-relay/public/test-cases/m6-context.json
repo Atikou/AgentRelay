@@ -245,6 +245,66 @@
       }
     },
     {
+      "id": "m6-restore-includes-tagged-fragments",
+      "title": "恢复上下文含 taggedFragments",
+      "purpose": "验证 GET restore 返回的 contextPackage.taggedFragments 为带 tags 的扁平片段数组，便于按标签重组上下文。",
+      "method": "GET",
+      "path": "/api/context/sessions/PASTE_SESSION_ID/restore?q=继续",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyPaths": {
+          "contextPackage.taggedFragments": "array"
+        }
+      }
+    },
+    {
+      "id": "m6-search-by-tags",
+      "title": "记忆检索支持 tags 过滤",
+      "purpose": "验证 GET /api/context/search 的 tags 参数可按 memory:preference 等标签过滤检索结果。",
+      "method": "GET",
+      "path": "/api/context/search?q=TypeScript&tags=memory:preference",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyHasKeys": ["hits"],
+        "bodyPaths": { "hits": "array" }
+      }
+    },
+    {
+      "id": "m6-restore-tool-role-sanitized-pre-call",
+      "title": "历史工具消息不会作为原生 tool 发送",
+      "purpose": "先通过 Agent 工具调用或已有历史会话写入 tool 消息，再恢复上下文；renderedPrompt.finalMessages 应只把历史工具结果作为普通用户侧历史文本，避免 OpenAI-compatible 模型因缺少 tool_calls 返回 400。",
+      "method": "GET",
+      "path": "/api/context/sessions/PASTE_SESSION_ID/restore?q=继续历史会话&phase=pre_call",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyHasKeys": ["contextPackage", "renderedPrompt"],
+        "bodyPaths": {
+          "contextPackage.messages": "array",
+          "renderedPrompt.finalMessages": "array"
+        }
+      }
+    },
+    {
+      "id": "m6-restore-tool-role-sanitized-post-call",
+      "title": "调试快照保留原始工具记录但隔离模型输入",
+      "purpose": "对同一历史会话查看 post_call 调试快照，确认 contextPackage 仍可用于工具摘要/审计，而 renderedPrompt 是调试用渲染结果，不应被视为可持久化的原生 tool_calls 链。",
+      "method": "GET",
+      "path": "/api/context/sessions/PASTE_SESSION_ID/restore?phase=post_call",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyHasKeys": ["phase", "contextPackage", "renderedPrompt"],
+        "bodyPaths": {
+          "phase": "post_call",
+          "contextPackage.systemSections": "array",
+          "renderedPrompt.finalMessages": "array"
+        }
+      }
+    },
+    {
       "id": "m6-restore-context-package",
       "title": "恢复接口返回 contextPackage",
       "purpose": "先运行「创建持久化会话」复制 session.id，将路径改为 /api/context/sessions/{id}/restore?q=测试 后执行；验证响应含结构化 contextPackage.systemSections。",

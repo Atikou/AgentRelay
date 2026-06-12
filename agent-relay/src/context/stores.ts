@@ -578,19 +578,32 @@ export class TaskStore {
 
   update(
     id: string,
-    patch: { status?: string; summary?: string; goal?: string },
+    patch: {
+      status?: string;
+      summary?: string;
+      goal?: string;
+      inputs?: string[];
+      outputs?: string[];
+      acceptanceCriteria?: string[];
+    },
   ): TaskRecord | null {
     const existing = this.get(id);
     if (!existing) return null;
     const ts = new Date().toISOString();
     this.db.connection
       .prepare(
-        `UPDATE tasks SET status=?, summary=?, goal=?, updated_at=? WHERE id=?`,
+        `UPDATE tasks SET status=?, summary=?, goal=?, inputs_json=?, outputs_json=?,
+         acceptance_criteria_json=?, updated_at=? WHERE id=?`,
       )
       .run(
         patch.status ?? existing.status,
         patch.summary ?? existing.summary ?? null,
         patch.goal ?? existing.goal,
+        patch.inputs ? JSON.stringify(patch.inputs) : JSON.stringify(existing.inputs ?? []),
+        patch.outputs ? JSON.stringify(patch.outputs) : JSON.stringify(existing.outputs ?? []),
+        patch.acceptanceCriteria
+          ? JSON.stringify(patch.acceptanceCriteria)
+          : JSON.stringify(existing.acceptanceCriteria ?? []),
         ts,
         id,
       );
@@ -604,10 +617,19 @@ export class TaskStore {
     return row ? mapTask(row) : null;
   }
 
+  listBySession(sessionId: string, limit = 20): TaskRecord[] {
+    const rows = this.db.connection
+      .prepare(
+        `SELECT * FROM tasks WHERE session_id=? ORDER BY updated_at DESC LIMIT ?`,
+      )
+      .all(sessionId, limit) as Record<string, unknown>[];
+    return rows.map(mapTask);
+  }
+
   getActiveForSession(sessionId: string): TaskRecord | null {
     const row = this.db.connection
       .prepare(
-        `SELECT * FROM tasks WHERE session_id=? AND status != 'done'
+        `SELECT * FROM tasks WHERE session_id=? AND status NOT IN ('done', 'completed', 'failed', 'cancelled')
          ORDER BY updated_at DESC LIMIT 1`,
       )
       .get(sessionId) as Record<string, unknown> | undefined;
@@ -620,12 +642,17 @@ export class TaskStore {
       stepId: string;
       position: number;
       title: string;
+      objective?: string;
       description?: string;
       status: string;
       requiredPermissions: string[];
       needsConfirmation: boolean;
       acceptance?: string;
       dependsOn?: string[];
+      requiredContext?: string[];
+      availableTools?: string[];
+      expectedArtifacts?: string[];
+      priority?: number;
       tool?: string;
       toolInput?: Record<string, unknown>;
       result?: string;
@@ -638,17 +665,24 @@ export class TaskStore {
     );
     const upsert = this.db.connection.prepare(
       `INSERT INTO task_steps
-       (id, task_id, step_id, position, title, description, status, required_permissions_json,
-        needs_confirmation, acceptance, tool, tool_input_json, result, error, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       (id, task_id, step_id, position, title, objective, description, status,
+        required_permissions_json, needs_confirmation, acceptance, required_context_json,
+        available_tools_json, expected_artifacts_json, priority, tool, tool_input_json,
+        result, error, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(task_id, step_id) DO UPDATE SET
          position=excluded.position,
          title=excluded.title,
+         objective=excluded.objective,
          description=excluded.description,
          status=excluded.status,
          required_permissions_json=excluded.required_permissions_json,
          needs_confirmation=excluded.needs_confirmation,
          acceptance=excluded.acceptance,
+         required_context_json=excluded.required_context_json,
+         available_tools_json=excluded.available_tools_json,
+         expected_artifacts_json=excluded.expected_artifacts_json,
+         priority=excluded.priority,
          tool=excluded.tool,
          tool_input_json=excluded.tool_input_json,
          result=excluded.result,
@@ -673,11 +707,16 @@ export class TaskStore {
         step.stepId,
         step.position,
         step.title,
+        step.objective ?? null,
         step.description ?? null,
         step.status,
         JSON.stringify(step.requiredPermissions),
         step.needsConfirmation ? 1 : 0,
         step.acceptance ?? null,
+        JSON.stringify(step.requiredContext ?? []),
+        JSON.stringify(step.availableTools ?? []),
+        JSON.stringify(step.expectedArtifacts ?? []),
+        step.priority ?? 100,
         step.tool ?? null,
         step.toolInput ? JSON.stringify(step.toolInput) : null,
         step.result ?? null,
@@ -775,6 +814,9 @@ function mapTask(row: Record<string, unknown>): TaskRecord {
     goal: String(row.goal),
     status: String(row.status),
     summary: row.summary ? String(row.summary) : undefined,
+    inputs: parseJsonArray(row.inputs_json),
+    outputs: parseJsonArray(row.outputs_json),
+    acceptanceCriteria: parseJsonArray(row.acceptance_criteria_json),
     createdAt: String(row.created_at),
     updatedAt: String(row.updated_at),
   };
@@ -808,12 +850,17 @@ function mapTaskStep(row: Record<string, unknown>, dependsOn: string[]): TaskSte
     stepId: String(row.step_id),
     position: Number(row.position ?? 0),
     title: String(row.title),
+    objective: row.objective ? String(row.objective) : undefined,
     description: row.description ? String(row.description) : undefined,
     status: String(row.status),
     requiredPermissions: parseJsonArray(row.required_permissions_json),
     needsConfirmation: Number(row.needs_confirmation ?? 0) === 1,
     acceptance: row.acceptance ? String(row.acceptance) : undefined,
     dependsOn,
+    requiredContext: parseJsonArray(row.required_context_json),
+    availableTools: parseJsonArray(row.available_tools_json),
+    expectedArtifacts: parseJsonArray(row.expected_artifacts_json),
+    priority: Number(row.priority ?? 100),
     tool: row.tool ? String(row.tool) : undefined,
     toolInput: parseJsonObject(row.tool_input_json),
     result: row.result ? String(row.result) : undefined,

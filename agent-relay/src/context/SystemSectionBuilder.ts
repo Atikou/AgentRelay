@@ -1,6 +1,13 @@
 import type { FileSnippetItem } from "./fileSnippets.js";
+import {
+  inferMemoryTags,
+  inferPlanStepTags,
+  inferSummaryTags,
+  inferTaskTags,
+  inferToolResultTags,
+  tagSectionItem,
+} from "./contextTags.js";
 import type {
-  ContextPackage,
   MemoryRecord,
   ProjectRecord,
   RetrievedMemory,
@@ -35,7 +42,9 @@ export class SystemSectionBuilder {
     const sections: SystemSection[] = [];
 
     const prefs = dedupeItems(
-      input.globalPreferences.map((m) => memoryItem(m)),
+      input.globalPreferences.map((m) =>
+        tagSectionItem(memoryItem(m), "user_preferences", inferMemoryTags(m)),
+      ),
       "memory",
     );
     if (prefs.length > 0) {
@@ -65,16 +74,28 @@ export class SystemSectionBuilder {
         type: "task_state",
         title: "当前任务",
         priority: 85,
-        items: [{ sourceType: "task", sourceId: input.activeTask.id, text: taskText }],
+        items: [
+          tagSectionItem(
+            { sourceType: "task", sourceId: input.activeTask.id, text: taskText },
+            "task_state",
+            inferTaskTags(input.activeTask.status),
+          ),
+        ],
       });
     }
 
     if (input.planSteps?.length) {
-      const planItems = input.planSteps.map((step) => ({
-        sourceType: "task" as const,
-        sourceId: step.stepId,
-        text: formatPlanStepLine(step),
-      }));
+      const planItems = input.planSteps.map((step) =>
+        tagSectionItem(
+          {
+            sourceType: "task" as const,
+            sourceId: step.stepId,
+            text: formatPlanStepLine(step),
+          },
+          "current_plan",
+          inferPlanStepTags(step.status),
+        ),
+      );
       sections.push({
         type: "current_plan",
         title: "当前计划",
@@ -106,12 +127,18 @@ export class SystemSectionBuilder {
             r.reason !== "project_context" &&
             r.reason !== "task_context",
         )
-        .map((r) => ({
-          sourceType: "memory" as const,
-          sourceId: r.memory.id,
-          text: r.memory.summary ?? r.memory.value,
-          score: r.score,
-        })),
+        .map((r) =>
+          tagSectionItem(
+            {
+              sourceType: "memory" as const,
+              sourceId: r.memory.id,
+              text: r.memory.summary ?? r.memory.value,
+              score: r.score,
+            },
+            "relevant_memories",
+            inferMemoryTags(r.memory),
+          ),
+        ),
       "memory",
     );
     if (memoryItems.length > 0) {
@@ -124,12 +151,18 @@ export class SystemSectionBuilder {
     }
 
     const semanticItems = dedupeItems(
-      input.semanticHits.map((h) => ({
-        sourceType: "semantic" as const,
-        sourceId: h.item.sourceId,
-        text: h.item.summary ?? h.item.content.slice(0, 300),
-        score: h.score,
-      })),
+      input.semanticHits.map((h) =>
+        tagSectionItem(
+          {
+            sourceType: "semantic" as const,
+            sourceId: h.item.sourceId,
+            text: h.item.summary ?? h.item.content.slice(0, 300),
+            score: h.score,
+          },
+          "semantic_results",
+          h.item.tags,
+        ),
+      ),
       "semantic",
     );
     if (semanticItems.length > 0) {
@@ -146,11 +179,17 @@ export class SystemSectionBuilder {
         type: "file_snippets",
         title: "文件与代码片段",
         priority: 52,
-        items: input.fileSnippets.map((s) => ({
-          sourceType: "file" as const,
-          sourceId: s.messageId,
-          text: `${s.path}（${s.tool}）\n${s.preview}`,
-        })),
+        items: input.fileSnippets.map((s) =>
+          tagSectionItem(
+            {
+              sourceType: "file" as const,
+              sourceId: s.messageId,
+              text: `${s.path}（${s.tool}）\n${s.preview}`,
+            },
+            "file_snippets",
+            s.tags,
+          ),
+        ),
       });
     }
 
@@ -159,11 +198,18 @@ export class SystemSectionBuilder {
         type: "recent_tool_results",
         title: "最近工具结果",
         priority: 50,
-        items: input.recentToolSummaries.map((text, i) => ({
-          sourceType: "tool" as const,
-          sourceId: `recent-tool-${i}`,
-          text,
-        })),
+        items: input.recentToolSummaries.map((text, i) => {
+          const tool = text.split(":")[0]?.trim() ?? "tool";
+          return tagSectionItem(
+            {
+              sourceType: "tool" as const,
+              sourceId: `recent-tool-${i}`,
+              text,
+            },
+            "recent_tool_results",
+            inferToolResultTags(tool),
+          );
+        }),
       });
     }
 
@@ -189,6 +235,7 @@ function memoryItem(m: MemoryRecord): SystemSectionItem {
     sourceId: m.id,
     text: m.summary ?? m.value,
     score: m.importance,
+    tags: inferMemoryTags(m),
   };
 }
 
@@ -202,6 +249,7 @@ function buildSummaryItems(
       sourceType: "summary",
       sourceId: sessionSummary.id,
       text: formatStructuredSummary(sessionSummary.content),
+      tags: inferSummaryTags(sessionSummary.summaryType, sessionSummary.content),
     });
     return items;
   }
@@ -210,6 +258,7 @@ function buildSummaryItems(
       sourceType: "summary",
       sourceId: chunk.id,
       text: formatStructuredSummary(chunk.content),
+      tags: inferSummaryTags(chunk.summaryType, chunk.content),
     });
   }
   return items;
@@ -232,6 +281,7 @@ function buildProjectItems(
       sourceId: m.id,
       text: m.summary ?? m.value,
       score: m.importance,
+      tags: inferMemoryTags(m),
     });
   }
   return dedupeItems(items, "memory");
@@ -256,9 +306,15 @@ function formatPlanStepLine(step: TaskStepRecord): string {
   const idx = step.position + 1;
   const confirm = step.needsConfirmation ? "需确认" : "";
   const deps = step.dependsOn.length ? `依赖:${step.dependsOn.join(",")}` : "";
-  const tail = [step.status, confirm, deps].filter(Boolean).join("；");
-  const desc = step.description ? ` — ${step.description.slice(0, 120)}` : "";
-  return `${idx}. ${step.title}（${tail}）${desc}`;
+  const prio = step.priority !== 100 ? `P${step.priority}` : "";
+  const tail = [step.status, prio, confirm, deps].filter(Boolean).join("；");
+  const goal = step.objective ?? step.description ?? "";
+  const desc = goal ? ` — ${goal.slice(0, 100)}` : "";
+  const artifacts =
+    step.expectedArtifacts.length > 0
+      ? `；产物:${step.expectedArtifacts.slice(0, 2).join("、")}`
+      : "";
+  return `${idx}. ${step.title}（${tail}）${desc}${artifacts}`;
 }
 
 function dedupeItems(items: SystemSectionItem[], kind: string): SystemSectionItem[] {

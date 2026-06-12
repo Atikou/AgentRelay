@@ -1,5 +1,5 @@
 import type { ToolPermission } from "./permissions.js";
-import type { StepContext, StepExecutor, StepResult } from "./TaskRunner.js";
+import { StepExecutionError, type StepContext, type StepExecutor, type StepResult } from "./TaskRunner.js";
 import type { PlanStep } from "./types.js";
 import type { ToolRegistry } from "../tools/ToolRegistry.js";
 
@@ -24,19 +24,29 @@ export class ToolStepExecutor implements StepExecutor {
       return { output: `（无绑定工具，跳过实际执行）${step.title}` };
     }
 
+    const toolCallId = this.makeToolCallId(step);
     const result = await this.options.registry.run(step.tool, step.toolInput ?? {}, {
       workspaceRoot: this.options.workspaceRoot,
       taskId: this.options.taskId,
       sessionId: this.options.sessionId,
       requestId: this.options.requestId,
+      toolCallId,
       signal: ctx.signal,
       allowedPermissions: this.options.allowedPermissions,
     });
 
     if (!result.ok) {
-      throw new Error(`[${result.tool}] ${result.code}: ${result.error}`);
+      throw new StepExecutionError(
+        `[${result.tool}] ${result.code}/${result.category}: ${result.error}`,
+        result.toolCallId,
+      );
     }
-    return { output: summarize(result.output) };
+    return { output: summarize(result.output), toolCallId: result.toolCallId };
+  }
+
+  private makeToolCallId(step: PlanStep): string {
+    const prefix = this.options.requestId ?? this.options.taskId ?? this.options.sessionId ?? "task";
+    return `${prefix}:step-${step.id}:${step.tool ?? "manual"}`;
   }
 }
 

@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 
 import type { DatabaseManager } from "./DatabaseManager.js";
+import { inferMemoryTags, inferSummaryTags, matchesTagFilter } from "./contextTags.js";
 import type { EmbeddingService } from "./EmbeddingService.js";
 import type { MemoryManager } from "./MemoryManager.js";
 import type { MemoryStore } from "./stores.js";
@@ -10,9 +11,12 @@ import type {
   MemoryRetrieveInput,
   MemoryRetrieveReason,
   MemoryScope,
+  MemoryType,
   RetrievedMemory,
   SearchHit,
   SemanticItem,
+  StructuredSummary,
+  SummaryType,
 } from "./types.js";
 
 export interface MemoryRetrieverOptions {
@@ -74,10 +78,11 @@ export class MemoryRetriever {
       try {
         const vector = await this.embeddings.embedText(query);
         const filter = input.projectId
-          ? { scope: "project" as MemoryScope, scopeId: input.projectId }
-          : { scope: "session" as MemoryScope, scopeId: input.sessionId };
+          ? { scope: "project" as MemoryScope, scopeId: input.projectId, tags: input.tags }
+          : { scope: "session" as MemoryScope, scopeId: input.sessionId, tags: input.tags };
         const items = await this.vectors.search(vector, filter, limit);
         for (const item of items) {
+          if (!matchesTagFilter(item.tags, input.tags)) continue;
           if (item.itemType !== "memory") continue;
           const memory = this.memories.get(item.sourceId);
           if (!memory?.isActive) continue;
@@ -95,19 +100,28 @@ export class MemoryRetriever {
       }
     }
 
-    return [...merged.values()]
+    const results = [...merged.values()]
       .sort((a, b) => b.score - a.score)
       .slice(0, limit);
+
+    if (!input.tags?.length) return results;
+    return results.filter((r) => matchesTagFilter(inferMemoryTags(r.memory), input.tags));
   }
 
   /** 兼容旧 search API。 */
-  async search(query: string, scope?: MemoryScope, scopeId?: string): Promise<SearchHit[]> {
+  async search(
+    query: string,
+    scope?: MemoryScope,
+    scopeId?: string,
+    tags?: string[],
+  ): Promise<SearchHit[]> {
     const retrieved = await this.retrieve({
       userInput: query,
       sessionId: scopeId ?? "global",
       projectId: scope === "project" ? scopeId : undefined,
       taskId: scope === "task" ? scopeId : undefined,
       limit: this.topK,
+      tags,
     });
     return retrieved.map((r) => ({
       source: r.reason === "semantic" ? "vector" : "fts",
@@ -115,6 +129,7 @@ export class MemoryRetriever {
       sourceId: r.memory.id,
       content: r.memory.summary ?? r.memory.value,
       score: r.score,
+      tags: inferMemoryTags(r.memory),
     }));
   }
 
@@ -124,6 +139,8 @@ export class MemoryRetriever {
     scope: MemoryScope,
     scopeId?: string,
     summary?: string,
+    summaryType: SummaryType = "chunk_summary",
+    structured?: StructuredSummary,
   ): Promise<SemanticItem> {
     const vector = await this.embeddings.embedText(summary ?? content);
     const item: SemanticItem = {
@@ -136,6 +153,7 @@ export class MemoryRetriever {
       content,
       summary,
       vector,
+      tags: inferSummaryTags(summaryType, structured),
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
@@ -149,6 +167,7 @@ export class MemoryRetriever {
     scope: MemoryScope,
     scopeId?: string,
     summary?: string,
+    memoryType: MemoryType = "fact",
   ): Promise<SemanticItem> {
     const vector = await this.embeddings.embedText(summary ?? value);
     const item: SemanticItem = {
@@ -161,6 +180,7 @@ export class MemoryRetriever {
       content: value,
       summary,
       vector,
+      tags: inferMemoryTags({ memoryType, scope }),
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };

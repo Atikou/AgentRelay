@@ -8,7 +8,14 @@ export const SUB_AGENT_ROLES: Record<SubAgentRoleId, SubAgentRoleDefinition> = {
     title: "代码审查",
     description: "只读审查代码质量、潜在风险与改进建议，不修改文件。",
     allowedPermissions: ["read"],
-    defaultMaxIterations: 16,
+    defaultBudget: {
+      maxModelTurns: 16,
+      maxToolCalls: 20,
+      maxReadCalls: 20,
+      maxWriteCalls: 0,
+      maxShellCalls: 0,
+      maxRuntimeMs: 180_000,
+    },
     defaultTimeoutMs: 180_000,
     singleShotWhenPreloaded: true,
     systemPrompt: [
@@ -25,7 +32,14 @@ export const SUB_AGENT_ROLES: Record<SubAgentRoleId, SubAgentRoleDefinition> = {
     title: "测试分析",
     description: "只读分析测试输出、失败原因与修复方向，不执行命令。",
     allowedPermissions: ["read"],
-    defaultMaxIterations: 8,
+    defaultBudget: {
+      maxModelTurns: 8,
+      maxToolCalls: 10,
+      maxReadCalls: 10,
+      maxWriteCalls: 0,
+      maxShellCalls: 0,
+      maxRuntimeMs: 120_000,
+    },
     defaultTimeoutMs: 120_000,
     singleShotWhenPreloaded: true,
     systemPrompt: [

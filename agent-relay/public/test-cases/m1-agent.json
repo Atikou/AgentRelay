@@ -2,7 +2,7 @@
   "milestone": "M1",
   "feature": "智能体对话循环",
   "featureId": "m1-agent",
-  "summary": "验证 AgentLoop 入口 /api/agent 的参数校验（不依赖在线模型即可测的部分）。",
+  "summary": "验证 AgentLoop 入口 /api/agent 的参数校验、计划模式预算与只读 PlanWorkflow 预扫描。",
   "cases": [
     {
       "id": "m1-agent-empty",
@@ -49,6 +49,142 @@
       "input": { "message": "ping", "clientName": "missing-client" },
       "expect": {
         "status": 404,
+        "bodyHasKeys": ["error"]
+      }
+    },
+    {
+      "id": "m1-agent-plan-low-budget-meta",
+      "title": "计划模式低预算返回 executionMeta",
+      "purpose": "确认计划模式即使预算很低，也会返回停止原因、是否需要更多预算和建议迭代数，便于排查不是空白失败。",
+      "method": "POST",
+      "path": "/api/agent",
+      "input": {
+        "message": "请进入计划模式，只读列出当前项目可以继续完善的方向。",
+        "mode": "plan",
+        "budget": {
+          "maxModelTurns": 1,
+          "maxToolCalls": 2,
+          "maxReadCalls": 2,
+          "maxWriteCalls": 0,
+          "maxShellCalls": 0,
+          "maxRuntimeMs": 60000
+        },
+        "persist": false
+      },
+      "expect": {
+        "status": 200,
+        "bodyHasKeys": ["answer", "steps", "executionMeta"],
+        "bodyPaths": {
+          "executionMeta.mode": "plan",
+          "executionMeta.budget.maxModelTurns": 1,
+          "executionMeta.stopReason": "string",
+          "executionMeta.usedModelTurns": "number"
+        }
+      }
+    },
+    {
+      "id": "m1-agent-plan-default-budget",
+      "title": "计划模式默认使用策略预算",
+      "purpose": "确认未显式传 budget 时，计划模式不会沿用普通 chat 默认值，而是采用只读计划策略预算。",
+      "method": "POST",
+      "path": "/api/agent",
+      "input": {
+        "message": "请进入计划模式，只读分析当前项目结构，然后给出下一步计划。",
+        "mode": "plan",
+        "persist": false
+      },
+      "expect": {
+        "status": 200,
+        "bodyHasKeys": ["answer", "executionMeta"],
+        "bodyPaths": {
+          "executionMeta.mode": "plan",
+          "executionMeta.budget.maxModelTurns": 16,
+          "executionMeta.budget.maxWriteCalls": 0,
+          "executionMeta.budget.maxShellCalls": 0,
+          "executionMeta.usedModelTurns": "number",
+          "executionMeta.usedToolCalls": "number"
+        }
+      }
+    },
+    {
+      "id": "m1-agent-plan-report-contract",
+      "title": "计划报告走只读 Agent 链路",
+      "purpose": "确认给用户看的 Markdown 计划报告应通过 /api/agent mode=plan 生成，而不是 /api/plan 的机器计划 JSON 入口。",
+      "method": "POST",
+      "path": "/api/agent",
+      "input": {
+        "message": "# 计划模式分析结果\n\n## 1. 目标理解\n\n请只读分析当前项目。",
+        "mode": "plan",
+        "persist": false
+      },
+      "expect": {
+        "status": 200,
+        "bodyHasKeys": ["answer", "executionMeta"],
+        "bodyPaths": {
+          "executionMeta.mode": "plan",
+          "executionMeta.usedWriteCalls": 0,
+          "executionMeta.usedShellCalls": 0
+        }
+      }
+    },
+    {
+      "id": "m1-agent-plan-workflow-prescan",
+      "title": "计划模式项目分析先预扫描",
+      "purpose": "确认计划模式遇到当前项目分析任务时，会在模型首轮前执行只读 PlanWorkflow，并把定位统计写入 executionMeta.location。",
+      "method": "POST",
+      "path": "/api/agent",
+      "input": {
+        "message": "请进入计划模式，只读分析当前项目架构并列出下一步完善计划。",
+        "mode": "plan",
+        "persist": false
+      },
+      "expect": {
+        "status": 200,
+        "bodyHasKeys": ["answer", "steps", "executionMeta"],
+        "bodyPaths": {
+          "executionMeta.mode": "plan",
+          "executionMeta.location.usedLocateSteps": "number",
+          "executionMeta.location.needsContinue": "boolean",
+          "executionMeta.usedWriteCalls": 0,
+          "executionMeta.usedShellCalls": 0
+        }
+      }
+    },
+    {
+      "id": "m1-agent-plan-workflow-readonly-command-text",
+      "title": "只读禁改提示不屏蔽预扫描",
+      "purpose": "确认用户要求不要执行会改变项目状态的命令时，系统仍允许 project_scan 等只读预扫描，避免计划模式反复探索耗尽预算。",
+      "method": "POST",
+      "path": "/api/agent",
+      "input": {
+        "message": "请进入计划模式，不要执行会改变项目状态的命令，只读分析当前项目还有哪些未实现功能。",
+        "mode": "plan",
+        "persist": false
+      },
+      "expect": {
+        "status": 200,
+        "bodyHasKeys": ["answer", "steps", "executionMeta"],
+        "bodyPaths": {
+          "executionMeta.mode": "plan",
+          "executionMeta.location.usedLocateSteps": "number",
+          "executionMeta.usedWriteCalls": 0,
+          "executionMeta.usedShellCalls": 0
+        }
+      }
+    },
+    {
+      "id": "m1-agent-invalid-mode",
+      "title": "非法 mode 返回 400",
+      "purpose": "确认运行模式拼写错误时直接返回参数错误，避免被静默当成普通智能体请求执行。",
+      "method": "POST",
+      "path": "/api/agent",
+      "input": {
+        "message": "hello",
+        "mode": "invalid",
+        "persist": false
+      },
+      "expect": {
+        "status": 400,
         "bodyHasKeys": ["error"]
       }
     }

@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { performance } from "node:perf_hooks";
 
-import { aggregateSubAgentResults, SubAgentRunner, type SubAgentRunnerDeps } from "./SubAgentRunner.js";
+import { aggregateSubAgentResultsStructured, SubAgentRunner, type SubAgentRunnerDeps } from "./SubAgentRunner.js";
 import type { SubAgentBatchOptions, SubAgentBatchResult, SubAgentRoleId, SubAgentRunOptions, SubAgentRunResult } from "./types.js";
 
 /** 并行派生多个只读子 Agent 并汇总结果（M5）。 */
@@ -32,18 +32,19 @@ export class SubAgentCoordinator {
           context: options.context,
           parentTaskId,
           grantedPermissions: options.grantedPermissions,
-          maxIterations: options.maxIterations,
+          budget: options.budget,
           timeoutMs: options.timeoutMs,
           sensitive: options.sensitive,
         }),
       ),
     );
 
-    const summary = aggregateSubAgentResults(settled);
+    const aggregate = aggregateSubAgentResultsStructured(settled);
     return {
       parentTaskId,
       results: settled,
-      summary,
+      summary: aggregate.mergedAnswer,
+      aggregate,
       durationMs: Math.round(performance.now() - start),
     };
   }
