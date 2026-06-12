@@ -2,6 +2,7 @@ import { performance } from "node:perf_hooks";
 
 import type { RoutingStrategy } from "../config/types.js";
 import type { TraceLogger } from "../trace/TraceLogger.js";
+import { detectSensitiveString, redactString } from "../util/redact.js";
 import type { MetricsRegistry } from "./MetricsRegistry.js";
 import { orderCandidatesByTaskType, type ModelTaskType } from "./taskType.js";
 import type { ChatRequest, ModelClient, ModelResponse } from "./types.js";
@@ -98,10 +99,11 @@ export class ModelRouter {
     for (const client of candidates) {
       const start = performance.now();
       try {
-        const response = await client.chat(request);
+        const safeRequest = this.prepareRequestForClient(request, client);
+        const response = await client.chat(safeRequest);
         const latencyMs = response.latencyMs || performance.now() - start;
-        this.recordSuccess(client, response, latencyMs, strategy, request.messages.length, opts.taskType);
-        return response;
+        const costUsd = this.recordSuccess(client, response, latencyMs, strategy, request.messages.length, opts.taskType);
+        return costUsd === undefined ? response : { ...response, costUsd };
       } catch (error) {
         const latencyMs = performance.now() - start;
         const message = `${client.name}: ${String(error)}`;
@@ -111,6 +113,25 @@ export class ModelRouter {
     }
 
     throw new Error(`所有候选模型均失败：\n${errors.join("\n")}`);
+  }
+
+  private prepareRequestForClient(request: ChatRequest, client: ModelClient): ChatRequest {
+    if (client.location !== "remote") return request;
+    let redactedCount = 0;
+    const messages = request.messages.map((message) => {
+      if (detectSensitiveString(message.content).length === 0) return message;
+      redactedCount += 1;
+      return { ...message, content: redactString(message.content) };
+    });
+    if (redactedCount === 0) return request;
+    this.options.trace?.write({
+      type: "model_prompt_redacted",
+      client: client.name,
+      model: client.model,
+      location: client.location,
+      redactedMessages: redactedCount,
+    });
+    return { ...request, messages };
   }
 
   private priceFor(clientName: string, inputTokens?: number, outputTokens?: number): number | undefined {
@@ -128,7 +149,7 @@ export class ModelRouter {
     strategy: RoutingStrategy,
     contextMessages: number,
     taskType?: ModelTaskType,
-  ): void {
+  ): number | undefined {
     const costUsd = this.priceFor(
       client.name,
       response.usage?.inputTokens,
@@ -160,6 +181,7 @@ export class ModelRouter {
       strategy,
       taskType,
     });
+    return costUsd;
   }
 
   private recordFailure(

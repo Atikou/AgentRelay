@@ -2,8 +2,179 @@
   "milestone": "M7",
   "feature": "安全与审计",
   "featureId": "m7-security",
-  "summary": "验证 trace 导出 API 与脱敏后的审计事件结构。",
+  "summary": "验证 trace 导出 API、脱敏后的审计事件结构、shell 命令安全策略与远程模型调用前脱敏能力。",
   "cases": [
+    {
+      "id": "m7-sensitive-detection-capability",
+      "title": "配置暴露敏感信息检测能力",
+      "purpose": "确认服务端声明已启用敏感信息检测，前端和外部调用方可据此展示隐私保护状态。",
+      "method": "GET",
+      "path": "/api/config",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyHasKeys": ["capabilities"],
+        "bodyPaths": {
+          "capabilities.sensitiveDetection": true
+        }
+      }
+    },
+    {
+      "id": "m7-model-prompt-redaction-capability",
+      "title": "配置暴露远程提示脱敏能力",
+      "purpose": "确认服务端声明远程模型调用前会脱敏模型消息内容，避免敏感 token 直接发往云端。",
+      "method": "GET",
+      "path": "/api/config",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyHasKeys": ["capabilities"],
+        "bodyPaths": {
+          "capabilities.modelPromptRedaction": true
+        }
+      }
+    },
+    {
+      "id": "m7-tool-storage-redaction-capability",
+      "title": "配置暴露工具日志落盘脱敏能力",
+      "purpose": "确认服务端声明 tool_logs 持久化前会脱敏输入、输出和错误信息，避免完整密钥落入 SQLite。",
+      "method": "GET",
+      "path": "/api/config",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyHasKeys": ["capabilities"],
+        "bodyPaths": {
+          "capabilities.toolStorageRedaction": true
+        }
+      }
+    },
+    {
+      "id": "m7-tool-storage-redaction-docs",
+      "title": "安全文档说明工具日志脱敏",
+      "purpose": "确认安全与审计文档已说明 ToolStorage.tool_logs 的落盘脱敏边界，便于人工审查和外部接入。",
+      "method": "GET",
+      "path": "/api/docs/content?slug=安全与审计",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyPaths": {
+          "slug": "安全与审计",
+          "markdown": "string"
+        }
+      }
+    },
+    {
+      "id": "m7-high-risk-confirmation-capability",
+      "title": "配置暴露高风险确认门能力",
+      "purpose": "确认服务端声明高风险工具操作必须先返回确认预览，确认后仍受 ShellPolicy 等安全策略约束。",
+      "method": "GET",
+      "path": "/api/config",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyHasKeys": ["capabilities"],
+        "bodyPaths": {
+          "capabilities.highRiskConfirmation": true
+        }
+      }
+    },
+    {
+      "id": "m7-agent-decision-trace-capability",
+      "title": "配置暴露 Agent 决策 trace 能力",
+      "purpose": "确认服务端声明已记录每轮 Agent 模型决策，便于测试台展示 action/tool/final/parse_error。",
+      "method": "GET",
+      "path": "/api/config",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyHasKeys": ["capabilities"],
+        "bodyPaths": {
+          "capabilities.agentDecisionTrace": true
+        }
+      }
+    },
+    {
+      "id": "m7-agent-decision-replay-contract",
+      "title": "审计回放可承载 Agent 决策",
+      "purpose": "确认 /api/trace/replay 仍返回可回放审计时间线，agent_decision 事件会被纳入该时间线。",
+      "method": "GET",
+      "path": "/api/trace/replay?limit=30",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyHasKeys": ["events", "count", "replay", "redacted"],
+        "bodyPaths": {
+          "events": "array",
+          "replay": true,
+          "redacted": true
+        }
+      }
+    },
+    {
+      "id": "m7-tool-call-trace-capability",
+      "title": "配置暴露工具调用链路能力",
+      "purpose": "确认服务端声明 toolCallId 已贯穿 agent_tool、task_step 与 tool_audit，便于测试台串联单次工具调用。",
+      "method": "GET",
+      "path": "/api/config",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyHasKeys": ["capabilities"],
+        "bodyPaths": {
+          "capabilities.toolCallTrace": true
+        }
+      }
+    },
+    {
+      "id": "m7-tool-call-replay-contract",
+      "title": "审计回放可承载工具调用链路",
+      "purpose": "确认 /api/trace/replay 继续返回 agent_tool、task_step 与 tool_audit 等链路事件，事件可通过 toolCallId 串联。",
+      "method": "GET",
+      "path": "/api/trace/replay?limit=30",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyHasKeys": ["events", "count", "replay", "redacted"],
+        "bodyPaths": {
+          "events": "array",
+          "replay": true,
+          "redacted": true
+        }
+      }
+    },
+    {
+      "id": "m7-model-usage-trace-capability",
+      "title": "配置暴露模型用量 trace 能力",
+      "purpose": "确认服务端声明会记录模型轮次与运行用量摘要，便于统计 token、耗时、费用与错误。",
+      "method": "GET",
+      "path": "/api/config",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyHasKeys": ["capabilities"],
+        "bodyPaths": {
+          "capabilities.modelUsageTrace": true
+        }
+      }
+    },
+    {
+      "id": "m7-model-usage-replay-contract",
+      "title": "审计回放可承载模型用量摘要",
+      "purpose": "确认 /api/trace/replay 可返回 agent_model_turn 与 run_usage_summary 等用量事件，支撑运行报告。",
+      "method": "GET",
+      "path": "/api/trace/replay?limit=30",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyHasKeys": ["events", "count", "replay", "redacted"],
+        "bodyPaths": {
+          "events": "array",
+          "replay": true,
+          "redacted": true
+        }
+      }
+    },
     {
       "id": "m7-trace-recent",
       "title": "最近 trace 事件为数组",
@@ -55,8 +226,8 @@
     },
     {
       "id": "m7-shell-danger-blocked",
-      "title": "危险 shell 命令被拦截",
-      "purpose": "回归 M7 命令 denylist：rm -rf 应被 shell_run 拦截，不实际执行。",
+      "title": "危险 shell 未确认时返回风险预览",
+      "purpose": "回归 M7 确认门：rm -rf 未确认时不得执行，只返回 needsConfirmation 与 dangerous 风险预览。",
       "method": "POST",
       "path": "/api/tools/run",
       "input": {
@@ -65,10 +236,66 @@
       },
       "expect": {
         "status": 200,
-        "bodyHasKeys": ["ok"],
+        "bodyHasKeys": ["needsConfirmation", "preview"],
         "bodyPaths": {
-          "ok": false
+          "needsConfirmation": true,
+          "preview.kind": "shell_run",
+          "preview.risk.level": "dangerous"
         }
+      }
+    },
+    {
+      "id": "m7-shell-danger-confirm-blocked",
+      "title": "危险 shell 确认后仍被策略拒绝",
+      "purpose": "确认用户显式 confirm 后，高风险命令仍会被 ShellPolicy 拒绝，不会因为确认而执行 dangerous 操作。",
+      "method": "POST",
+      "path": "/api/tools/run",
+      "input": {
+        "name": "shell_run",
+        "input": { "command": "rm -rf /" },
+        "confirm": true
+      },
+      "expect": {
+        "status": 400,
+        "bodyHasKeys": ["ok", "category"],
+        "bodyPaths": {
+          "ok": false,
+          "category": "permission_error"
+        }
+      }
+    },
+    {
+      "id": "m7-shell-safe-command",
+      "title": "安全 shell 命令可执行",
+      "purpose": "确认未命中风险规则、allow/deny 策略允许的命令可通过 shell_run 执行，并返回 exitCode。",
+      "method": "POST",
+      "path": "/api/tools/run",
+      "input": {
+        "name": "shell_run",
+        "input": { "command": "node -e \"console.log(42)\"" },
+        "confirm": true
+      },
+      "expect": {
+        "status": 200,
+        "bodyHasKeys": ["ok", "output"],
+        "bodyPaths": {
+          "ok": true,
+          "output.exitCode": 0
+        }
+      }
+    },
+    {
+      "id": "m7-background-danger-blocked",
+      "title": "后台危险命令被拦截",
+      "purpose": "确认后台任务入口与 shell_run 共用命令策略，高风险命令不会进入后台进程。",
+      "method": "POST",
+      "path": "/api/background/start",
+      "input": {
+        "command": "rm -rf /"
+      },
+      "expect": {
+        "status": 400,
+        "bodyHasKeys": ["error"]
       }
     }
   ]

@@ -38,6 +38,19 @@ test("redactValue 遮蔽敏感字段名", async () => {
   assert.equal((out.nested as Record<string, unknown>).password, "[REDACTED]");
 });
 
+test("redactValue 保留 token 用量统计字段", async () => {
+  const out = redactValue({
+    inputTokens: 10,
+    outputTokens: 5,
+    totalTokens: 15,
+    token: "secret-token",
+  }) as Record<string, unknown>;
+  assert.equal(out.inputTokens, 10);
+  assert.equal(out.outputTokens, 5);
+  assert.equal(out.totalTokens, 15);
+  assert.equal(out.token, "[REDACTED]");
+});
+
 test("redactPreview 截断并脱敏工具入参", async () => {
   const preview = redactPreview({ token: "abc123", path: "package.json" });
   assert.equal(preview.includes("abc123"), false);
@@ -89,12 +102,16 @@ test("readReplayTraceEvents 仅保留审计类事件", async () => {
   const file = path.join(dir, "trace.jsonl");
   writeFileSync(
     file,
-    `${JSON.stringify({ type: "model_call", client: "x" })}\n${JSON.stringify({ type: "tool_audit", tool: "read_file", status: "ok" })}\n`,
+    `${JSON.stringify({ type: "model_call", client: "x" })}\n${JSON.stringify({ type: "agent_model_turn", client: "x", inputTokens: 1 })}\n${JSON.stringify({ type: "agent_decision", action: "tool", tool: "read_file" })}\n${JSON.stringify({ type: "task_status_change", scope: "step", step: "s1", from: "pending", to: "running" })}\n${JSON.stringify({ type: "tool_audit", tool: "read_file", status: "ok" })}\n${JSON.stringify({ type: "run_usage_summary", totalTokens: 1 })}\n`,
     "utf-8",
   );
   const events = readReplayTraceEvents(file, { limit: 10, redact: false });
-  assert.equal(events.length, 1);
-  assert.equal(events[0]!.type, "tool_audit");
+  assert.equal(events.length, 5);
+  assert.equal(events[0]!.type, "agent_model_turn");
+  assert.equal(events[1]!.type, "agent_decision");
+  assert.equal(events[2]!.type, "task_status_change");
+  assert.equal(events[3]!.type, "tool_audit");
+  assert.equal(events[4]!.type, "run_usage_summary");
   await rm(dir, { recursive: true, force: true });
 });
 

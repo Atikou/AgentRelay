@@ -60,6 +60,8 @@ export interface ModelResponse {
   location: ModelLocation;
   latencyMs: number;
   usage?: TokenUsage;
+  /** 本次调用估算费用，单位 USD；无计价配置时为空。 */
+  costUsd?: number;
 }
 
 /**

@@ -58,6 +58,10 @@ export function readRecentTraceEvents(
 }
 
 const REPLAY_EVENT_TYPES = new Set([
+  "agent_decision",
+  "agent_model_turn",
+  "run_usage_summary",
+  "task_status_change",
   "tool_audit",
   "agent_tool",
   "scheduler_fire",

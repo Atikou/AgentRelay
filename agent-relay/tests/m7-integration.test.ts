@@ -110,10 +110,42 @@ test("集成：AgentLoop 只读工具写入 agent_tool 与 tool_audit 链路", a
 
     await flushTrace();
     const events = readRecentTraceEvents(traceFile, { limit: 50, redact: false });
-    assert.ok(events.some((e) => e.type === "agent_tool" && e.tool === "read_file"));
+    const agentTool = events.find((e) => e.type === "agent_tool" && e.tool === "read_file");
+    assert.ok(agentTool);
     const audits = auditEvents(events, "read_file");
+    assert.ok(agentTool.toolCallId);
+    assert.ok(audits.every((e) => e.toolCallId === agentTool.toolCallId));
     assert.ok(audits.some((e) => e.status === "start"));
     assert.ok(audits.some((e) => e.status === "ok"));
+  });
+});
+
+test("集成：AgentLoop 每轮模型决策写入 agent_decision", async () => {
+  await withTraceWorkspace(async ({ sandbox, traceFile, trace, flushTrace }) => {
+    await fs.writeFile(path.join(sandbox, "decision.txt"), "hello-decision", "utf-8");
+    const registry = createDefaultRegistry(trace);
+    const chat = scriptedChat([
+      '{"action":"tool","tool":"read_file","input":{"path":"decision.txt"},"thought":"需要读取文件"}',
+      '{"action":"final","answer":"已读取"}',
+    ]);
+    const loop = new AgentLoop({
+      chat,
+      registry,
+      workspaceRoot: sandbox,
+      trace,
+      runId: "run-decision",
+      sessionId: "session-decision",
+    });
+    await loop.run("读文件");
+
+    await flushTrace();
+    const events = readRecentTraceEvents(traceFile, { limit: 80, redact: false });
+    const decisions = events.filter((e) => e.type === "agent_decision");
+    assert.equal(decisions.length, 2);
+    assert.deepEqual(decisions.map((e) => e.action), ["tool", "final"]);
+    assert.equal(decisions[0]!.tool, "read_file");
+    assert.equal(decisions[0]!.runId, "run-decision");
+    assert.equal(decisions[1]!.answerLength, 3);
   });
 });
 
@@ -183,17 +215,47 @@ test("集成：TaskRunner + ToolStepExecutor 写入 task_step 与 tool_audit", a
       },
     ]);
     const runner = new TaskRunner(plan, {
-      executor: new ToolStepExecutor({ registry, workspaceRoot: sandbox }),
+      executor: new ToolStepExecutor({
+        registry,
+        workspaceRoot: sandbox,
+        requestId: "run-task-status",
+        taskId: "task-status",
+      }),
       autoConfirm: true,
       trace,
+      runId: "run-task-status",
+      taskId: "task-status",
     });
     const result = await runner.run();
     assert.equal(result.steps[0]!.status, "completed");
 
     await flushTrace();
-    const events = readRecentTraceEvents(traceFile, { limit: 20, redact: false });
-    assert.ok(events.some((e) => e.type === "task_step" && e.step === "list" && e.status === "completed"));
+    const events = readRecentTraceEvents(traceFile, { limit: 40, redact: false });
+    const taskStep = events.find((e) => e.type === "task_step" && e.step === "list" && e.status === "completed");
+    assert.ok(taskStep);
+    assert.equal(taskStep.toolCallId, "run-task-status:step-list:list_files");
+    assert.ok(
+      events.some(
+        (e) =>
+          e.type === "task_status_change" &&
+          e.scope === "step" &&
+          e.step === "list" &&
+          e.from === "pending" &&
+          e.to === "running" &&
+          e.taskId === "task-status",
+      ),
+    );
+    assert.ok(
+      events.some(
+        (e) =>
+          e.type === "task_status_change" &&
+          e.scope === "task" &&
+          e.to === "completed" &&
+          e.runId === "run-task-status",
+      ),
+    );
     const audits = auditEvents(events, "list_files");
+    assert.ok(audits.every((e) => e.toolCallId === taskStep.toolCallId));
     assert.ok(audits.some((e) => e.status === "start"));
     assert.ok(audits.some((e) => e.status === "ok"));
   });

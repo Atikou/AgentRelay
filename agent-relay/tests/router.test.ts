@@ -10,6 +10,7 @@ import type { ChatRequest, ModelClient, ModelLocation, ModelResponse } from "../
 
 class MockClient implements ModelClient {
   public readonly model = "mock-model";
+  public lastRequest?: ChatRequest;
   constructor(
     public readonly name: string,
     public readonly location: ModelLocation,
@@ -20,7 +21,8 @@ class MockClient implements ModelClient {
     return true;
   }
 
-  async chat(_request: ChatRequest): Promise<ModelResponse> {
+  async chat(request: ChatRequest): Promise<ModelResponse> {
+    this.lastRequest = request;
     if (this.behavior === "fail") throw new Error(`${this.name} boom`);
     return {
       content: `hi from ${this.name}`,
@@ -166,6 +168,40 @@ test("metrics 记录调用、失败率与成本", async () => {
   assert.ok(cloud && cloud.calls === 1 && cloud.failures === 0);
   // cost = 10/1000*1 + 20/1000*2 = 0.01 + 0.04 = 0.05
   assert.equal(cloud!.totalCostUsd, 0.05);
+});
+
+test("远程模型调用前自动脱敏消息内容", async () => {
+  const cloud = new MockClient("cloud-a", "remote", "ok");
+  const router = new ModelRouter([cloud], { strategy: "cloud-first", fallback: true });
+  await router.chat({
+    messages: [{ role: "user", content: "apiKey=abc12345 sk-abcdefghijklmnop" }],
+  });
+  const content = cloud.lastRequest!.messages[0]!.content;
+  assert.doesNotMatch(content, /abc12345/);
+  assert.doesNotMatch(content, /sk-abcdefghijklmnop/);
+  assert.match(content, /\[REDACTED/);
+});
+
+test("本地模型调用保留原始敏感内容", async () => {
+  const local = new MockClient("local-a", "local", "ok");
+  const router = new ModelRouter([local], { strategy: "local-first", fallback: true });
+  await router.chat({
+    messages: [{ role: "user", content: "apiKey=abc12345 sk-abcdefghijklmnop" }],
+  });
+  assert.match(local.lastRequest!.messages[0]!.content, /abc12345/);
+  assert.match(local.lastRequest!.messages[0]!.content, /sk-abcdefghijklmnop/);
+});
+
+test("forceClient 指向远程时仍会脱敏", async () => {
+  const local = new MockClient("local-a", "local", "ok");
+  const cloud = new MockClient("cloud-a", "remote", "ok");
+  const router = new ModelRouter([local, cloud], { strategy: "local-first", fallback: true });
+  await router.chat(
+    { messages: [{ role: "user", content: "Bearer secret-token-12345" }] },
+    { forceClient: "cloud-a" },
+  );
+  assert.doesNotMatch(cloud.lastRequest!.messages[0]!.content, /secret-token-12345/);
+  assert.match(cloud.lastRequest!.messages[0]!.content, /Bearer \[REDACTED\]/);
 });
 
 async function main() {

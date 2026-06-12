@@ -1,10 +1,11 @@
 import { performance } from "node:perf_hooks";
+import crypto from "node:crypto";
 
 import type { TraceLogger } from "../trace/TraceLogger.js";
-import { redactPreview } from "../util/redact.js";
+import { redactPreview, redactString, redactValue } from "../util/redact.js";
 import type { ToolPermission } from "../agent/permissions.js";
 import type { ToolStorage } from "./storage/ToolStorage.js";
-import type { Tool, ToolContext, ToolRunResult, ToolSpec } from "./types.js";
+import type { Tool, ToolContext, ToolErrorCategory, ToolErrorCode, ToolRunResult, ToolSpec } from "./types.js";
 
 export interface RegistryRunContext extends ToolContext {
   /** 本次允许的权限集；提供时，工具权限不在其中则拒绝。 */
@@ -17,6 +18,7 @@ export interface RegistryRunContext extends ToolContext {
  */
 export class ToolRegistry {
   private readonly tools = new Map<string, Tool>();
+  private defaultContext: Partial<ToolContext> = {};
 
   constructor(
     private readonly trace?: TraceLogger,
@@ -39,6 +41,11 @@ export class ToolRegistry {
     return this.storage;
   }
 
+  setDefaultContext(ctx: Partial<ToolContext>): this {
+    this.defaultContext = { ...this.defaultContext, ...ctx };
+    return this;
+  }
+
   list(): ToolSpec[] {
     return [...this.tools.values()].map((t) => ({
       name: t.name,
@@ -53,6 +60,7 @@ export class ToolRegistry {
     const started = performance.now();
     const startedAt = new Date().toISOString();
     const elapsed = () => Math.round(performance.now() - started);
+    const toolCallId = ctx.toolCallId ?? crypto.randomUUID();
 
     const tool = this.tools.get(name);
     if (!tool) {
@@ -60,8 +68,10 @@ export class ToolRegistry {
         ok: false,
         tool: name,
         code: "unknown_tool",
+        category: "user_error",
         error: `未知工具：${name}`,
         durationMs: elapsed(),
+        toolCallId,
       };
       this.logStorage(name, rawInput, result, startedAt, ctx);
       return result;
@@ -72,8 +82,10 @@ export class ToolRegistry {
         ok: false,
         tool: name,
         code: "permission_denied",
+        category: "permission_error",
         error: `当前不允许的权限：${tool.permission}`,
         durationMs: elapsed(),
+        toolCallId,
       };
       this.logStorage(name, rawInput, result, startedAt, ctx);
       return result;
@@ -85,8 +97,10 @@ export class ToolRegistry {
         ok: false,
         tool: name,
         code: "invalid_input",
+        category: "user_error",
         error: parsed.error.issues.map((i) => `${i.path.join(".") || "(root)"}: ${i.message}`).join("; "),
         durationMs: elapsed(),
+        toolCallId,
       };
       this.logStorage(name, rawInput, result, startedAt, ctx);
       return result;
@@ -98,12 +112,19 @@ export class ToolRegistry {
       status: "start",
       permission: tool.permission,
       inputPreview: redactPreview(parsed.data),
+      toolCallId,
       runId: ctx.requestId,
       sessionId: ctx.sessionId,
       taskId: ctx.taskId,
     });
 
-    const execCtx: ToolContext = { ...ctx, storage: ctx.storage ?? this.storage };
+    const execCtx: ToolContext = {
+      ...this.defaultContext,
+      ...ctx,
+      toolCallId,
+      storage: ctx.storage ?? this.storage,
+      shellPolicy: ctx.shellPolicy ?? this.defaultContext.shellPolicy,
+    };
 
     try {
       const output = await this.withTimeout(tool, () => tool.execute(parsed.data, execCtx), ctx.signal);
@@ -114,21 +135,27 @@ export class ToolRegistry {
         status: "ok",
         durationMs,
         outputPreview: redactPreview(output, 600),
+        toolCallId,
         runId: ctx.requestId,
         sessionId: ctx.sessionId,
         taskId: ctx.taskId,
       });
-      const result = { ok: true as const, tool: name, output, durationMs };
+      const result = { ok: true as const, tool: name, output, durationMs, toolCallId };
       this.logStorage(name, parsed.data, result, startedAt, ctx);
       return result;
     } catch (err) {
       const isTimeout = err instanceof Error && err.message === "__tool_timeout__";
+      const code: ToolErrorCode = isTimeout ? "timeout" : "error";
       const error = isTimeout ? `工具执行超时（${tool.timeoutMs}ms）` : String(err);
+      const category = classifyToolError(code, error);
       this.trace?.write({
         type: "tool_audit",
         tool: name,
         status: "error",
+        code,
+        category,
         error: redactPreview(error, 300),
+        toolCallId,
         runId: ctx.requestId,
         sessionId: ctx.sessionId,
         taskId: ctx.taskId,
@@ -136,9 +163,11 @@ export class ToolRegistry {
       const result = {
         ok: false as const,
         tool: name,
-        code: (isTimeout ? "timeout" : "error") as "timeout" | "error",
+        code,
+        category,
         error,
         durationMs: elapsed(),
+        toolCallId,
       };
       this.logStorage(name, parsed.data, result, startedAt, ctx);
       return result;
@@ -163,11 +192,13 @@ export class ToolRegistry {
         toolName: name,
         sessionId: ctx.sessionId,
         requestId: ctx.requestId,
-        inputJson: JSON.stringify(input ?? {}),
-        outputJson: JSON.stringify(result.ok ? result.output : { error: result.error, code: result.code }),
+        inputJson: stringifyStorageJson(input ?? {}),
+        outputJson: stringifyStorageJson(
+          result.ok ? result.output : { error: result.error, code: result.code, category: result.category },
+        ),
         ok: result.ok,
         errorCode: result.ok ? undefined : result.code,
-        errorMessage: result.ok ? undefined : result.error,
+        errorMessage: result.ok ? undefined : redactString(result.error),
         startedAt,
         endedAt: new Date().toISOString(),
         durationMs: result.durationMs,
@@ -196,6 +227,34 @@ export class ToolRegistry {
       if (timer) clearTimeout(timer);
     }
   }
+}
+
+function stringifyStorageJson(value: unknown): string {
+  try {
+    return JSON.stringify(redactValue(value));
+  } catch {
+    return JSON.stringify(redactString(String(value)));
+  }
+}
+
+export function classifyToolError(code: ToolErrorCode, error: string): ToolErrorCategory {
+  if (code === "invalid_input" || code === "unknown_tool") return "user_error";
+  if (code === "permission_denied") return "permission_error";
+  if (code === "timeout") return "temporary_error";
+
+  const text = error.toLowerCase();
+  if (
+    /enoent|enotdir|eisdir|not found|no such file|找不到|不存在|未找到|command not found|is not recognized/.test(text)
+  ) {
+    return "environment_error";
+  }
+  if (/eacces|eperm|permission denied|access denied|权限|策略拒绝|高风险命令|dangerous command/.test(text)) {
+    return "permission_error";
+  }
+  if (/etimedout|timeout|timed out|econnreset|econnrefused|eai_again|temporar|超时|暂时/.test(text)) {
+    return "temporary_error";
+  }
+  return "unknown_error";
 }
 
 function describeSchema(tool: Tool): string | undefined {
