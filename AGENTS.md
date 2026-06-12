@@ -35,6 +35,7 @@ AgentRelay/
       ├─ model-orchestrator/    # 单模型与草拟+审查流水线
       ├─ model/
       ├─ agent/
+      ├─ plan/                    # AgentStepPlan / UserVisiblePlan / InternalTaskPlan / PlanStore / 编译、预览与审批
       ├─ background/
       ├─ scheduler/
       ├─ subagent/
@@ -67,22 +68,24 @@ npm run serve          # 启动后端与测试台 http://localhost:18787
 - 远程接入：OpenAI、DeepSeek 及任意 OpenAI-compatible 服务；Anthropic（Claude）原生 `/v1/messages` 协议。
 - 模型路由（自主选择）：`model/ModelRouter` 客户端级 fallback；**规则路由** `SmartModelRouter`（`RuleRouter` → `DecisionEngine` → `ModelRegistry` 手动 `routerProfile`）+ **`ModelOrchestrator`**（`single_model` / `local_draft_remote_review`）；`POST /api/chat` 自动路由；路由/调用/协作日志表；`GET /api/models/catalog`。
 - 调用指标：`MetricsRegistry`（延迟/token/失败率/成本）+ `TraceLogger`（`data/traces/trace.jsonl`）。
-- Agent 模式（todolist 第 2 节）：`Planner` 计划模式（只读生成结构化计划）+ `TaskRunner` 任务模式状态机（确认/中断/重试/`rollbackOnFailure` 回滚/`fallbackToPlanOnUncertainty` 修订计划/权限边界），步骤执行器可插拔。
-- 工具系统（todolist 第 3/10 节）：`ToolRegistry` + **11 个第一阶段工具**（`read_file`/`list_files`/`search_text`/`write_file`/`apply_patch`/`diff_file`/`backup_file`/`rollback_change`/`shell_run`/`git_status`/`git_diff`）；`ToolStorage`（备份、changeId、tool_logs）；路径沙箱 + 命令风险拦截 + 确认门。
-- M1 主对话循环（todolist 第 11/19 节）：`AgentLoop` 用可移植的 ReAct JSON 协议让模型自主决定工具调用，迭代到最终答案；含权限/确认/迭代上限。接口 `POST /api/agent` 与 SSE `POST /api/agent/stream`（`onStep` 逐步推送），测试台「智能体」模式。
+- Agent 模式（todolist 第 2 节）：`Planner` 计划模式（只读生成结构化计划）+ `PlanService`/`PlanStore`（AgentStepPlan / UserVisiblePlan / InternalTaskPlan 三类计划分离，`/api/plans/analyze` 生成用户计划文档，`/api/plans/:id/compile` 编译待审批内部计划，审批后执行）+ `TaskRunner` 任务模式状态机（确认/中断/重试/`rollbackOnFailure` 回滚/`fallbackToPlanOnUncertainty` 修订计划/权限边界），步骤执行器可插拔。
+- 工具系统（todolist 第 3/10 节）：`ToolRegistry` + **14 个内置工具**（`read_file`/`list_files`/`search_text`/`write_file`/`apply_patch`/`diff_file`/`backup_file`/`rollback_change`/`shell_run`/`git_status`/`git_diff`/`project_scan`/`locate_relevant_files`/`context_pack`）；`ToolStorage`（备份、changeId、tool_logs）；路径沙箱 + 命令风险拦截 + 确认门；相关文件定位统计进入 `executionMeta.location`；测试辅助 `createMockTool` / `createMockRegistry` 支持 mock 工具。
+- M1 主对话循环（todolist 第 11/19 节）：`AgentLoop` 用可移植的 ReAct JSON 协议让模型自主决定工具调用，迭代到最终答案；含 `RunPolicy` 模式/分项运行预算、计划/审阅只读执行边界、`PlanWorkflow` 只读预扫描、权限/确认、预算耗尽部分收尾与 `executionMeta`。接口 `POST /api/agent` 与 SSE `POST /api/agent/stream`（`onStep` 逐步推送），测试台「智能体」模式。
 - 文档站：`/docs` 自动渲染 `docs/*.md`（Mermaid + 截图，ChatGPT 配色 + 深色模式）；**API 参考**：`/api-docs`（本地 Scalar + `public/api-spec.json`），说明总览见 `docs/API参考.md`。
 - 多 profile 配置、测试台网页（配置 / 可用性 / 调用统计 / 敏感开关 / 对话 / 计划 / 智能体 / **测试用例** / 工具系统）。
-- M4 后台任务与通知队列：`BackgroundTaskManager`（spawn/查询/取消）+ `NotificationQueue`（JSONL 持久化）；`AgentLoop` 在安全点消费通知；`/api/background/*`、`/api/notifications/*`；测试台「后台任务」「通知队列」面板。
-- M5 子 Agent（只读第一版）：`code_review` / `test_analyze` 角色；`SubAgentRunner` + `SubAgentCoordinator`（并行派生+汇总）；`/api/subagent/*`；测试台「子 Agent」面板。
+- M4 后台任务与通知队列：`BackgroundTaskManager`（spawn/查询/取消/`outputRules`/`triggerOnMatch`）+ `NotificationQueue`（JSONL 持久化）；`AgentLoop` 在安全点消费通知；`/api/background/*`、`/api/notifications/*`；测试台「后台任务」「通知队列」面板。
+- M5 子 Agent（只读第一版）：`code_review` / `test_analyze` 角色；`SubAgentRunner` + `SubAgentCoordinator`（并行派生 + 结构化汇总 + 冲突检测）；`/api/subagent/*`；测试台「子 Agent」面板。
 - M6 上下文压缩与持久化：`ContextManager`（SQLite + FTS5 + LanceDB）；`ContextRestorer` → `ContextPackage`；`SystemSectionBuilder` + `PromptBuilder` 动态注入；`MemoryRetriever` / `SemanticRetriever` 多路检索；`AgentLoop` 默认持久化；`/api/context/*`；测试台「上下文与记忆」面板。
-- M7 安全与审计（第一版）：`util/redact` 日志脱敏；`tool_audit` trace；`GET /api/trace/recent|export`；测试台「安全与审计」面板。
+- M7 安全与审计（第一版）：`util/redact` 日志脱敏 + 敏感信息检测；远程模型调用前提示脱敏；`sensitive` / `privacy-first` 本地优先隐私模式；`ToolStorage.tool_logs` 落盘前脱敏；HTTP 工具入口 `highRiskConfirmation` 确认门；`agent_decision` / `agent_model_turn` / `run_usage_summary` / `task_status_change` / `tool_audit` trace；`toolCallId` 串联 `agent_tool` / `task_step` / `tool_audit`；工具失败 `category` 分类；`ShellPolicy` 命令风险 + `security.shell.denyCommands/allowCommands`；`GET /api/trace/recent|export|replay`；测试台「安全与审计」面板。
 - M8 定时与事件触发：`Scheduler`（once/interval/cron/event 含 file_changed、git_changed）；无人值守白名单、`daily_summary` cron；待办队列 UI；`/api/scheduler/*`。
 - M7 补强：写文件 `patchPreview`、prompt injection 围栏、`GET /api/trace/replay` 审计回放。
 - 集成测试：`tests/integration.test.ts`（任务链路、后台通知注入、子 Agent 并行）。
 - 架构重构：`AppContext` + `Orchestrator`（统一 Run/Task）+ `policy/` + `server/handlers/*` 拆分；`GET /api/runs`。
-- 自检：`npm test`（全量 **167** 项）。
+- 自检：`npm test`（全量，含 `tests/plan.test.ts` 计划存储/执行边界 6 项）。
 
-**未实现**（按里程碑推进）：**V2 FallbackManager**（见 `docs/模型路由升级TodoList.md`）、V3+ 模型自评/回答评估/RuntimeStats、并行投票、子 Agent 写权限/递归、多模态附件/OCR、模型 token 流式输出。
+**未实现**（按里程碑推进）：V3+ RouterModelEvaluator / AnswerEvaluator / RuntimeStats（见 `docs/模型路由升级TodoList.md`）、`GET /api/routing/logs`、并行投票、子 Agent 写权限/递归、多模态附件/OCR、模型 token 流式输出。
+
+**V2 已落地**：`FallbackManager` + `fallback_logs` + `strong_model_direct` 升级路径；`POST /api/chat` 可回传 `fallbackCount` / `fallbackLogIds`。
 
 ## 关键约定（务必遵守）
 

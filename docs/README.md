@@ -55,8 +55,19 @@ npm run docs:screenshots # 用无头浏览器截图到 docs/assets/
 ## 文档列表
 
 - [API 参考](API参考.md)：REST 接口总览、能力探测与交互式文档入口（`/api-docs`）。
+- [外部规范-TodoList索引](外部规范-TodoList索引.md)：**6 份外部规范**对应的完成度清单总览。
+- [Agent执行策略问题-TodoList](Agent执行策略问题-TodoList.md)：RunPolicy / executionMeta / PlanWorkflow 等。
+- [相关文件定位优化-TodoList](相关文件定位优化-TodoList.md)：TaskQueryAnalyzer、RelevantFileLocator、context_pack 与定位预算。
+- [计划JSON与Markdown分离-TodoList](计划JSON与Markdown分离-TodoList.md)：InternalTaskPlan 与执行边界。
+- [模型路由规则配置-TodoList](模型路由规则配置-TodoList.md)：规则路由 V1。
+- [模型路由协作-TodoList](模型路由协作-TodoList.md)：draft_review 协作 V1。
+- [模型路由升级TodoList](模型路由升级TodoList.md)：V2 FallbackManager 及后续路线图。
+- [外部规范-TodoList索引](外部规范-TodoList索引.md)：**6 份外部规范**完成度总索引。
 - [项目整体架构](项目整体架构.md)：分层设计、模块职责、关键调用链路、目录结构与里程碑路线图。
 - [编排与Run模型](编排与Run模型.md)：Orchestrator、统一 Run/Task、`GET /api/runs`。
+- [计划JSON与Markdown分离](计划JSON与Markdown分离.md)：InternalTaskPlan、PlanStore、预览与执行边界。
+- [计划体系分离](计划体系分离.md)：AgentStepPlan、UserVisiblePlan、ExecutableTaskPlan 三类计划边界与 analyze/compile 流程。
+- [计划JSON与Markdown分离-TodoList](计划JSON与Markdown分离-TodoList.md)：对照规范的完成度清单（查漏补缺用）。
 - [自审核记录](自审核记录.md)：每次任务结束后的自审核结论（最新在上），首次预览项目必读。
 - [工具系统](工具系统.md)：工具协议、内置工具、权限/风险/沙箱安全机制与 HTTP 接口。
 - [对话循环](对话循环.md)：M1 自主对话循环（ReAct JSON 协议、工具调用闭环、安全边界）。

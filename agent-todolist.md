@@ -24,6 +24,7 @@
 
 - [x] 实现计划模式。
   - [x] 只读分析当前任务、代码、文件和约束。
+  - [x] 计划/审阅类项目分析先执行只读 `PlanWorkflow` 预扫描（`project_scan` → `locate_relevant_files` → `context_pack`），减少主循环探索轮次。
   - [x] 输出目标、范围、风险、依赖和执行步骤。
   - [x] 明确哪些步骤需要用户确认。
 - [x] 实现任务模式。（控制流 + 工具真实执行 ToolStepExecutor 已就绪）
@@ -33,7 +34,7 @@
   - [x] 从计划模式进入任务模式。
   - [x] 遇到不确定性时从任务模式回到计划模式。（`fallbackToPlanOnUncertainty` → `modeFallback.revisedPlan`）
   - [x] 支持用户强制切换模式。
-- [x] 为不同模式设置不同权限边界。
+- [x] 为不同模式设置不同权限边界。（`RunPolicy`：plan/review 在执行层只读，chat/implement/debug 保持任务权限边界）
 
 ## 3. 边界划分与权限控制
 
@@ -55,19 +56,20 @@
 
 ## 4. 计划撰写与任务拆分
 
-- [ ] 将用户目标解析为结构化任务说明。
-- [ ] 识别任务边界、输入、输出和验收标准。
-- [ ] 自动拆分主任务为子任务。
-- [ ] 为每个子任务生成：
-  - [ ] 目标。
-  - [ ] 依赖。
-  - [ ] 所需上下文。
-  - [ ] 可用工具。
-  - [ ] 预期产物。
-  - [ ] 验证方式。
-- [ ] 支持任务优先级排序。
-- [ ] 支持任务状态流转：pending、in_progress、blocked、completed、failed、cancelled。
-- [ ] 支持任务失败后的重试、跳过、降级和人工接管。
+- [x] 将用户目标解析为结构化任务说明。（Plan：`goal` + `inputs`/`outputs`/`acceptanceCriteria` + `scope`）
+- [x] 识别任务边界、输入、输出和验收标准。（`scope.inScope/outOfScope` + `inputs`/`outputs`/`acceptanceCriteria`）
+- [x] 自动拆分主任务为子任务。（`Planner` 提示词要求 ≥2 步；`normalizePlan` + `sortSubtasksByPriority`）
+- [x] 为每个子任务生成：
+  - [x] 目标。（`PlanStep.objective`）
+  - [x] 依赖。（`dependsOn`）
+  - [x] 所需上下文。（`requiredContext`）
+  - [x] 可用工具。（`availableTools`，缺省时按权限推断）
+  - [x] 预期产物。（`expectedArtifacts`）
+  - [x] 验证方式。（`acceptance`）
+- [x] 支持任务优先级排序。（`priority` + `sortSubtasksByPriority`；持久化到 `task_steps`）
+- [x] 支持任务状态流转：pending、in_progress、blocked、completed、failed、cancelled、skipped。（`aggregateTaskStatus` + `TaskStore` 持久化 + `GET /api/tasks/:id`）
+- [x] 支持任务失败后的重试、跳过、降级和人工接管。（`TaskRunner.retryFrom/skipStep/confirmStep` + `POST /api/tasks/:id/resume`；降级仍走 `fallbackToPlanOnUncertainty`）
+- [x] AgentStepPlan / UserVisiblePlan / InternalTaskPlan 三类计划分离；Executor 仅接受 approved planId + version（`AgentLoop` trace + `PlanStore` + `PlanCompiler` + `PlanValidator`）。
 
 ## 5. 子 Agent 派生
 
@@ -75,7 +77,7 @@
 - [x] 子 Agent 拥有独立上下文窗口。（角色 system + 独立 AgentLoop 消息链）
 - [x] 子 Agent 可被限制为只读、执行命令、代码审查、测试运行等角色。（第一版：`code_review` / `test_analyze` 仅 read）
 - [x] 支持并行派生多个子 Agent。（`SubAgentCoordinator.runBatch`）
-- [ ] 支持子 Agent 结果汇总、冲突检测和合并。（已汇总文本，未做冲突检测）
+- [x] 支持子 Agent 结果汇总、冲突检测和合并。（`aggregate`：共同结论、冲突列表、mergedAnswer；保留 summary）
 - [x] 支持子 Agent 超时、取消和失败上报。（超时；显式 cancel 待后续）
 - [x] 子 Agent 不能默认继承全部权限，必须显式授予。（`resolveGrantedPermissions`）
 - [x] 记录父子 Agent 的任务链路和决策过程。（trace `subagent_start/end` + `parentTaskId`）
@@ -97,7 +99,7 @@
   - [x] 保留关键决策、文件变更和失败原因。
   - [x] 丢弃低价值日志和重复信息。（压缩后 `is_summarized=1`）
 - [x] 压缩后支持恢复任务，不从头开始。
-- [ ] 为上下文片段打标签，便于检索和重组。
+- [x] 为上下文片段打标签，便于检索和重组。（`contextTags.ts` 推断标签；`SystemSectionItem.tags` + `ContextPackage.taggedFragments`；向量索引带 tags；`/api/context/search?tags=`）
 - [x] 支持向量检索或关键字检索找回历史上下文。
 
 ## 7. 后台线程与命令执行
@@ -113,8 +115,8 @@
 - [x] 支持后台任务取消。（Windows `taskkill /T /F`）
 - [x] 支持命令超时配置。（`POST /api/background/start` 可选 `timeoutMs`；未设置则不自动超时）
 - [x] 支持命令完成后注入通知到主 Agent。（经 `NotificationQueue`）
-- [ ] 支持命令输出匹配规则，例如错误关键字、服务 ready 日志、测试完成日志。
-- [ ] 支持根据命令结果自动触发下一步任务。
+- [x] 支持命令输出匹配规则，例如错误关键字、服务 ready 日志、测试完成日志。（`outputRules` + `outputMatcher.ts`）
+- [x] 支持根据命令结果自动触发下一步任务。（`triggerOnMatch` → `executeUnattendedTrigger`；调度器 `eventFilter.outputPattern`）
 
 ## 8. 定时触发与循环任务
 
@@ -161,11 +163,12 @@
   - [x] 超时策略。
 - [x] 支持工具执行前校验参数。（注册表 zod safeParse）
 - [x] 支持工具执行后结构化解析结果。（归一化 `ToolRunResult`）
-- [ ] 支持工具失败分类：用户错误、环境错误、权限错误、临时错误、未知错误。（已分 unknown_tool/invalid_input/permission_denied/timeout/error，待细化临时错误等）
+- [x] 支持相关文件定位高级工具。（`project_scan` / `locate_relevant_files` / `context_pack`，减少低层探索消耗）
+- [x] 支持工具失败分类：用户错误、环境错误、权限错误、临时错误、未知错误。（`ToolErrorCategory`：user/environment/permission/temporary/unknown）
 - [x] 支持工具调用审计日志。（`TraceLogger` 记录 start/ok/error）
-- [ ] 支持 mock 工具，方便测试。（测试用真实沙箱，未单独抽象 mock 工具）
+- [x] 支持 mock 工具，方便测试。（`createMockTool` / `createMockRegistry`：调用记录、静态/动态输出、失败注入）
 
-> 已实现第一阶段 11 个内置工具：`read_file` / `list_files` / `search_text` / `write_file` / `apply_patch` / `diff_file` / `backup_file` / `rollback_change` / `shell_run` / `git_status` / `git_diff`。安全机制：路径沙箱 + 自动备份/changeId/回滚 + 命令风险分级 + 输出限制 + `ToolStorage` tool_logs。自检：`npm run test:tools`（16 项）。
+> 已实现 14 个内置工具：`read_file` / `list_files` / `search_text` / `write_file` / `apply_patch` / `diff_file` / `backup_file` / `rollback_change` / `shell_run` / `git_status` / `git_diff` / `project_scan` / `locate_relevant_files` / `context_pack`。安全机制：路径沙箱 + 自动备份/changeId/回滚 + 命令风险分级 + 输出限制 + `ToolStorage` tool_logs；相关文件定位结果会汇总到 `executionMeta.location`；测试辅助提供 mock 工具注册表。自检：`npm run test:tools`（24 项）。
 
 ## 11. 状态机与任务编排
 
@@ -176,35 +179,36 @@
 - [x] 支持任务依赖图 DAG。（`TaskRunner` + `taskGraph.ts` 校验环路与 dependsOn）
 - [x] 支持并行任务和串行任务混合执行。（同波并行、依赖串行）
 - [x] 支持任务阻塞时自动切换到其他可执行任务。（`blocked` 不 halt，`failed` 才停止新波次）
-- [x] 防止死循环、自我重复和无限重试。（AgentLoop `maxIterations` 上限）
+- [x] 防止死循环、自我重复和无限重试。（AgentLoop 分项 `RunBudget`：模型轮次/工具总数/读写 shell/运行时长 + 预算耗尽部分收尾 + `PlanWorkflow` 只读预扫描 + `executionMeta.stopReason`）
+- [x] 计划展示与执行分离：AgentStepPlan 只进 trace，用户 Markdown/PublicPlanJson 不可直接执行；须 analyze/compile 或 draft → validate → approve → execute。（`src/plan/`、`SCHEMA_VERSION=6`）
 
 ## 12. 记忆与知识库
 
-- [ ] 支持项目级记忆。
-- [ ] 支持用户偏好记忆。
-- [ ] 支持任务经验记忆。
-- [ ] 对记忆做来源标注和可信度标记。
-- [ ] 支持记忆过期和手动删除。
+- [x] 支持项目级记忆。（`memoryType=project_note` + `scope=project`）
+- [x] 支持用户偏好记忆。（`memoryType=preference` + `finalizeTurn` 规则抽取）
+- [ ] 支持任务经验记忆。（`scope=task` 可用，未专门抽取流水线）
+- [x] 对记忆做来源标注和可信度标记。（`source`/`sourceId`/`confidence`/`importance`）
+- [x] 支持记忆过期和手动删除。（`expiresAt` + `deactivateMemory`）
 - [ ] 避免把临时错误结论写入长期记忆。
 - [ ] 支持从代码库、文档和历史对话构建知识索引。
 
 ## 13. 安全与隐私
 
-- [ ] 敏感信息检测，例如 API key、token、密码、私钥。
-- [ ] 远程模型调用前过滤或脱敏敏感内容。
-- [ ] 对命令执行做 allowlist 或 denylist。
+- [x] 敏感信息检测，例如 API key、token、密码、私钥。（`detectSensitiveString` / `hasSensitiveValue`）
+- [x] 远程模型调用前过滤或脱敏敏感内容。（`ModelRouter` 调用 remote client 前脱敏 `messages.content`，本地模型保留原文）
+- [x] 对命令执行做 allowlist 或 denylist。（`security.shell.denyCommands` / `allowCommands`，`shell_run` 与后台任务共用 `ShellPolicy`）
 - [ ] 对网络请求做域名限制。
-- [ ] 用户确认后才能执行高风险操作。
-- [ ] 日志中避免记录完整密钥和敏感数据。
-- [ ] 支持本地优先的隐私模式。
+- [x] 用户确认后才能执行高风险操作。（HTTP 工具入口对 write/apply_patch/shell/network/dangerous 权限启用确认门；dangerous shell 确认后仍由 ShellPolicy 拒绝）
+- [x] 日志中避免记录完整密钥和敏感数据。（TraceLogger / trace 查询 / ToolRegistry 审计预览 / ToolStorage.tool_logs / ContextManager 错误 JSONL 脱敏）
+- [x] 支持本地优先的隐私模式。（`sensitive=true` / `routing.strategy=privacy-first` 仅本地；SmartModelRouter 与 FallbackManager 继承 `localOnly`）
 
 ## 14. 可观测性
 
-- [ ] 记录每轮 Agent 决策。
-- [ ] 记录模型路由原因。
-- [ ] 记录 token、耗时、费用和错误。
-- [ ] 记录工具调用链路。
-- [ ] 记录任务状态变化。
+- [x] 记录每轮 Agent 决策。（`agent_decision` trace：tool/final/parse_error，含 tool、thought、inputPreview、answerLength）
+- [x] 记录模型路由原因。（`model_route_logs` + `GET /api/routing/logs`）
+- [x] 记录 token、耗时、费用和错误。（`agent_model_turn` + `run_usage_summary`：token/latency/cost/error/预算用量摘要）
+- [x] 记录工具调用链路。（`toolCallId` 贯穿 `agent_decision` / `agent_tool` / `task_step` / `tool_audit`）
+- [x] 记录任务状态变化。（`task_status_change` trace：步骤级 from/to + 聚合任务状态计数，附 runId/taskId/sessionId）
 - [ ] 提供调试视图或 trace 文件。
 - [ ] 支持导出运行报告。
 - [ ] 支持问题复盘：为什么选择某模型、为什么执行某命令、为什么任务失败。
@@ -224,10 +228,10 @@
 
 ## 16. 配置与启动
 
-- [ ] 提供统一配置文件。
-- [ ] 支持环境变量覆盖配置。
-- [ ] 支持多 profile，例如 dev、local-only、cloud、ci。
-- [ ] 提供模型配置、权限配置、工具配置和调度配置。
+- [x] 提供统一配置文件。（`config/*.json` + zod）
+- [x] 支持环境变量覆盖配置。（`apiKeyEnv` 等）
+- [x] 支持多 profile，例如 dev、local-only、cloud、ci。
+- [ ] 提供模型配置、权限配置、工具配置和调度配置。（模型/调度/部分 shell 安全策略已进入 zod schema；完整工具/用户权限配置待补）
 - [ ] 启动时检查必要依赖。
 - [ ] 启动时检查模型可用性。
 - [ ] 启动时恢复未完成任务和未消费通知。
@@ -271,7 +275,7 @@
   - [x] 用户输入。
   - [x] 模型调用。
   - [x] 工具调用。
-  - [x] 简单任务状态。（步骤记录 + 迭代上限 + reachedLimit）
+  - [x] 简单任务状态。（步骤记录 + 分项运行预算 + reachedLimit + executionMeta）
   - [x] 工具步骤 SSE 流式推送。（`POST /api/agent/stream` + `Orchestrator.runAgentStream`）
 - [x] M2：模型路由。
   - [x] 本地和远程模型统一接口。
@@ -281,6 +285,7 @@
   - [x] 计划生成。
   - [x] 用户确认。
   - [x] 执行状态追踪。
+  - [x] InternalTaskPlan / PublicPlanJson 分离与 PlanStore 审批执行链。
 - [x] M4：后台任务和通知队列。
   - [x] 后台命令。
   - [x] 完成通知。
@@ -304,4 +309,3 @@
   - [x] cron 错过补偿、无人值守白名单、待办队列 UI、`daily_summary` cron。
   - [x] 触发任务仍走权限检查，不绕过确认。（仅写通知队列 + `requiresConfirmation`）
   - [x] 触发器暂停/恢复/取消与 JSONL 持久化。
-
