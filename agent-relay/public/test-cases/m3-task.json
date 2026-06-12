@@ -5,6 +5,49 @@
   "summary": "验证 TaskRunner dry-run 入口对 PlanSchema 的校验。",
   "cases": [
     {
+      "id": "m3-task-status-trace-capability",
+      "title": "任务状态 trace 能力探测",
+      "purpose": "确认当前后端声明已支持 TaskRunner 状态变化 trace，可供审计回放与运行报告使用。",
+      "method": "GET",
+      "path": "/api/config",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyPaths": {
+          "capabilities.taskStatusTrace": true
+        }
+      }
+    },
+    {
+      "id": "m3-task-status-trace-dry-run",
+      "title": "dry-run 任务返回可追踪状态",
+      "purpose": "确认任务 dry-run 会创建 runId/taskId，并把步骤状态推进到 completed，为 task_status_change trace 提供关联标识。",
+      "method": "POST",
+      "path": "/api/task/dry-run",
+      "input": {
+        "autoConfirm": true,
+        "plan": {
+          "goal": "状态 trace 验收",
+          "steps": [
+            {
+              "id": "trace-step",
+              "title": "模拟执行",
+              "description": "用于产生任务状态变化",
+              "requiredPermissions": ["read"],
+              "status": "pending"
+            }
+          ]
+        }
+      },
+      "expect": {
+        "status": 200,
+        "bodyHasKeys": ["runId", "taskId", "plan"],
+        "bodyPaths": {
+          "plan.steps[0].status": "completed"
+        }
+      }
+    },
+    {
       "id": "m3-task-invalid-plan",
       "title": "非法 plan 格式返回 400",
       "purpose": "确认任务模式在计划 JSON 不符合 zod Schema 时立即 400，不进入状态机执行。",
@@ -63,6 +106,90 @@
         "bodyPaths": {
           "plan.steps": "array"
         }
+      }
+    },
+    {
+      "id": "m3-task-subtask-metadata-dry-run",
+      "title": "子任务元数据 dry-run 持久化",
+      "purpose": "验证 Plan 含 objective/requiredContext/availableTools/expectedArtifacts/priority 时，dry-run 能正常执行并返回 plan.steps。",
+      "method": "POST",
+      "path": "/api/task/dry-run",
+      "input": {
+        "autoConfirm": true,
+        "plan": {
+          "goal": "子任务拆分验收",
+          "inputs": ["README"],
+          "outputs": ["变更说明"],
+          "acceptanceCriteria": ["测试通过"],
+          "steps": [
+            {
+              "id": "research",
+              "title": "调研",
+              "objective": "阅读项目结构",
+              "requiredContext": ["AGENTS.md"],
+              "availableTools": ["read_file", "list_files"],
+              "expectedArtifacts": ["调研笔记"],
+              "acceptance": "列出关键目录",
+              "priority": 10,
+              "requiredPermissions": ["read"],
+              "status": "pending"
+            },
+            {
+              "id": "implement",
+              "title": "实现",
+              "objective": "完成最小改动",
+              "dependsOn": ["research"],
+              "expectedArtifacts": ["src/patch.ts"],
+              "acceptance": "typecheck 通过",
+              "priority": 20,
+              "requiredPermissions": ["write"],
+              "needsConfirmation": true,
+              "status": "pending"
+            }
+          ]
+        }
+      },
+      "expect": {
+        "status": 200,
+        "bodyHasKeys": ["runId", "taskId", "plan"],
+        "bodyPaths": {
+          "plan.steps": "array",
+          "plan.inputs": "array"
+        }
+      }
+    },
+    {
+      "id": "m3-task-subtask-priority-order",
+      "title": "子任务按 priority 与依赖排序",
+      "purpose": "边界：steps 传入顺序与依赖不一致时，normalizePlan 应拓扑排序（research 在 implement 前）。",
+      "method": "POST",
+      "path": "/api/task/dry-run",
+      "input": {
+        "autoConfirm": true,
+        "plan": {
+          "goal": "排序测试",
+          "steps": [
+            {
+              "id": "implement",
+              "title": "实现",
+              "dependsOn": ["research"],
+              "priority": 20,
+              "requiredPermissions": ["read"],
+              "status": "pending"
+            },
+            {
+              "id": "research",
+              "title": "调研",
+              "priority": 10,
+              "requiredPermissions": ["read"],
+              "status": "pending"
+            }
+          ]
+        }
+      },
+      "expect": {
+        "status": 200,
+        "bodyPaths": { "plan.steps": "array" }
       }
     },
     {
@@ -383,6 +510,42 @@
         "bodyPaths": {
           "plan.steps[0].status": "completed"
         }
+      }
+    },
+    {
+      "id": "m3-tasks-list-missing-session",
+      "title": "任务列表缺 sessionId 返回 400",
+      "purpose": "验证 GET /api/tasks 必须带 sessionId，避免无边界全表扫描。",
+      "method": "GET",
+      "path": "/api/tasks",
+      "input": null,
+      "expect": {
+        "status": 400,
+        "bodyHasKeys": ["error"]
+      }
+    },
+    {
+      "id": "m3-task-get-not-found",
+      "title": "未知 taskId 返回 404",
+      "purpose": "验证 GET /api/tasks/:id 对不存在任务返回明确 404。",
+      "method": "GET",
+      "path": "/api/tasks/nonexistent-task-id",
+      "input": null,
+      "expect": {
+        "status": 404,
+        "bodyHasKeys": ["error"]
+      }
+    },
+    {
+      "id": "m3-task-resume-missing-fields",
+      "title": "resume 缺 action 返回 400",
+      "purpose": "验证 POST /api/tasks/:id/resume 必须含 action 与 stepId。",
+      "method": "POST",
+      "path": "/api/tasks/nonexistent-task-id/resume",
+      "input": { "stepId": "s1" },
+      "expect": {
+        "status": 400,
+        "bodyHasKeys": ["error"]
       }
     },
     {

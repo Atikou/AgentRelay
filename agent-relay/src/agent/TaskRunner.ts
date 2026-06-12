@@ -6,6 +6,7 @@ import {
   readyPendingSteps,
   validateTaskGraph,
 } from "./taskGraph.js";
+import { aggregateTaskStatus } from "./taskStatus.js";
 import type { Plan, PlanStep } from "./types.js";
 
 export interface StepContext {
@@ -14,11 +15,22 @@ export interface StepContext {
 
 export interface StepResult {
   output?: string;
+  toolCallId?: string;
 }
 
 /** 步骤执行器：任务模式下「如何执行一个步骤」的可插拔实现。 */
 export interface StepExecutor {
   execute(step: PlanStep, ctx: StepContext): Promise<StepResult>;
+}
+
+export class StepExecutionError extends Error {
+  constructor(
+    message: string,
+    readonly toolCallId?: string,
+  ) {
+    super(message);
+    this.name = "StepExecutionError";
+  }
 }
 
 export interface TaskRunnerOptions {
@@ -31,6 +43,9 @@ export interface TaskRunnerOptions {
   allowedPermissions?: ToolPermission[];
   onUpdate?: (plan: Plan) => void;
   trace?: TraceLogger;
+  runId?: string;
+  taskId?: string;
+  sessionId?: string;
 }
 
 /**
@@ -39,11 +54,15 @@ export interface TaskRunnerOptions {
  */
 export class TaskRunner {
   private cancelled = false;
+  private readonly confirmedStepIds = new Set<string>();
+  private lastTaskStatus: string;
 
   constructor(
     private readonly plan: Plan,
     private readonly options: TaskRunnerOptions,
-  ) {}
+  ) {
+    this.lastTaskStatus = aggregateTaskStatus(plan.steps);
+  }
 
   getPlan(): Plan {
     return this.plan;
@@ -66,17 +85,17 @@ export class TaskRunner {
     while (!haltOnFailure) {
       if (this.cancelled) {
         for (const step of this.plan.steps) {
-          if (step.status === "pending") step.status = "cancelled";
+          if (step.status === "pending") this.setStepStatus(step, "cancelled");
         }
         break;
       }
 
-      propagateDependencyBlocks(this.plan.steps, byId);
+      this.propagateDependencyBlocks(byId);
       const ready = readyPendingSteps(this.plan.steps, byId);
       if (ready.length === 0) break;
 
       const outcomes = await Promise.all(ready.map((step) => this.runStep(step)));
-      propagateDependencyBlocks(this.plan.steps, byId);
+      this.propagateDependencyBlocks(byId);
       if (outcomes.some((o) => o === "failed")) {
         haltOnFailure = true;
       }
@@ -84,6 +103,39 @@ export class TaskRunner {
 
     this.emit();
     return this.plan;
+  }
+
+  /** 人工确认：允许指定 blocked 步骤越过确认门继续执行。 */
+  confirmStep(stepId: string): void {
+    const step = this.plan.steps.find((s) => s.id === stepId);
+    if (!step) throw new Error(`未找到步骤：${stepId}`);
+    if (step.status !== "blocked" && step.status !== "pending") {
+      throw new Error(`步骤 ${stepId} 当前状态为 ${step.status}，无法确认`);
+    }
+    this.confirmedStepIds.add(stepId);
+    this.setStepStatus(step, "pending", { clearError: true });
+    this.emit();
+  }
+
+  /** 跳过步骤：标记 skipped，依赖方视为已满足。 */
+  skipStep(stepId: string): void {
+    const step = this.plan.steps.find((s) => s.id === stepId);
+    if (!step) throw new Error(`未找到步骤：${stepId}`);
+    if (!["pending", "blocked", "failed"].includes(step.status)) {
+      throw new Error(`步骤 ${stepId} 当前状态为 ${step.status}，无法跳过`);
+    }
+    this.setStepStatus(step, "skipped", { clearError: true, result: "(skipped)" });
+    this.emit();
+  }
+
+  async resume(action: "retry" | "skip" | "confirm", stepId: string): Promise<Plan> {
+    if (action === "retry") return this.retryFrom(stepId);
+    if (action === "skip") {
+      this.skipStep(stepId);
+      return this.run();
+    }
+    this.confirmStep(stepId);
+    return this.run();
   }
 
   /** 把某步骤重置为 pending 并从该步骤起继续执行。 */
@@ -94,8 +146,7 @@ export class TaskRunner {
     for (let i = index; i < this.plan.steps.length; i += 1) {
       const step = this.plan.steps[i]!;
       if (step.status !== "completed") {
-        step.status = "pending";
-        step.error = undefined;
+        this.setStepStatus(step, "pending", { clearError: true });
       }
     }
     return this.run();
@@ -106,39 +157,48 @@ export class TaskRunner {
     const allowed: string[] = this.options.allowedPermissions ?? MODE_PERMISSIONS.task;
     const disallowed = step.requiredPermissions.filter((p) => !allowed.includes(p));
     if (disallowed.length > 0) {
-      step.status = "blocked";
-      step.error = `任务模式不允许的权限：${disallowed.join(", ")}`;
+      this.setStepStatus(step, "blocked", {
+        error: `任务模式不允许的权限：${disallowed.join(", ")}`,
+      });
       this.emit();
       return step.status;
     }
 
     // 2) 确认门：需要确认且未自动同意时，征询确认。
-    if (step.needsConfirmation && !this.options.autoConfirm) {
+    if (
+      step.needsConfirmation &&
+      !this.options.autoConfirm &&
+      !this.confirmedStepIds.has(step.id)
+    ) {
       const approved = this.options.confirm ? await this.options.confirm(step) : false;
       if (!approved) {
-        step.status = "blocked";
-        step.error = "等待用户确认";
+        this.setStepStatus(step, "blocked", { error: "等待用户确认" });
         this.emit();
         return step.status;
       }
     }
 
     // 3) 执行。
-    step.status = "running";
-    step.error = undefined;
+    this.setStepStatus(step, "running", { clearError: true });
     this.emit();
     try {
       const result = await this.options.executor.execute(step, {});
       step.result = result.output;
-      step.status = "completed";
-      this.options.trace?.write({ type: "task_step", step: step.id, status: "completed" });
+      this.setStepStatus(step, "completed");
+      this.options.trace?.write({
+        type: "task_step",
+        step: step.id,
+        status: "completed",
+        toolCallId: result.toolCallId,
+      });
     } catch (error) {
-      step.status = "failed";
-      step.error = String(error);
+      const toolCallId = error instanceof StepExecutionError ? error.toolCallId : undefined;
+      this.setStepStatus(step, "failed", { error: String(error) });
       this.options.trace?.write({
         type: "task_step",
         step: step.id,
         status: "failed",
+        toolCallId,
         error: String(error),
       });
     }
@@ -146,7 +206,80 @@ export class TaskRunner {
     return step.status;
   }
 
+  private propagateDependencyBlocks(byId: Map<string, PlanStep>): void {
+    const before = new Map(
+      this.plan.steps.map((step) => [step.id, { status: step.status, error: step.error }] as const),
+    );
+    propagateDependencyBlocks(this.plan.steps, byId);
+    for (const step of this.plan.steps) {
+      const snapshot = before.get(step.id);
+      if (!snapshot || snapshot.status === step.status) continue;
+      this.writeStepStatusChange(step, snapshot.status, step.status);
+    }
+  }
+
+  private setStepStatus(
+    step: PlanStep,
+    status: PlanStep["status"],
+    options: { error?: string; clearError?: boolean; result?: string } = {},
+  ): void {
+    const from = step.status;
+    step.status = status;
+    if ("error" in options) step.error = options.error;
+    if (options.clearError) step.error = undefined;
+    if ("result" in options) step.result = options.result;
+    if (from !== status) this.writeStepStatusChange(step, from, status);
+  }
+
+  private writeStepStatusChange(
+    step: PlanStep,
+    from: PlanStep["status"],
+    to: PlanStep["status"],
+  ): void {
+    this.options.trace?.write({
+      type: "task_status_change",
+      scope: "step",
+      runId: this.options.runId,
+      taskId: this.options.taskId,
+      sessionId: this.options.sessionId,
+      step: step.id,
+      title: step.title,
+      from,
+      to,
+      status: to,
+      error: step.error,
+    });
+  }
+
+  private writeTaskStatusChange(): void {
+    const next = aggregateTaskStatus(this.plan.steps);
+    if (next === this.lastTaskStatus) return;
+    const from = this.lastTaskStatus;
+    this.lastTaskStatus = next;
+    this.options.trace?.write({
+      type: "task_status_change",
+      scope: "task",
+      runId: this.options.runId,
+      taskId: this.options.taskId,
+      sessionId: this.options.sessionId,
+      from,
+      to: next,
+      status: next,
+      totalSteps: this.plan.steps.length,
+      stepStatusCounts: this.countStepStatuses(),
+    });
+  }
+
+  private countStepStatuses(): Record<string, number> {
+    const counts: Record<string, number> = {};
+    for (const step of this.plan.steps) {
+      counts[step.status] = (counts[step.status] ?? 0) + 1;
+    }
+    return counts;
+  }
+
   private emit(): void {
+    this.writeTaskStatusChange();
     this.options.onUpdate?.(this.plan);
   }
 }

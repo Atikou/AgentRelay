@@ -1,4 +1,4 @@
-import type { PlanStep } from "./types.js";
+import { PlanSchema, type Plan, type PlanStep } from "./types.js";
 
 /** 按 id 索引步骤；重复 id 抛错。 */
 export function indexPlanSteps(steps: PlanStep[]): Map<string, PlanStep> {
@@ -44,7 +44,7 @@ export function dependencyBlockReason(
 ): string | undefined {
   for (const depId of step.dependsOn ?? []) {
     const dep = byId.get(depId)!;
-    if (dep.status === "completed") continue;
+    if (dep.status === "completed" || dep.status === "skipped") continue;
     if (dep.status === "failed") return `依赖步骤 ${depId} 已失败`;
     if (dep.status === "blocked") return `依赖步骤 ${depId} 已阻塞`;
     if (dep.status === "cancelled") return `依赖步骤 ${depId} 已取消`;
@@ -56,7 +56,10 @@ export function dependencyBlockReason(
 
 /** 依赖已全部 completed。 */
 export function dependenciesSatisfied(step: PlanStep, byId: Map<string, PlanStep>): boolean {
-  return (step.dependsOn ?? []).every((depId) => byId.get(depId)!.status === "completed");
+  return (step.dependsOn ?? []).every((depId) => {
+    const status = byId.get(depId)!.status;
+    return status === "completed" || status === "skipped";
+  });
 }
 
 /** 将因上游失败/阻塞/取消而无法执行的 pending 步骤标记终止态。 */
@@ -89,4 +92,59 @@ export function readyPendingSteps(steps: PlanStep[], byId: Map<string, PlanStep>
   return steps.filter(
     (step) => step.status === "pending" && dependenciesSatisfied(step, byId),
   );
+}
+
+/**
+ * 按依赖拓扑 + priority（小者优先）重排子任务，用于计划展示与持久化 position。
+ * 不改变步骤内容，仅调整数组顺序。
+ */
+export function sortSubtasksByPriority(steps: PlanStep[]): PlanStep[] {
+  if (steps.length <= 1) return [...steps];
+  validateTaskGraph(steps);
+  const byId = indexPlanSteps(steps);
+  const inDegree = new Map<string, number>();
+  const dependents = new Map<string, string[]>();
+
+  for (const step of steps) {
+    inDegree.set(step.id, 0);
+    dependents.set(step.id, []);
+  }
+  for (const step of steps) {
+    for (const dep of step.dependsOn ?? []) {
+      inDegree.set(step.id, (inDegree.get(step.id) ?? 0) + 1);
+      dependents.get(dep)!.push(step.id);
+    }
+  }
+
+  const ready = steps
+    .filter((s) => (inDegree.get(s.id) ?? 0) === 0)
+    .sort((a, b) => a.priority - b.priority || a.id.localeCompare(b.id));
+
+  const ordered: PlanStep[] = [];
+  while (ready.length > 0) {
+    const current = ready.shift()!;
+    ordered.push(current);
+    for (const nextId of dependents.get(current.id) ?? []) {
+      const deg = (inDegree.get(nextId) ?? 1) - 1;
+      inDegree.set(nextId, deg);
+      if (deg === 0) {
+        const next = byId.get(nextId)!;
+        ready.push(next);
+        ready.sort((a, b) => a.priority - b.priority || a.id.localeCompare(b.id));
+      }
+    }
+  }
+
+  if (ordered.length !== steps.length) {
+    throw new Error("任务依赖图存在环，无法排序子任务");
+  }
+  return ordered;
+}
+
+/** API 提交的计划：校验依赖图并按 priority 重排子任务。 */
+export function finalizePlan(plan: Plan): Plan {
+  return PlanSchema.parse({
+    ...plan,
+    steps: sortSubtasksByPriority(plan.steps),
+  });
 }

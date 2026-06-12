@@ -9,6 +9,7 @@ export const StepStatusSchema = z.enum([
   "completed",
   "failed",
   "cancelled",
+  "skipped",
 ]);
 export type StepStatus = z.infer<typeof StepStatusSchema>;
 
@@ -19,11 +20,22 @@ export const ToolPermissionSchema = z.enum(
 export const PlanStepSchema = z.object({
   id: z.string(),
   title: z.string(),
+  /** 子任务目标（可与 title 不同，描述要达成的结果）。 */
+  objective: z.string().optional(),
   description: z.string().default(""),
   requiredPermissions: z.array(ToolPermissionSchema).default(["read"]),
   needsConfirmation: z.boolean().default(false),
+  /** 验证方式 / 完成判定标准。 */
   acceptance: z.string().optional(),
   dependsOn: z.array(z.string()).default([]),
+  /** 执行本子任务所需的上下文片段说明。 */
+  requiredContext: z.array(z.string()).default([]),
+  /** 本子任务允许使用的工具名列表。 */
+  availableTools: z.array(z.string()).default([]),
+  /** 预期产物（文件、报告、命令输出等）。 */
+  expectedArtifacts: z.array(z.string()).default([]),
+  /** 优先级：数值越小越优先（同层可并行步骤的推荐顺序）。 */
+  priority: z.number().int().default(100),
   /** 可选：该步骤绑定的工具名（提供时任务模式会真实执行该工具）。 */
   tool: z.string().optional(),
   /** 可选：传给绑定工具的入参。 */
@@ -42,6 +54,12 @@ export const PlanSchema = z.object({
       outOfScope: z.array(z.string()).default([]),
     })
     .default({ inScope: [], outOfScope: [] }),
+  /** 任务输入（前置条件、素材、环境等）。 */
+  inputs: z.array(z.string()).default([]),
+  /** 任务输出（交付物、状态变更等）。 */
+  outputs: z.array(z.string()).default([]),
+  /** 整体验收标准。 */
+  acceptanceCriteria: z.array(z.string()).default([]),
   risks: z.array(z.string()).default([]),
   dependencies: z.array(z.string()).default([]),
   steps: z.array(PlanStepSchema).default([]),
@@ -61,16 +79,24 @@ export const RawPlanSchema = z.object({
     .optional(),
   risks: z.array(z.string()).optional(),
   dependencies: z.array(z.string()).optional(),
+  inputs: z.array(z.string()).optional(),
+  outputs: z.array(z.string()).optional(),
+  acceptanceCriteria: z.array(z.string()).optional(),
   steps: z
     .array(
       z.object({
         id: z.string().optional(),
         title: z.string(),
+        objective: z.string().optional(),
         description: z.string().optional(),
         requiredPermissions: z.array(ToolPermissionSchema).optional(),
         needsConfirmation: z.boolean().optional(),
         acceptance: z.string().optional(),
         dependsOn: z.array(z.string()).optional(),
+        requiredContext: z.array(z.string()).optional(),
+        availableTools: z.array(z.string()).optional(),
+        expectedArtifacts: z.array(z.string()).optional(),
+        priority: z.number().int().optional(),
         tool: z.string().optional(),
         toolInput: z.record(z.unknown()).optional(),
       }),

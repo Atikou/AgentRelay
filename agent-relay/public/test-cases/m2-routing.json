@@ -55,6 +55,36 @@
       }
     },
     {
+      "id": "m2-local-first-privacy-capability",
+      "title": "配置暴露本地优先隐私模式",
+      "purpose": "确认服务端声明 sensitive=true 与 privacy-first 会限制模型候选为本地，并且 fallback 不会升级到远程模型。",
+      "method": "GET",
+      "path": "/api/config",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyHasKeys": ["capabilities"],
+        "bodyPaths": {
+          "capabilities.localFirstPrivacyMode": true
+        }
+      }
+    },
+    {
+      "id": "m2-local-only-profile-documented",
+      "title": "模型路由文档说明隐私模式",
+      "purpose": "确认模型路由文档说明 sensitive=true 和 local-only profile 的本地优先隐私边界。",
+      "method": "GET",
+      "path": "/api/docs/content?slug=模型路由与协作",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyPaths": {
+          "slug": "模型路由与协作",
+          "markdown": "string"
+        }
+      }
+    },
+    {
       "id": "m2-chat-task-type-simple",
       "title": "对话 taskType=simple 接受并返回 location",
       "purpose": "验证 POST /api/chat 可选 taskType；simple 提示路由优先本地（响应含 clientName 与 location 供对照）。",
@@ -100,6 +130,62 @@
       "expect": {
         "status": 200,
         "bodyHasKeys": ["routerDecision", "executionStrategy"]
+      }
+    },
+    {
+      "id": "m2-chat-v2-fallback-fields-optional",
+      "title": "V2 chat 响应可含 fallback 调试字段",
+      "purpose": "ModelOrchestrator V2 在触发模型升级时回传 fallbackCount/fallbackLogIds；无 fallback 时字段可省略，正常对话仍 200。",
+      "method": "POST",
+      "path": "/api/chat",
+      "input": {
+        "message": "你好",
+        "qualityMode": "fast",
+        "persist": false
+      },
+      "expect": {
+        "status": 200,
+        "bodyHasKeys": ["content", "executionStrategy"]
+      }
+    },
+    {
+      "id": "m2-chat-v2-balanced-orchestrator",
+      "title": "balanced 模式经 ModelOrchestrator 路由",
+      "purpose": "验证 V2 FallbackManager 接入后 balanced 对话仍返回 routerDecision 与 executionStrategy，不因 fallback 模块导致 5xx。",
+      "method": "POST",
+      "path": "/api/chat",
+      "input": {
+        "message": "简要说明 TypeScript 泛型约束",
+        "qualityMode": "balanced",
+        "persist": false
+      },
+      "expect": {
+        "status": 200,
+        "bodyHasKeys": ["routerDecision", "executionStrategy", "content"]
+      }
+    },
+    {
+      "id": "m2-routing-logs-list",
+      "title": "GET /api/routing/logs 返回 routes",
+      "purpose": "验证 §14 可观测性：路由决策可经 HTTP 只读查询（含 V2 fallback 关联）。",
+      "method": "GET",
+      "path": "/api/routing/logs?limit=5",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyHasKeys": ["routes"]
+      }
+    },
+    {
+      "id": "m2-routing-logs-detail-not-found",
+      "title": "未知 routeLogId 返回 404",
+      "purpose": "边界：按 routeLogId 查询详情时，不存在记录应 404。",
+      "method": "GET",
+      "path": "/api/routing/logs?routeLogId=nonexistent-route-id",
+      "input": null,
+      "expect": {
+        "status": 404,
+        "bodyHasKeys": ["error"]
       }
     },
     {
