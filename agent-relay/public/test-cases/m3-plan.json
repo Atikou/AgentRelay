@@ -27,6 +27,60 @@
         "status": 404,
         "bodyHasKeys": ["error"]
       }
+    },
+    {
+      "id": "m3-plan-reject-report-prompt",
+      "title": "报告型计划提示返回契约错误",
+      "purpose": "确认 /api/plan 遇到 Markdown 报告型计划提示时提前返回 PLAN_REPORT_REQUEST，不再进入模型调用后报 JSON 解析失败。",
+      "method": "POST",
+      "path": "/api/plan",
+      "input": {
+        "goal": "# 计划模式分析结果\n\n## 1. 目标理解\n\n本次仅生成计划，未修改任何文件。"
+      },
+      "expect": {
+        "status": 400,
+        "bodyHasKeys": ["error", "code", "suggestedEndpoint"],
+        "bodyPaths": {
+          "code": "PLAN_REPORT_REQUEST",
+          "suggestedEndpoint": "/api/agent"
+        }
+      }
+    },
+    {
+      "id": "m3-plan-analyze-empty-goal",
+      "title": "计划报告分析空 goal 返回 400",
+      "purpose": "确认 UserVisiblePlan 分析入口在 goal 为空时直接拒绝，不进入模型计划报告链路。",
+      "method": "POST",
+      "path": "/api/plans/analyze",
+      "input": { "goal": "" },
+      "expect": {
+        "status": 400,
+        "bodyHasKeys": ["error"]
+      }
+    },
+    {
+      "id": "m3-plan-compile-empty-confirmed-todos",
+      "title": "编译计划缺 confirmedTodoIds 返回 400",
+      "purpose": "确认 UserVisiblePlan 不能在未确认 Todo 范围时被编译为内部执行计划草案。",
+      "method": "POST",
+      "path": "/api/plans/uvp_missing/compile",
+      "input": { "confirmedTodoIds": [] },
+      "expect": {
+        "status": 400,
+        "bodyHasKeys": ["error"]
+      }
+    },
+    {
+      "id": "m3-plan-compile-missing-visible-plan",
+      "title": "不存在的 UserVisiblePlan 编译返回 404",
+      "purpose": "确认 PlanCompiler 只能从已保存的 UserVisiblePlan 编译，不能凭空把用户输入当执行源。",
+      "method": "POST",
+      "path": "/api/plans/uvp_missing/compile",
+      "input": { "confirmedTodoIds": ["todo-1"] },
+      "expect": {
+        "status": 404,
+        "bodyHasKeys": ["error", "code"]
+      }
     }
   ]
 }

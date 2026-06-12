@@ -1,0 +1,77 @@
+{
+  "milestone": "M3",
+  "feature": "计划存储与执行边界",
+  "featureId": "m3-plan-store",
+  "summary": "验证 InternalTaskPlan / PublicPlanJson 分离：执行器拒绝 inline plan 与未存预览。",
+  "cases": [
+    {
+      "id": "m3-plan-run-reject-inline-plan",
+      "title": "task/run 拒绝 body.plan",
+      "purpose": "确认真实任务执行不再接受前端 inline plan JSON，防止展示计划被误执行。",
+      "method": "POST",
+      "path": "/api/task/run",
+      "input": {
+        "plan": {
+          "goal": "测试",
+          "steps": [{ "id": "s1", "title": "步", "status": "pending" }]
+        }
+      },
+      "expect": {
+        "status": 400,
+        "bodyHasKeys": ["error", "code"],
+        "bodyPaths": { "code": "PLAN_BODY_NOT_EXECUTABLE" }
+      }
+    },
+    {
+      "id": "m3-plan-execute-reject-public-json",
+      "title": "execute 拒绝 publicPlanJson 字段",
+      "purpose": "确认 POST /api/plans/:id/execute 仅接受 version，不可夹带 PublicPlanJson。",
+      "method": "POST",
+      "path": "/api/plans/fake-plan-id/execute",
+      "input": {
+        "version": 1,
+        "publicPlanJson": { "kind": "public_plan_preview", "executable": false }
+      },
+      "expect": {
+        "status": 400,
+        "bodyHasKeys": ["error", "code"]
+      }
+    },
+    {
+      "id": "m3-plan-import-preview-empty",
+      "title": "import-preview 缺 preview 返回 400",
+      "purpose": "确认导入修订 API 必须提供 preview 对象，避免空请求写入 PlanStore。",
+      "method": "POST",
+      "path": "/api/plans/import-preview",
+      "input": { "goal": "修订目标" },
+      "expect": {
+        "status": 400,
+        "bodyHasKeys": ["error"]
+      }
+    },
+    {
+      "id": "m3-plan-preview-not-found",
+      "title": "不存在的 planId 预览返回 404",
+      "purpose": "确认 GET preview 对未知 planId 返回明确 404，而非空 200。",
+      "method": "GET",
+      "path": "/api/plans/nonexistent-plan-id/preview?format=markdown",
+      "input": null,
+      "expect": {
+        "status": 404,
+        "bodyHasKeys": ["error"]
+      }
+    },
+    {
+      "id": "m3-plan-reject-not-found",
+      "title": "reject 未知 planId 返回 400",
+      "purpose": "确认 POST /api/plans/:id/reject 对不存在计划返回错误，而非 200。",
+      "method": "POST",
+      "path": "/api/plans/nonexistent-plan-id/reject",
+      "input": { "version": 1, "comment": "拒绝" },
+      "expect": {
+        "status": 400,
+        "bodyHasKeys": ["error"]
+      }
+    }
+  ]
+}
