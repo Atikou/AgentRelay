@@ -11,6 +11,7 @@ import { BackgroundTaskManager } from "../src/background/BackgroundTaskManager.j
 import { parseBackgroundTimeoutMs } from "../src/background/constants.js";
 import { NotificationQueue } from "../src/background/NotificationQueue.js";
 import { renderNotifications } from "../src/agent/AgentLoop.js";
+import { createShellPolicy } from "../src/policy/ShellPolicy.js";
 
 const tests: Array<{ name: string; fn: () => Promise<void> }> = [];
 function test(name: string, fn: () => Promise<void>) {
@@ -146,6 +147,19 @@ test("BackgroundTaskManager 拦截危险命令", async () => {
   assert.throws(() => mgr.start("rm -rf /"), /危险命令被拦截/);
 });
 
+test("BackgroundTaskManager 遵守 shell denyCommands 策略", async () => {
+  const queue = new NotificationQueue(path.join(tmpDir, "bg-deny.jsonl"));
+  const mgr = new BackgroundTaskManager(
+    tmpDir,
+    queue,
+    undefined,
+    undefined,
+    undefined,
+    createShellPolicy({ denyCommands: ["node\\s+-e"] }),
+  );
+  assert.throws(() => mgr.start('node -e "console.log(42)"'), /后台命令被策略拒绝/);
+});
+
 test("parseBackgroundTimeoutMs 校验范围", async () => {
   assert.equal(parseBackgroundTimeoutMs(undefined), undefined);
   assert.equal(parseBackgroundTimeoutMs(5000), 5000);
@@ -165,6 +179,32 @@ test("BackgroundTaskManager timeoutMs 超时终止任务", async () => {
   const done = mgr.get(task.id)!;
   assert.equal(done.status, "timed_out");
   assert.match(done.error ?? "", /超时/);
+});
+
+test("输出规则命中后 triggerOnMatch 触发下一步", async () => {
+  const journal = path.join(tmpDir, "bg-match.jsonl");
+  const queue = new NotificationQueue(journal);
+  let triggeredGoal: string | undefined;
+  const mgr = new BackgroundTaskManager(
+    tmpDir,
+    queue,
+    undefined,
+    undefined,
+    (input) => {
+      triggeredGoal = input.goal;
+      mgr.markTriggeredRun(input.record.id, "run-mock-1");
+    },
+  );
+  const cmd = 'node -e "console.log(\'Tests: 2 passed\')"';
+  const task = mgr.start(cmd, {
+    outputRules: [{ name: "test_passed", pattern: "passed", stream: "stdout", ignoreCase: true }],
+    triggerOnMatch: { goal: "汇总测试结果并汇报", mode: "any" },
+  });
+  await waitForTask(mgr, task.id);
+  assert.equal(triggeredGoal, "汇总测试结果并汇报");
+  const done = mgr.get(task.id)!;
+  assert.ok(done.outputMatches?.some((m) => m.name === "test_passed" && m.matched));
+  assert.equal(done.triggeredRunId, "run-mock-1");
 });
 
 test("BackgroundTaskManager 可取消长时间任务", async () => {

@@ -126,6 +126,70 @@ test("持久化重启后恢复触发器定义", async () => {
   s2.stop();
 });
 
+test("background_completed 可按输出 pattern 过滤", async () => {
+  const journal = path.join(tmpDir, "sched-output.jsonl");
+  const nqFile = path.join(tmpDir, "nq-output.jsonl");
+  const nq = new NotificationQueue(nqFile);
+  const sched = new Scheduler(journal, nq);
+  sched.start();
+  sched.register({
+    name: "测试通过后续",
+    kind: "event",
+    goal: "测试输出命中后的后续步骤",
+    eventType: "background_completed",
+    eventFilter: { status: "completed", outputPattern: "ALL_PASS", outputStream: "stdout" },
+  });
+  const bg = new BackgroundTaskManager(
+    tmpDir,
+    nq,
+    undefined,
+    (record) => sched.handleBackgroundCompleted(record),
+  );
+  const task = bg.start('node -e "console.log(\'ALL_PASS\')"');
+  const start = Date.now();
+  while (Date.now() - start < 8000) {
+    const t = bg.get(task.id);
+    if (t && t.status !== "running") break;
+    await sleep(50);
+  }
+  await sleep(100);
+  const pending = nq.listPending();
+  assert.ok(pending.some((n) => n.message.includes("测试输出命中后的后续步骤")));
+  sched.stop();
+});
+
+test("background_completed 输出 pattern 不匹配时不触发", async () => {
+  const journal = path.join(tmpDir, "sched-output-miss.jsonl");
+  const nqFile = path.join(tmpDir, "nq-output-miss.jsonl");
+  const nq = new NotificationQueue(nqFile);
+  const sched = new Scheduler(journal, nq);
+  sched.start();
+  sched.register({
+    name: "不应触发",
+    kind: "event",
+    goal: "不应出现的后续",
+    eventType: "background_completed",
+    eventFilter: { status: "completed", outputPattern: "NOT_IN_OUTPUT" },
+  });
+  const bg = new BackgroundTaskManager(
+    tmpDir,
+    nq,
+    undefined,
+    (record) => sched.handleBackgroundCompleted(record),
+  );
+  const task = bg.start('node -e "console.log(\'hello\')"');
+  const start = Date.now();
+  while (Date.now() - start < 8000) {
+    const t = bg.get(task.id);
+    if (t && t.status !== "running") break;
+    await sleep(50);
+  }
+  await sleep(100);
+  const pending = nq.listPending();
+  assert.ok(!pending.some((n) => n.message.includes("不应出现的后续")));
+  sched.stop();
+});
+
 test("后台任务完成可触发 event 触发器", async () => {
   const journal = path.join(tmpDir, "sched-event.jsonl");
   const nqFile = path.join(tmpDir, "nq-event.jsonl");

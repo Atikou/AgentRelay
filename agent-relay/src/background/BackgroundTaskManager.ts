@@ -2,10 +2,23 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
 
 import { resolveInsideWorkspace } from "../tools/pathSafe.js";
-import { assertBackgroundCommandAllowed } from "../policy/ShellPolicy.js";
+import { assertBackgroundCommandAllowed, type ShellPolicy } from "../policy/ShellPolicy.js";
 import type { TraceLogger } from "../trace/TraceLogger.js";
 import type { NotificationQueue } from "./NotificationQueue.js";
+import {
+  evaluateOutputRules,
+  matchRuleOnStream,
+  shouldTriggerOnMatch,
+  type OutputMatchResult,
+} from "./outputMatcher.js";
 import type { BackgroundStartOptions, BackgroundTaskRecord } from "./types.js";
+
+export interface BackgroundTriggerNextInput {
+  record: BackgroundTaskRecord;
+  matches: OutputMatchResult[];
+  goal: string;
+  phase: "stream" | "complete";
+}
 
 const MAX_OUTPUT_BYTES = 512 * 1024;
 
@@ -16,19 +29,27 @@ export class BackgroundTaskManager {
   private readonly cancelling = new Set<string>();
   private readonly timingOut = new Set<string>();
   private readonly timeouts = new Map<string, ReturnType<typeof setTimeout>>();
+  private readonly streamFiredRules = new Map<string, Set<string>>();
+  private readonly streamTriggeredGoals = new Set<string>();
 
   constructor(
     private readonly workspaceRoot: string,
     private readonly notifications: NotificationQueue,
     private readonly trace?: TraceLogger,
     private readonly onTaskDone?: (record: BackgroundTaskRecord) => void,
+    private readonly onTriggerNext?: (input: BackgroundTriggerNextInput) => void,
+    private readonly shellPolicy?: ShellPolicy,
   ) {}
 
   start(command: string, options?: BackgroundStartOptions): BackgroundTaskRecord {
     const trimmed = command.trim();
     if (!trimmed) throw new Error("command 不能为空");
 
-    assertBackgroundCommandAllowed(trimmed);
+    if (this.shellPolicy) {
+      this.shellPolicy.assertAllowed(trimmed, "后台命令被策略拒绝");
+    } else {
+      assertBackgroundCommandAllowed(trimmed);
+    }
 
     const cwd = options?.cwd;
     const timeoutMs = options?.timeoutMs;
@@ -43,7 +64,11 @@ export class BackgroundTaskManager {
       stdout: "",
       stderr: "",
       startedAt: new Date().toISOString(),
+      outputRules: options?.outputRules,
+      triggerOnMatch: options?.triggerOnMatch,
+      outputMatches: [],
     };
+    this.streamFiredRules.set(id, new Set());
     this.tasks.set(id, record);
     this.trace?.write({ type: "background_start", taskId: id, command: trimmed });
 
@@ -58,9 +83,11 @@ export class BackgroundTaskManager {
 
     child.stdout?.on("data", (chunk: Buffer) => {
       appendOutput(record, "stdout", chunk);
+      this.checkStreamRules(record);
     });
     child.stderr?.on("data", (chunk: Buffer) => {
       appendOutput(record, "stderr", chunk);
+      this.checkStreamRules(record);
     });
 
     if (timeoutMs != null) {
@@ -117,6 +144,11 @@ export class BackgroundTaskManager {
     return [...this.tasks.values()].map((t) => this.snapshot(t));
   }
 
+  markTriggeredRun(id: string, runId: string): void {
+    const task = this.tasks.get(id);
+    if (task) task.triggeredRunId = runId;
+  }
+
   cancel(id: string): BackgroundTaskRecord | undefined {
     const task = this.tasks.get(id);
     const proc = this.processes.get(id);
@@ -149,12 +181,31 @@ export class BackgroundTaskManager {
   }
 
   private enqueueDone(record: BackgroundTaskRecord): void {
+    const rules = record.outputRules ?? [];
+    if (rules.length > 0) {
+      const evaluated = evaluateOutputRules(record, rules);
+      const prior = record.outputMatches ?? [];
+      const merged = mergeMatchResults(prior, evaluated);
+      record.outputMatches = merged;
+    }
+
+    const trigger = record.triggerOnMatch;
+    if (
+      trigger &&
+      rules.length > 0 &&
+      record.outputMatches &&
+      shouldTriggerOnMatch(record, rules, record.outputMatches, trigger)
+    ) {
+      this.fireTriggerNext(record, record.outputMatches, trigger.goal, "complete");
+    }
+
     const level =
       record.status === "completed"
         ? "info"
         : record.status === "cancelled" || record.status === "timed_out"
           ? "warn"
           : "error";
+    const matchedNames = (record.outputMatches ?? []).filter((m) => m.matched).map((m) => m.name);
     this.notifications.enqueue({
       source: "background_task",
       level,
@@ -166,9 +217,63 @@ export class BackgroundTaskManager {
         exitCode: record.exitCode,
         stdoutTail: tail(record.stdout),
         stderrTail: tail(record.stderr),
+        outputMatches: record.outputMatches,
+        matchedRules: matchedNames,
+        triggeredRunId: record.triggeredRunId,
       },
     });
+    this.streamFiredRules.delete(record.id);
     this.onTaskDone?.(record);
+  }
+
+  private checkStreamRules(record: BackgroundTaskRecord): void {
+    const rules = record.outputRules ?? [];
+    if (rules.length === 0) return;
+    const fired = this.streamFiredRules.get(record.id) ?? new Set<string>();
+    for (const rule of rules) {
+      if (!rule.fireOnStream || fired.has(rule.name)) continue;
+      const hit = matchRuleOnStream(record, rule);
+      if (!hit) continue;
+      fired.add(rule.name);
+      record.outputMatches = mergeMatchResults(record.outputMatches ?? [], [hit]);
+      this.notifications.enqueue({
+        source: "background_task",
+        level: "info",
+        message: `后台任务「${record.command}」输出命中规则：${rule.name}`,
+        taskId: record.id,
+        dedupeKey: `bg-stream:${record.id}:${rule.name}`,
+        payload: {
+          command: record.command,
+          outputMatch: hit,
+          phase: "stream",
+        },
+      });
+      const trigger = record.triggerOnMatch;
+      if (trigger?.goal && trigger.requireSuccess === false) {
+        this.fireTriggerNext(record, [hit], trigger.goal, "stream");
+      }
+    }
+    this.streamFiredRules.set(record.id, fired);
+  }
+
+  private fireTriggerNext(
+    record: BackgroundTaskRecord,
+    matches: OutputMatchResult[],
+    goal: string,
+    phase: BackgroundTriggerNextInput["phase"],
+  ): void {
+    if (record.triggeredRunId) return;
+    const key = `${record.id}:${goal}`;
+    if (phase === "stream" && this.streamTriggeredGoals.has(key)) return;
+    if (phase === "stream") this.streamTriggeredGoals.add(key);
+    this.onTriggerNext?.({ record, matches, goal, phase });
+    this.trace?.write({
+      type: "background_trigger_next",
+      taskId: record.id,
+      goal,
+      phase,
+      matches: matches.filter((m) => m.matched).map((m) => m.name),
+    });
   }
 
   private snapshot(task: BackgroundTaskRecord): BackgroundTaskRecord {
@@ -183,6 +288,18 @@ function appendOutput(task: BackgroundTaskRecord, stream: "stdout" | "stderr", c
   const trimmed = next.length > MAX_OUTPUT_BYTES ? next.slice(-MAX_OUTPUT_BYTES) : next;
   if (stream === "stdout") task.stdout = trimmed;
   else task.stderr = trimmed;
+}
+
+function mergeMatchResults(
+  prior: OutputMatchResult[],
+  next: OutputMatchResult[],
+): OutputMatchResult[] {
+  const byName = new Map(prior.map((p) => [p.name, p]));
+  for (const item of next) {
+    const existing = byName.get(item.name);
+    byName.set(item.name, existing ? { ...existing, ...item, matched: existing.matched || item.matched } : item);
+  }
+  return [...byName.values()];
 }
 
 function tail(text: string, max = 500): string {

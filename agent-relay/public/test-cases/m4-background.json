@@ -57,6 +57,36 @@
       }
     },
     {
+      "id": "m4-bg-output-rules-invalid",
+      "title": "非法 outputRules 返回 400",
+      "purpose": "验证 POST /api/background/start 对 outputRules 做 zod 校验。",
+      "method": "POST",
+      "path": "/api/background/start",
+      "input": {
+        "command": "node -v",
+        "outputRules": [{ "pattern": "missing-name" }]
+      },
+      "expect": {
+        "status": 400,
+        "bodyHasKeys": ["error"]
+      }
+    },
+    {
+      "id": "m4-bg-trigger-without-rules",
+      "title": "triggerOnMatch 无 outputRules 返回 400",
+      "purpose": "边界：自动触发下一步必须配置至少一条输出匹配规则。",
+      "method": "POST",
+      "path": "/api/background/start",
+      "input": {
+        "command": "node -v",
+        "triggerOnMatch": { "goal": "不应单独出现" }
+      },
+      "expect": {
+        "status": 400,
+        "bodyHasKeys": ["error"]
+      }
+    },
+    {
       "id": "m4-bg-start-with-timeout",
       "title": "带 timeoutMs 启动返回任务字段",
       "purpose": "确认可选 timeoutMs 会写入任务记录，便于测试台展示与轮询超时状态。",

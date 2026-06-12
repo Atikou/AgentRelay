@@ -4,6 +4,7 @@ import { randomUUID } from "node:crypto";
 
 import { Cron } from "croner";
 
+import { evaluateOutputRules } from "../background/outputMatcher.js";
 import type { BackgroundTaskRecord } from "../background/types.js";
 import type { NotificationQueue } from "../background/NotificationQueue.js";
 import type { TraceLogger } from "../trace/TraceLogger.js";
@@ -205,6 +206,19 @@ export class Scheduler {
       if (trigger.eventType !== "background_completed") continue;
       const wantStatus = trigger.eventFilter?.status;
       if (wantStatus && wantStatus !== record.status) continue;
+      const pattern = trigger.eventFilter?.outputPattern;
+      if (pattern) {
+        const results = evaluateOutputRules(record, [
+          {
+            name: "scheduler_filter",
+            pattern,
+            regex: trigger.eventFilter?.outputRegex,
+            ignoreCase: trigger.eventFilter?.outputIgnoreCase,
+            stream: trigger.eventFilter?.outputStream ?? "both",
+          },
+        ]);
+        if (!results[0]?.matched) continue;
+      }
       this.fire(trigger);
     }
   }

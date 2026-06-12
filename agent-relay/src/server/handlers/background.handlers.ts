@@ -1,5 +1,9 @@
 import type { AppContext } from "../../app/createAppContext.js";
 import { parseBackgroundTimeoutMs } from "../../background/constants.js";
+import {
+  BackgroundTriggerOnMatchSchema,
+  OutputMatchRuleSchema,
+} from "../../background/outputMatcher.js";
 import type { ApiResult } from "../../orchestrator/Orchestrator.js";
 import { checkCommandRisk } from "../../tools/risk.js";
 
@@ -13,6 +17,8 @@ export function handleBackgroundStart(app: AppContext, body: unknown): ApiResult
     cwd?: string;
     confirm?: boolean;
     timeoutMs?: number;
+    outputRules?: unknown;
+    triggerOnMatch?: unknown;
   };
   const command = (payload.command ?? "").trim();
   if (!command) return { status: 400, body: { error: "command 不能为空" } };
@@ -33,8 +39,33 @@ export function handleBackgroundStart(app: AppContext, body: unknown): ApiResult
     return { status: 400, body: { error: String(error) } };
   }
 
+  let outputRules;
+  if (payload.outputRules !== undefined) {
+    const parsed = OutputMatchRuleSchema.array().safeParse(payload.outputRules);
+    if (!parsed.success) {
+      return { status: 400, body: { error: "outputRules 格式无效", details: parsed.error.flatten() } };
+    }
+    outputRules = parsed.data;
+  }
+  let triggerOnMatch;
+  if (payload.triggerOnMatch !== undefined) {
+    const parsed = BackgroundTriggerOnMatchSchema.safeParse(payload.triggerOnMatch);
+    if (!parsed.success) {
+      return { status: 400, body: { error: "triggerOnMatch 格式无效", details: parsed.error.flatten() } };
+    }
+    triggerOnMatch = parsed.data;
+  }
+  if (triggerOnMatch && (!outputRules || outputRules.length === 0)) {
+    return { status: 400, body: { error: "triggerOnMatch 需要至少一条 outputRules" } };
+  }
+
   try {
-    const task = app.backgroundTasks.start(command, { cwd: payload.cwd, timeoutMs });
+    const task = app.backgroundTasks.start(command, {
+      cwd: payload.cwd,
+      timeoutMs,
+      outputRules,
+      triggerOnMatch,
+    });
     return { status: 200, body: { task } };
   } catch (error) {
     return { status: 400, body: { error: String(error) } };

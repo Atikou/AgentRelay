@@ -31,6 +31,11 @@ export const EventFilterSchema = z.object({
   dirtyOnly: z.boolean().optional(),
   /** git_changed：分支名过滤（可选）。 */
   branch: z.string().optional(),
+  /** background_completed：stdout/stderr 输出须匹配（子串或正则）。 */
+  outputPattern: z.string().optional(),
+  outputRegex: z.boolean().optional(),
+  outputStream: z.enum(["stdout", "stderr", "both"]).optional(),
+  outputIgnoreCase: z.boolean().optional(),
 });
 
 export const TriggerRecordSchema = z.object({
