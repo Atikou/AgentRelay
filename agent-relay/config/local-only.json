@@ -12,6 +12,14 @@
         "think": false
       },
       {
+        "name": "local-phi4",
+        "provider": "ollama",
+        "location": "local",
+        "baseUrl": "http://localhost:11434",
+        "model": "phi4",
+        "think": false
+      },
+      {
         "name": "local-lmstudio",
         "provider": "openai-compatible",
         "location": "local",

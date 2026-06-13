@@ -30,6 +30,18 @@
       }
     },
     {
+      "id": "m0-config-local-phi4-client",
+      "title": "配置登记 local-phi4 客户端",
+      "purpose": "确认 GET /api/config.clients 含 Ollama phi4 本地强模型条目，与 config/default.json 一致。",
+      "method": "GET",
+      "path": "/api/config",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyIncludes": ["local-phi4", "phi4"]
+      }
+    },
+    {
       "id": "m0-api-spec",
       "title": "API 规范可访问",
       "purpose": "确认 public/api-spec.json 经静态服务暴露，供 /api-docs 交互参考页加载。",

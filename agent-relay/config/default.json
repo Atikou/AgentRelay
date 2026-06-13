@@ -19,6 +19,22 @@
         }
       },
       {
+        "name": "local-phi4",
+        "provider": "ollama",
+        "location": "local",
+        "baseUrl": "http://localhost:11434",
+        "model": "phi4",
+        "think": false,
+        "routerProfile": {
+          "defaultLevel": 3,
+          "relativeCost": "free",
+          "canDraft": true,
+          "canReview": true,
+          "canFinal": true,
+          "allowedRoles": ["primary", "draft", "review", "final"]
+        }
+      },
+      {
         "name": "local-lmstudio",
         "provider": "openai-compatible",
         "location": "local",
