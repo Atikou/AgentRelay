@@ -254,6 +254,8 @@ export class AppContext {
         runtimeStatsV6: true,
         evalSetRunnerV7: true,
         modelCapabilitiesV5: true,
+        contextAnalyzerV8: true,
+        promptStrategyBuilderV8: true,
         runPolicyManager: true,
         budgetManager: true,
         finalizer: true,

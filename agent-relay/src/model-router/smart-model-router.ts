@@ -1,4 +1,5 @@
 import { DecisionEngine } from "./decision-engine.js";
+import { defaultContextAnalyzer, type RoutingContext } from "./context-analyzer.js";
 import type { ModelRegistry } from "./model-registry.js";
 import { RuleRouter } from "./route-rules.js";
 import type { RouteLogStore } from "./route-stores.js";
@@ -17,9 +18,14 @@ export class SmartModelRouter {
   }
 
   route(input: RouterInput): RouterDecision {
+    return this.routeDetailed(input).decision;
+  }
+
+  routeDetailed(input: RouterInput): { decision: RouterDecision; routingContext: RoutingContext } {
+    const routingContext = defaultContextAnalyzer.analyze(input);
     const rule = this.ruleRouter.evaluate(input);
-    const decision = this.decisionEngine.decide(rule, input);
+    const decision = this.decisionEngine.decide(rule, input, routingContext);
     this.routeLogStore?.save(decision, input.userInput);
-    return decision;
+    return { decision, routingContext };
   }
 }

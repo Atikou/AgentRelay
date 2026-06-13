@@ -2,7 +2,7 @@
 
 > 依据 `Agent_Model_Router_Auto_Upgrade_Roadmap.md` 对当前仓库扫描生成。  
 > **关联索引**：[外部规范-TodoList索引](外部规范-TodoList索引.md)  
-> **当前阶段：V5 ModelCapabilities 已落地 → 下一步 V8 前需评审，勿提前做完整自动路由。**  
+> **当前阶段：V8 P1 PromptStrategyBuilder 已落地 → 继续 RuntimeStats 反馈闭环，勿一次性做完 V8。**  
 > 推进模型路由相关改动前，请先读 [模型路由与协作](模型路由与协作.md) 了解已实现能力；**不要一次性实现完整自动路由（V8）**。
 
 ---
@@ -36,7 +36,9 @@
 | `strong_model_direct` | ✅ | V2 fallback 升级策略 |
 | AnswerEvaluator | ✅ | V4 规则版已接入 `ModelOrchestrator` fallback |
 | RouterModelEvaluator | ✅ | V3 启发式已接入 `DecisionEngine`（高风险不覆盖） |
-| ContextAnalyzer | ❌ | 无独立模块 |
+| ContextAnalyzer | ✅ | `context-analyzer.ts`；V8 P0 多信号接入 DecisionEngine |
+| PromptStrategyBuilder | [~] | `prompt-strategy-builder.ts`；V8 P1 接入 Orchestrator `/api/chat` |
+| router-context-estimate | ✅ | `router-context-estimate.ts`；统一 token 估计（chat/agent/planner） |
 | RuntimeStats / EvalSetRunner | ✅ | V6/V7 已落地 |
 | 拖拽编排 (V9) | ❌ | 终局可选 |
 
@@ -88,7 +90,7 @@
 | V5 | ModelProfile 能力矩阵 | ✅ |
 | V6 | RuntimeStats | ✅ 只读建议 API |
 | V7 | EvalSetRunner | ✅ 离线评测 API |
-| V8 | 完整自动路由 | 未开始 |
+| V8 | 完整自动路由 | [~] P0 ContextAnalyzer + P1 PromptStrategyBuilder 已接入 |
 | V9 | 拖拽式可视化编排 | 终局可选 |
 
 ---
@@ -133,6 +135,17 @@
 - [x] `answer-evaluator.ts` — `AnswerEvaluation` + 规则版 stub
 - [x] `DecisionEngine` / `ModelOrchestrator` 注释扩展点
 
+### P0：V8 分步（勿一次性做完）
+
+- [x] `ContextAnalyzer` + `applyRoutingContext`（复杂度/压力/等级 bump/协作建议）
+- [x] `DecisionEngine` 多信号 + 无候选安全回退
+- [x] `RouterDecision.contextSignals` + reason `V8 上下文`
+- [x] `PromptStrategyBuilder` + `applyPromptStrategyToSystemText`（温度/风格/system 补充）
+- [x] `estimateRouterContextTokens` 统一 token 估计（Orchestrator / Agent / Planner）
+- [x] `/api/chat` Smart 路径应用 `promptStrategy` 并回传 `routerDecision.promptStrategy`
+- [ ] RuntimeStats 只读反馈影响选型（不改配置）
+- [ ] Agent `/api/agent` 响应暴露 `promptStrategy`（当前仅内部路由用 token 估计）
+
 ### P2：后续阶段（本清单阶段不做）
 
 - [x] V3 RouterModelEvaluator 运行时接入（高风险不覆盖）
@@ -140,7 +153,7 @@
 - [x] V5 ModelCapabilities 能力矩阵
 - [x] V6 RuntimeStats（只建议，不改配置）
 - [x] V7 EvalSetRunner（离线评测 + model_eval_results）
-- [ ] V8 完整自动路由
+- [ ] V8 完整自动路由（P0 ContextAnalyzer + P1 PromptStrategyBuilder 已落地；RuntimeStats 反馈待续）
 - [ ] V9 WorkflowGraphRunner + 拖拽 UI
 
 ---
@@ -279,7 +292,7 @@
 | V5 | ModelCapabilities 能力矩阵 | [x] |
 | V6 | RuntimeStats 指标回流（只建议不改配置） | [x] |
 | V7 | EvalSetRunner + model_eval_results | [x] |
-| V8 | ContextAnalyzer + 完整 DecisionEngine 多信号 | [ ] |
+| V8 | ContextAnalyzer + PromptStrategyBuilder + 多信号 DecisionEngine | [~] P0+P1 已接入；RuntimeStats 反馈待续 |
 | V9 | WorkflowGraphRunner / NodeRegistry / 拖拽 UI | [ ] |
 
 ---
@@ -293,8 +306,8 @@
 | CollaborationLogStore | [~] 合并在 collaboration_runs + call_logs |
 | FallbackManager | [x] |
 | RouterModelEvaluator / AnswerEvaluator | [x] 运行时接入 |
-| ContextAnalyzer / RuntimeStats / EvalSetRunner | [~] RuntimeStats ✅；EvalSet 预留 |
-| PromptStrategyBuilder / CostBudgetManager / ModelProfileStore | [ ] |
+| ContextAnalyzer / RuntimeStats / EvalSetRunner | [~] ContextAnalyzer ✅；RuntimeStats ✅；EvalSet ✅ |
+| PromptStrategyBuilder / CostBudgetManager / ModelProfileStore | [~] PromptStrategyBuilder ✅；CostBudget / ProfileStore 待续 |
 
 ---
 

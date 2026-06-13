@@ -5,6 +5,7 @@ import type { ChatRequest, ModelResponse } from "../model/types.js";
 import type { ModelChatFn } from "../model-orchestrator/types.js";
 import { buildRouterInputFromChat } from "./router-input.js";
 import { resolveRuleOnlyAnswer } from "./rule-only-responses.js";
+import { estimateRouterContextTokens } from "./router-context-estimate.js";
 import type { SmartModelRouter } from "./smart-model-router.js";
 import { RouterError, type RouterInput } from "./types.js";
 
@@ -27,14 +28,22 @@ export function extractLastUserMessage(
 /** Agent 循环路由：尊重 taskType / sensitive，强制单模型（每轮 ReAct 不走协作流水线）。 */
 export function buildAgentRouterInput(
   userInput: string,
-  opts?: { sensitive?: boolean; taskType?: ModelTaskType },
+  opts?: {
+    sensitive?: boolean;
+    taskType?: ModelTaskType;
+    messages?: ReadonlyArray<{ role: string; content: string }>;
+  },
 ): RouterInput {
+  const messages = opts?.messages ?? [];
   return buildRouterInputFromChat({
     message: userInput,
     sensitive: opts?.sensitive,
     taskType: opts?.taskType,
     forceSingleModel: true,
     allowCollaboration: false,
+    contextTokenEstimate: messages.length > 0 ? estimateRouterContextTokens(messages) : undefined,
+    recentMessagesCount: messages.length > 0 ? messages.length : undefined,
+    mayUseTools: true,
   });
 }
 
@@ -42,13 +51,19 @@ export function buildAgentRouterInput(
 export function createSmartSingleModelChatFn(deps: {
   smartRouter: SmartModelRouter;
   modelChatFn: ModelChatFn;
-  buildInput: (userInput: string, opts?: { sensitive?: boolean; taskType?: ModelTaskType }) => RouterInput;
+  buildInput: (
+    userInput: string,
+    opts?: { sensitive?: boolean; taskType?: ModelTaskType },
+    context?: { messages?: ReadonlyArray<{ role: string; content: string }> },
+  ) => RouterInput;
 }): SmartSingleModelChatFn {
   return async (request, opts) => {
     const userInput = extractLastUserMessage(request.messages);
     let decision;
     try {
-      decision = deps.smartRouter.route(deps.buildInput(userInput, opts));
+      decision = deps.smartRouter.route(
+        deps.buildInput(userInput, opts, { messages: request.messages }),
+      );
     } catch (error) {
       if (error instanceof RouterError) {
         throw new Error(error.message);
@@ -88,6 +103,11 @@ export function createAgentChatFn(deps: {
 }): LoopChatFn {
   return createSmartSingleModelChatFn({
     ...deps,
-    buildInput: buildAgentRouterInput,
+    buildInput: (userInput, opts, context) =>
+      buildAgentRouterInput(userInput, {
+        sensitive: opts?.sensitive,
+        taskType: opts?.taskType,
+        messages: context?.messages,
+      }),
   });
 }

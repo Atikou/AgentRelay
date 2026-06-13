@@ -1,6 +1,7 @@
 import type { RouteOptions } from "../model/ModelRouter.js";
 import type { ChatRequest, ModelResponse } from "../model/types.js";
 import type { ModelChatFn } from "../model-orchestrator/types.js";
+import { estimateRouterContextTokens } from "./router-context-estimate.js";
 import type { SmartModelRouter } from "./smart-model-router.js";
 import { RouterError, type RouterInput } from "./types.js";
 
@@ -21,13 +22,19 @@ export function extractPlannerGoalFromMessages(
 }
 
 /** 计划模式路由输入：深度质量 + 强制单模型（JSON 计划一次出稿，不走协作流水线）。 */
-export function buildPlannerRouterInput(userInput: string, opts?: RouteOptions): RouterInput {
+export function buildPlannerRouterInput(
+  userInput: string,
+  opts?: RouteOptions & { messages?: ReadonlyArray<{ role: string; content: string }> },
+): RouterInput {
+  const messages = opts?.messages ?? [];
   return {
     userInput,
     qualityMode: "deep",
     forceSingleModel: true,
     allowCollaboration: false,
     localOnly: opts?.sensitive || opts?.strategy === "privacy-first",
+    contextTokenEstimate: messages.length > 0 ? estimateRouterContextTokens(messages) : undefined,
+    recentMessagesCount: messages.length > 0 ? messages.length : undefined,
   };
 }
 
@@ -40,7 +47,9 @@ export function createPlannerChatFn(deps: {
     const userInput = extractPlannerGoalFromMessages(request.messages);
     let decision;
     try {
-      decision = deps.smartRouter.route(buildPlannerRouterInput(userInput, opts));
+      decision = deps.smartRouter.route(
+        buildPlannerRouterInput(userInput, { ...opts, messages: request.messages }),
+      );
     } catch (error) {
       if (error instanceof RouterError) {
         throw new Error(error.message);

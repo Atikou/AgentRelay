@@ -27,6 +27,7 @@ export function buildRouterInputFromChat(payload: {
   hasAttachments?: boolean;
   attachmentTypes?: RouterInput["attachmentTypes"];
   forceModelId?: string;
+  mayUseTools?: boolean;
   contextTokenEstimate?: number;
   recentMessagesCount?: number;
 }): RouterInput {
@@ -49,5 +50,6 @@ export function buildRouterInputFromChat(payload: {
     taskTypeOverride: legacyTaskTypeToRouter(payload.taskType),
     contextTokenEstimate: payload.contextTokenEstimate,
     recentMessagesCount: payload.recentMessagesCount,
+    mayUseTools: payload.mayUseTools,
   };
 }

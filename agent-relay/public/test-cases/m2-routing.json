@@ -463,6 +463,58 @@
       }
     },
     {
+      "id": "m2-config-context-analyzer-v8",
+      "title": "GET /api/config 暴露 contextAnalyzerV8",
+      "purpose": "确认 V8 P0 ContextAnalyzer 已落地并在 capabilities 声明。",
+      "method": "GET",
+      "path": "/api/config",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyPaths": {
+          "capabilities.contextAnalyzerV8": true
+        }
+      }
+    },
+    {
+      "id": "m2-config-prompt-strategy-v8",
+      "title": "GET /api/config 暴露 promptStrategyBuilderV8",
+      "purpose": "确认 V8 P1 PromptStrategyBuilder 已落地并在 capabilities 声明。",
+      "method": "GET",
+      "path": "/api/config",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyPaths": {
+          "capabilities.promptStrategyBuilderV8": true
+        }
+      }
+    },
+    {
+      "id": "m2-routing-doc-prompt-strategy-v8",
+      "title": "模型路由文档说明 V8 PromptStrategyBuilder",
+      "purpose": "确认文档已登记 V8 P1 提示策略与统一 token 估计，避免误以为完整自动路由已全部启用。",
+      "method": "GET",
+      "path": "/api/docs/content?slug=模型路由与协作",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyContains": ["PromptStrategyBuilder", "estimateRouterContextTokens"]
+      }
+    },
+    {
+      "id": "m2-routing-doc-context-analyzer-v8",
+      "title": "模型路由文档说明 V8 ContextAnalyzer",
+      "purpose": "确认文档已登记 V8 P0 多信号路由，避免误以为完整自动路由已全部启用。",
+      "method": "GET",
+      "path": "/api/docs/content?slug=模型路由与协作",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyContains": ["ContextAnalyzer", "V8"]
+      }
+    },
+    {
       "id": "m2-chat-task-type-invalid",
       "title": "无效 taskType 返回 400",
       "purpose": "边界：非法 taskType 应在编排层校验并 400，避免静默忽略。",

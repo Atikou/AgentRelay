@@ -129,6 +129,8 @@ export interface RouterDecision {
   createdAt: string;
   /** 策略降级说明（如无 review 模型时）。 */
   fallbackNote?: string;
+  /** V8：ContextAnalyzer 信号摘要（可解释路由）。 */
+  contextSignals?: string[];
 }
 
 export interface DraftReviewIssue {

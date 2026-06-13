@@ -30,6 +30,11 @@ import type { CorrelationContext } from "../core/correlation.js";
 import type { ModelOrchestrator } from "../model-orchestrator/index.js";
 import type { ModelRouter } from "../model/ModelRouter.js";
 import { buildRouterInputFromChat } from "../model-router/router-input.js";
+import {
+  applyPromptStrategyToSystemText,
+  defaultPromptStrategyBuilder,
+} from "../model-router/prompt-strategy-builder.js";
+import { estimateRouterContextTokens } from "../model-router/router-context-estimate.js";
 import type { SmartModelRouter } from "../model-router/smart-model-router.js";
 import { RouterError } from "../model-router/types.js";
 import { parseModelTaskTypeOrError, type ModelTaskType } from "../model/taskType.js";
@@ -289,12 +294,19 @@ export class Orchestrator {
           forceSingleModel: payload.forceSingleModel,
           hasAttachments: payload.hasAttachments,
           attachmentTypes: payload.attachmentTypes,
-          contextTokenEstimate: messages.reduce((n, m) => n + m.content.length, 0),
+          contextTokenEstimate: estimateRouterContextTokens(messages),
           recentMessagesCount: messages.length,
         });
         const smartRouter = this.deps.smartModelRouter!;
         const chatOrchestrator = this.deps.modelOrchestrator!;
-        const decision = smartRouter.route(routerInput);
+        const routed = smartRouter.routeDetailed(routerInput);
+        const decision = routed.decision;
+        const promptStrategy = defaultPromptStrategyBuilder.build({
+          decision,
+          routingContext: routed.routingContext,
+          userInput: message,
+          qualityMode: routerInput.qualityMode,
+        });
         const chatMessages = messages.filter(
           (m): m is { role: "system" | "user" | "assistant"; content: string } =>
             m.role === "system" || m.role === "user" || m.role === "assistant",
@@ -304,8 +316,9 @@ export class Orchestrator {
           userInput: message,
           sessionId,
           localOnly: routerInput.localOnly,
+          temperature: promptStrategy.temperature,
           renderedPrompt: {
-            systemSectionsText: systemBase,
+            systemSectionsText: applyPromptStrategyToSystemText(systemBase, promptStrategy),
             finalMessages: chatMessages,
           },
         });
@@ -325,6 +338,12 @@ export class Orchestrator {
           risk: decision.risk,
           reason: decision.reason,
           requireUserConfirmation: decision.requireUserConfirmation,
+          contextSignals: decision.contextSignals,
+          promptStrategy: {
+            temperature: promptStrategy.temperature,
+            responseStyle: promptStrategy.responseStyle,
+            hints: promptStrategy.hints,
+          },
         };
         collaborationRunId = orchestrated.collaborationRunId;
         executionStrategy = orchestrated.usedStrategy;

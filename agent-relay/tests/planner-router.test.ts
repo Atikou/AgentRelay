@@ -132,6 +132,7 @@ test("localOnly 时 Planner 只选本地模型", async () => {
     ...localDraft,
     id: "local-strong",
     defaultLevel: 3,
+    supportsJsonMode: true,
     allowedTaskTypes: ["architecture", "technical_qa", "document_qa"],
   };
   const localOnlyRouter = new SmartModelRouter(new ModelRegistry([localStrong, apiStrong]));

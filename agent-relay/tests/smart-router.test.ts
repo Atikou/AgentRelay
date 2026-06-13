@@ -163,6 +163,19 @@ test("qualityMode=deep 倾向协作", () => {
   assert.equal(d.executionStrategy, "local_draft_remote_review");
 });
 
+test("长上下文 technical_qa V8 提升 primary 至 Level 3", () => {
+  const d = router.route({
+    userInput: "根据长文档解释一致性模型",
+    taskTypeOverride: "technical_qa",
+    contextTokenEstimate: 52_000,
+  });
+  assert.equal(d.executionStrategy, "single_model");
+  assert.equal(d.selectedModelId, "api-strong");
+  assert.equal(d.selectedLevel, 3);
+  assert.ok(d.contextSignals?.includes("level_bump+1"));
+  assert.match(d.reason, /V8 上下文/);
+});
+
 test("validateModelProfiles 对完整配置无错误", () => {
   assert.deepEqual(validateModelProfiles(profiles), []);
 });

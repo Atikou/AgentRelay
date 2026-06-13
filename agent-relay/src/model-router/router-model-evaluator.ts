@@ -19,6 +19,7 @@ export interface RouterModelEvaluatorInput {
   routerInput: RouterInput;
   rule: RuleRouteResult;
   candidates: ModelProfile[];
+  routingContext?: import("./context-analyzer.js").RoutingContext;
 }
 
 const UNCERTAIN_TASK_TYPES = new Set<RuleRouteResult["taskType"]>([
@@ -41,6 +42,9 @@ export class RouterModelEvaluator {
       UNCERTAIN_TASK_TYPES.has(input.rule.taskType) ||
       (input.routerInput.qualityMode === "deep" &&
         input.rule.taskType !== "high_risk_action" &&
+        input.candidates.length > 1) ||
+      (input.routingContext?.complexity === "high" &&
+        input.rule.requiredLevel <= 2 &&
         input.candidates.length > 1);
 
     const highRiskBlocked =
@@ -62,7 +66,9 @@ export class RouterModelEvaluator {
         reasons: [
           `taskType=${input.rule.taskType}`,
           `qualityMode=${input.routerInput.qualityMode ?? "balanced"}`,
-          "prefer_strongest_affordable_candidate",
+          input.routingContext?.complexity === "high"
+            ? "context_complexity=high"
+            : "prefer_strongest_affordable_candidate",
         ],
         warnings,
       };

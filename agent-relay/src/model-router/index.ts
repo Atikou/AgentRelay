@@ -13,6 +13,12 @@ export {
 } from "./route-stores.js";
 export { FallbackManager, MAX_FALLBACKS_PER_REQUEST } from "./fallback-manager.js";
 export { RouterModelEvaluator } from "./router-model-evaluator.js";
+export {
+  ContextAnalyzer,
+  defaultContextAnalyzer,
+  applyRoutingContext,
+} from "./context-analyzer.js";
+export type { RoutingContext, ContextComplexity, ContextPressure } from "./context-analyzer.js";
 export { AnswerEvaluator } from "./answer-evaluator.js";
 export {
   TASK_CAPABILITY_MATRIX,
@@ -48,6 +54,13 @@ export type {
 } from "./eval-set-runner.js";
 export type { ModelEvalRunRow, ModelEvalResultRow } from "./eval-set-store.js";
 export { buildRouterInputFromChat } from "./router-input.js";
+export { estimateRouterContextTokens, estimateTokensFromText } from "./router-context-estimate.js";
+export {
+  PromptStrategyBuilder,
+  defaultPromptStrategyBuilder,
+  applyPromptStrategyToSystemText,
+} from "./prompt-strategy-builder.js";
+export type { PromptStrategy, PromptResponseStyle } from "./prompt-strategy-builder.js";
 export { createModelChatFn } from "./create-model-chat.js";
 export {
   buildAgentRouterInput,
