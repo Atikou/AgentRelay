@@ -9,6 +9,7 @@
 | 归档文件 | 完成时间 | 来源 / 目标 | 原路径 stub |
 | --- | --- | --- | --- |
 | [修复TodoList.md](修复TodoList.md) | 2026-06-13 | 架构审阅后续 P0–P3 修复 | [../修复TodoList.md](../修复TodoList.md) |
+| [项目问题修复TodoList.md](项目问题修复TodoList.md) | 2026-06-14 | 审阅问题 P0/P1/P2 逐项修复（路由/安全/可观测/评估） | [../项目问题修复TodoList.md](../项目问题修复TodoList.md) |
 
 ## 复查时建议顺序
 

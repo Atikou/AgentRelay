@@ -58,7 +58,8 @@ npm run docs:screenshots # 用无头浏览器截图到 docs/assets/
 
 进行中的任务清单在 `docs/*-TodoList.md`；**已全部结案**的见 [`completed/`](completed/README.md)（含登记表与复查指引）。
 
-- [修复 TodoList（已完成归档）](completed/修复TodoList.md)：架构审阅后续 P0–P3 修复项，已全部落地。
+- [修复 TodoList（已完成归档）](completed/修复TodoList.md)
+- [项目问题修复 TodoList（已完成归档）](completed/项目问题修复TodoList.md)
 
 ### 进行中的 TodoList
 
@@ -68,13 +69,13 @@ npm run docs:screenshots # 用无头浏览器截图到 docs/assets/
 - [计划JSON与Markdown分离-TodoList](计划JSON与Markdown分离-TodoList.md)：InternalTaskPlan 与执行边界。
 - [模型路由规则配置-TodoList](模型路由规则配置-TodoList.md)：规则路由 V1。
 - [模型路由协作-TodoList](模型路由协作-TodoList.md)：draft_review 协作 V1。
-- [模型路由升级TodoList](模型路由升级TodoList.md)：V2 FallbackManager 及后续路线图。
-- [项目问题修复TodoList](项目问题修复TodoList.md)：当前项目审阅问题按 P0/P1/P2 排序后的逐项修复清单。
+- [模型路由升级TodoList](模型路由升级TodoList.md)：V2 FallbackManager 及后续路线图（V5/V8 等）。
 
 ### 说明文档
 
 - [API 参考](API参考.md)：REST 接口总览、能力探测与交互式文档入口（`/api-docs`）。
 - [项目整体架构](项目整体架构.md)：分层设计、模块职责、关键调用链路、目录结构与里程碑路线图。
+- [数据存储边界](数据存储边界.md)：SQLite / JSONL / LanceDB 职责划分与 `data/` 目录说明。
 - [编排与Run模型](编排与Run模型.md)：Orchestrator、统一 Run/Task、`GET /api/runs`。
 - [计划JSON与Markdown分离](计划JSON与Markdown分离.md)：InternalTaskPlan、PlanStore、预览与执行边界。
 - [计划体系分离](计划体系分离.md)：AgentStepPlan、UserVisiblePlan、ExecutableTaskPlan 三类计划边界与 analyze/compile 流程。
