@@ -27,6 +27,9 @@ test("parseMode 拒绝非法 mode", () => {
 test("resolve 计划模式使用只读权限与更高默认预算", () => {
   const policy = defaultRunPolicyManager.resolve({ message: "请进入计划模式，只读分析当前项目" });
   assert.equal(policy.mode, "plan");
+  assert.equal(policy.modeSource, "inferred");
+  assert.equal(policy.intent, "plan");
+  assert.equal(policy.workflowType, "planWorkflow");
   assert.equal(policy.budget.maxModelTurns, 16);
   assert.equal(policy.budget.maxWriteCalls, 0);
   assert.equal(policy.budget.maxShellCalls, 0);
@@ -55,6 +58,7 @@ test("createBudgetManager 与 policy 预算一致", () => {
 test("独立实例可复用", () => {
   const custom = new RunPolicyManager();
   assert.equal(custom.resolve({ requestedMode: "debug", message: "x" }).mode, "debug");
+  assert.equal(custom.resolve({ requestedMode: "debug", message: "x" }).intent, "debug");
 });
 
 let passed = 0;

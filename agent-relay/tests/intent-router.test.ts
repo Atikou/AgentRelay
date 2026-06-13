@@ -18,24 +18,30 @@ test("route 显式 mode 优先于文案推断", () => {
   });
   assert.equal(route.mode, "chat");
   assert.equal(route.modeSource, "explicit");
+  assert.equal(route.intent, "answer");
+  assert.equal(route.workflowType, "answerWorkflow");
   assert.equal(route.workflowPlan, null);
 });
 
-test("route 从计划模式文案推断 plan 与 plan_prescan", () => {
+test("route 从计划类文案推断 plan 与 planWorkflow", () => {
   const route = defaultIntentRouter.route({
     message: "请进入计划模式，只读分析当前项目模型路由",
   });
   assert.equal(route.mode, "plan");
   assert.equal(route.modeSource, "inferred");
+  assert.equal(route.intent, "plan");
+  assert.equal(route.workflowType, "planWorkflow");
   assert.equal(route.workflowPlan?.id, "plan_prescan");
 });
 
-test("route 实现模式代码任务推断 implement_locate", () => {
+test("route 实现类任务推断 editWorkflow 与 implement_locate", () => {
   const route = defaultIntentRouter.route({
     requestedMode: "implement",
-    message: "修改 AgentLoop.ts 中的预算逻辑",
+    message: "修改 AgentLoop.ts 中的预算耗尽逻辑",
   });
   assert.equal(route.mode, "implement");
+  assert.equal(route.intent, "edit");
+  assert.equal(route.workflowType, "editWorkflow");
   assert.equal(route.workflowPlan?.id, "implement_locate");
   assert.deepEqual(route.workflowPlan?.steps, ["locate_relevant_files", "context_pack"]);
 });
@@ -45,6 +51,14 @@ test("inferMode codegen taskType 映射 implement", () => {
     defaultIntentRouter.inferMode({ message: "优化路由", taskType: "codegen" }),
     "implement",
   );
+});
+
+test("inferIntent 区分 verify / run / refactor / summarize / generate_file", () => {
+  assert.equal(defaultIntentRouter.route({ message: "运行测试看看" }).intent, "verify");
+  assert.equal(defaultIntentRouter.route({ message: "启动服务" }).intent, "run");
+  assert.equal(defaultIntentRouter.route({ message: "先解耦这个模块" }).intent, "refactor");
+  assert.equal(defaultIntentRouter.route({ message: "总结当前项目进度" }).intent, "summarize");
+  assert.equal(defaultIntentRouter.route({ message: "生成文件 README 草稿" }).workflowType, "generateFileWorkflow");
 });
 
 let passed = 0;

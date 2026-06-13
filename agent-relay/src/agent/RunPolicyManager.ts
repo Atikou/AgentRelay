@@ -117,6 +117,9 @@ export class RunPolicyManager {
 
     return {
       mode,
+      modeSource: route.modeSource,
+      intent: route.intent,
+      workflowType: route.workflowType,
       budget,
       allowedPermissions: [...MODE_PERMISSIONS_BY_RUN_MODE[mode]],
       requireFinalAnswer: true,

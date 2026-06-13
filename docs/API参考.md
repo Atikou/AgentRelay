@@ -216,6 +216,9 @@ Content-Type: application/json
   "reachedLimit": false,
   "executionMeta": {
     "mode": "plan",
+    "modeSource": "inferred",
+    "intent": "plan",
+    "workflowType": "planWorkflow",
     "budget": {
       "maxModelTurns": 8,
       "maxToolCalls": 8,

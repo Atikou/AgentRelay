@@ -433,6 +433,64 @@
       }
     },
     {
+      "id": "m1-agent-auto-intent-verify-meta",
+      "title": "自动意图识别返回 verify 元信息",
+      "purpose": "确认统一 Agent 入口在用户要求运行测试/验证时，会在 executionMeta 中返回内部 intent=verify 与 verifyWorkflow，便于后续自动工作流路由。",
+      "method": "POST",
+      "path": "/api/agent",
+      "input": {
+        "message": "运行测试看看当前修改是否通过",
+        "persist": false,
+        "budget": {
+          "maxModelTurns": 1,
+          "maxToolCalls": 0,
+          "maxReadCalls": 0,
+          "maxWriteCalls": 0,
+          "maxShellCalls": 0,
+          "maxRuntimeMs": 60000
+        }
+      },
+      "expect": {
+        "status": 200,
+        "bodyPaths": {
+          "executionMeta.modeSource": "inferred",
+          "executionMeta.intent": "verify",
+          "executionMeta.workflowType": "verifyWorkflow"
+        }
+      }
+    },
+    {
+      "id": "m1-agent-explicit-mode-overrides-intent",
+      "title": "显式 mode 覆盖自动意图",
+      "purpose": "确认用户显式传入 mode=plan 时，即使消息包含修改动作，系统也按只读 plan/planWorkflow 边界返回，避免自动路由越过用户指定模式。",
+      "method": "POST",
+      "path": "/api/agent",
+      "input": {
+        "message": "修改这个模块但先只给计划",
+        "mode": "plan",
+        "persist": false,
+        "budget": {
+          "maxModelTurns": 1,
+          "maxToolCalls": 1,
+          "maxReadCalls": 1,
+          "maxWriteCalls": 0,
+          "maxShellCalls": 0,
+          "maxRuntimeMs": 60000
+        }
+      },
+      "expect": {
+        "status": 200,
+        "bodyPaths": {
+          "executionMeta.mode": "plan",
+          "executionMeta.modeSource": "explicit",
+          "executionMeta.intent": "plan",
+          "executionMeta.workflowType": "planWorkflow",
+          "executionMeta.usedWriteCalls": 0,
+          "executionMeta.usedShellCalls": 0
+        }
+      }
+    },
+    {
       "id": "m1-agent-config-prompt-strategy-v8",
       "title": "GET /api/config 暴露 agentPromptStrategyV8",
       "purpose": "确认 /api/agent 已支持首轮 promptStrategy 暴露并在 capabilities 声明。",

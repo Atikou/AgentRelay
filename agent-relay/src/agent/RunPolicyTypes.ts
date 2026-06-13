@@ -1,4 +1,5 @@
 import type { ModelTaskType } from "../model/taskType.js";
+import type { AgentIntentType, AgentWorkflowType } from "./IntentTypes.js";
 import type { ToolPermission } from "./permissions.js";
 
 export type AgentRunMode = "chat" | "plan" | "implement" | "debug" | "review";
@@ -50,6 +51,9 @@ export interface LocationExecutionMeta {
 
 export interface AgentExecutionMeta {
   mode: AgentRunMode;
+  modeSource?: "explicit" | "inferred";
+  intent?: AgentIntentType;
+  workflowType?: AgentWorkflowType;
   budget: RunBudget;
   usage: RunBudgetUsage;
   budgetExhausted?: RunBudgetKey;
@@ -76,6 +80,9 @@ export interface AgentExecutionMeta {
 
 export interface RunPolicy {
   mode: AgentRunMode;
+  modeSource: "explicit" | "inferred";
+  intent: AgentIntentType;
+  workflowType: AgentWorkflowType;
   budget: RunBudget;
   allowedPermissions: ToolPermission[];
   requireFinalAnswer: boolean;

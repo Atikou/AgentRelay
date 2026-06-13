@@ -693,6 +693,9 @@ export class AgentLoop {
     const location = this.buildLocationMeta(input.steps);
     const base: AgentExecutionMeta = {
       mode: this.policy.mode,
+      modeSource: this.policy.modeSource,
+      intent: this.policy.intent,
+      workflowType: this.policy.workflowType,
       budget: this.budget,
       usage,
       budgetExhausted: input.budgetExhausted,

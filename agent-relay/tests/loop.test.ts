@@ -58,6 +58,8 @@ test("循环：调用只读工具后给出最终答案", async () => {
   const res = await loop.run("项目名是什么？");
   assert.equal(res.reachedLimit, false);
   assert.equal(res.executionMeta.stopReason, "completed");
+  assert.equal(res.executionMeta.intent, "answer");
+  assert.equal(res.executionMeta.workflowType, "answerWorkflow");
   assert.equal(res.executionMeta.usedReadCalls, 1);
   assert.equal(res.steps.length, 1);
   assert.equal(res.steps[0]!.ok, true);
@@ -205,6 +207,9 @@ test("计划模式在执行层拒绝写工具，即使开启 autoConfirm", async
   });
   const res = await loop.run("计划模式中新建文件");
   assert.equal(res.executionMeta.mode, "plan");
+  assert.equal(res.executionMeta.modeSource, "explicit");
+  assert.equal(res.executionMeta.intent, "plan");
+  assert.equal(res.executionMeta.workflowType, "planWorkflow");
   assert.equal(res.steps[0]!.blocked, true);
   assert.equal(res.steps[0]!.permission, "write");
   assert.match(res.steps[0]!.error ?? "", /当前模式不允许/);
@@ -215,6 +220,9 @@ test("计划模式在执行层拒绝写工具，即使开启 autoConfirm", async
 test("RunPolicy 会为计划模式使用只读权限与更高默认预算", async () => {
   const policy = resolveRunPolicy({ message: "请进入计划模式，只读分析当前项目" });
   assert.equal(policy.mode, "plan");
+  assert.equal(policy.modeSource, "inferred");
+  assert.equal(policy.intent, "plan");
+  assert.equal(policy.workflowType, "planWorkflow");
   assert.equal(policy.budget.maxModelTurns, 16);
   assert.equal(policy.budget.maxWriteCalls, 0);
   assert.equal(policy.budget.maxShellCalls, 0);

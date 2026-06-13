@@ -1657,6 +1657,15 @@
         "type": "object",
         "properties": {
           "mode": { "type": "string", "enum": ["chat", "plan", "implement", "debug", "review"] },
+          "modeSource": { "type": "string", "enum": ["explicit", "inferred"] },
+          "intent": {
+            "type": "string",
+            "enum": ["answer", "plan", "edit", "run", "debug", "review", "verify", "summarize", "search", "refactor", "generate_file"]
+          },
+          "workflowType": {
+            "type": "string",
+            "enum": ["answerWorkflow", "planWorkflow", "editWorkflow", "runWorkflow", "debugWorkflow", "reviewWorkflow", "verifyWorkflow", "summarizeWorkflow", "searchWorkflow", "refactorWorkflow", "generateFileWorkflow"]
+          },
           "budget": { "$ref": "#/components/schemas/RunBudget" },
           "usage": { "$ref": "#/components/schemas/RunBudgetUsage" },
           "location": { "$ref": "#/components/schemas/LocationExecutionMeta" },

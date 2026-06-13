@@ -174,6 +174,7 @@
 ## 11. 状态机与任务编排
 
 - [x] 设计 Agent 主状态机。（`AgentLoop`：模型→解析→工具→回灌→迭代/终止）
+- [x] 统一入口下暴露内部意图与工作流元信息。（`IntentRouter`：`intent` / `workflowType` / `modeSource` → `RunPolicy` → `executionMeta`）
 - [x] 设计任务状态机。（`TaskRunner`：pending/running/blocked/completed/failed/cancelled）
 - [x] 设计后台线程状态机。（running / completed / failed / cancelled）
 - [x] 设计子 Agent 生命周期。（completed/failed/timeout + batch 汇总）
