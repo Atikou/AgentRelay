@@ -383,6 +383,43 @@
       }
     },
     {
+      "id": "m1-tools-locate-dependency-graph",
+      "title": "locate_relevant_files 输出 dependencyRelated",
+      "purpose": "确认 project_scan 写入 import 边后，locate 能基于模块依赖图扩展 PlanCompiler 等相关文件。",
+      "method": "POST",
+      "path": "/api/tools/run",
+      "input": {
+        "name": "locate_relevant_files",
+        "input": {
+          "goal": "修复 PlanRunner 计划执行",
+          "possibleSymbols": ["PlanRunner"],
+          "limit": 8
+        }
+      },
+      "expect": {
+        "status": 200,
+        "bodyPaths": {
+          "ok": true,
+          "output.dependencyRelated": "array"
+        }
+      }
+    },
+    {
+      "id": "m1-tools-config-semantic-locate",
+      "title": "GET /api/config 暴露 projectSemanticLocate",
+      "purpose": "确认服务端声明已接入 LanceDB 项目文件语义定位能力。",
+      "method": "GET",
+      "path": "/api/config",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyPaths": {
+          "capabilities.projectSemanticLocate": true,
+          "capabilities.moduleDependencyGraph": true
+        }
+      }
+    },
+    {
       "id": "m1-tools-git-status",
       "title": "git_status 返回 isRepo",
       "purpose": "确认 git 状态工具可用，Agent 可检查工作区改动。",

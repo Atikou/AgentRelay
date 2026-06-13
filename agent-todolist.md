@@ -169,7 +169,7 @@
 - [x] 支持工具调用审计日志。（`TraceLogger` 记录 start/ok/error）
 - [x] 支持 mock 工具，方便测试。（`createMockTool` / `createMockRegistry`：调用记录、静态/动态输出、失败注入）
 
-> 已实现 15 个内置工具：`read_file` / `list_files` / `search_text` / `write_file` / `apply_patch` / `diff_file` / `backup_file` / `rollback_change` / `shell_run` / `git_status` / `git_diff` / `project_scan` / `locate_relevant_files` / `symbol_search` / `context_pack`。安全机制：路径沙箱 + 自动备份/changeId/回滚 + 命令风险分级 + 输出限制 + `ToolStorage` tool_logs；相关文件定位结果会汇总到 `executionMeta.location`（含 `exploration` 与 `suggestedAction`）；`ExplorationProgressTracker` 标记 duplicate/信息增益。自检：`npm run test:tools`。
+> 已实现 15 个内置工具：`read_file` / `list_files` / `search_text` / `write_file` / `apply_patch` / `diff_file` / `backup_file` / `rollback_change` / `shell_run` / `git_status` / `git_diff` / `project_scan` / `locate_relevant_files` / `symbol_search` / `context_pack`。安全机制：路径沙箱 + 自动备份/changeId/回滚 + 命令风险分级 + 输出限制 + `ToolStorage` tool_logs；相关文件定位结果会汇总到 `executionMeta.location`（含 `exploration` 与 `suggestedAction`）；`ModuleDependencyGraph` + LanceDB `ProjectSemanticIndexer` 语义/依赖扩展。自检：`npm run test:tools`。
 
 ## 11. 状态机与任务编排
 

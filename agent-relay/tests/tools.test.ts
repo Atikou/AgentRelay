@@ -300,6 +300,54 @@ test("locate_relevant_files 低预算返回 explorationProgress 与 suggestedAct
   assert.ok(Array.isArray(out.explorationProgress.steps));
 });
 
+test("locate_relevant_files 利用模块依赖图扩展相关文件", async () => {
+  const { DatabaseManager } = await import("../src/context/DatabaseManager.js");
+  const { ProjectIndex } = await import("../src/context/ProjectIndex.js");
+  const dbm = new DatabaseManager(dataDir);
+  const projectIndex = new ProjectIndex(dbm);
+  const r = reg();
+  r.setDefaultContext({ projectIndex });
+  try {
+    await r.run(
+      "write_file",
+      { path: "src/plan/PlanCompiler.ts", content: "export class PlanCompiler {}\n", backup: false },
+      await ctx(),
+    );
+    await r.run(
+      "write_file",
+      {
+        path: "src/plan/PlanRunner.ts",
+        content: "import { PlanCompiler } from './PlanCompiler';\nexport class PlanRunner {}\n",
+        backup: false,
+      },
+      await ctx(),
+    );
+    await r.run("project_scan", { root: ".", maxDepth: 4 }, await ctx());
+    const res = await r.run(
+      "locate_relevant_files",
+      { goal: "修复 PlanRunner", possibleSymbols: ["PlanRunner"], limit: 8 },
+      await ctx(),
+    );
+    assert.equal(res.ok, true);
+    const out = (res as {
+      output: {
+        primaryFiles: Array<{ path: string }>;
+        candidateFiles: Array<{ path: string }>;
+        dependencyRelated?: Array<{ path: string }>;
+      };
+    }).output;
+    const paths = [...out.primaryFiles, ...out.candidateFiles].map((f) => f.path);
+    assert.ok(paths.includes("src/plan/PlanRunner.ts"));
+    assert.ok(
+      paths.includes("src/plan/PlanCompiler.ts") ||
+        out.dependencyRelated?.some((d) => d.path === "src/plan/PlanCompiler.ts"),
+    );
+  } finally {
+    dbm.close();
+    r.setDefaultContext({ projectIndex: undefined });
+  }
+});
+
 test("context_pack 一次性打包多个相关文件", async () => {
   const r = reg();
   await r.run("write_file", { path: "src/context/A.ts", content: "export function alpha() { return 1; }", backup: false }, await ctx());

@@ -27,8 +27,10 @@ export interface ToolContext {
   networkPolicy?: NetworkPolicy;
   /** 取消信号。 */
   signal?: AbortSignal;
-  /** 持久化项目文件索引（project_files / project_symbols）。 */
+  /** 持久化项目文件索引（project_files / project_symbols / project_imports）。 */
   projectIndex?: import("../context/ProjectIndex.js").ProjectIndex;
+  /** LanceDB 项目文件语义索引（locate 语义召回）。 */
+  projectSemanticIndexer?: import("../context/ProjectSemanticIndexer.js").ProjectSemanticIndexer;
 }
 
 /**

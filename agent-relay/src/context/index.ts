@@ -1,4 +1,11 @@
 export { ProjectIndex, projectFileToScanMeta, extractSymbolsFromContent } from "./ProjectIndex.js";
+export { ModuleDependencyGraph } from "./ModuleDependencyGraph.js";
+export { ProjectSemanticIndexer } from "./ProjectSemanticIndexer.js";
+export {
+  extractImportsFromContent,
+  extractExportsFromContent,
+  resolveImportSpec,
+} from "./importExportParser.js";
 export type * from "./projectIndexTypes.js";
 export { ContextManager, createLlmSummarize } from "./ContextManager.js";
 export { DatabaseManager, estimateTokens } from "./DatabaseManager.js";

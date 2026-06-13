@@ -304,6 +304,8 @@ export const projectScanTool: Tool<
       workspaceRoot: ctx.workspaceRoot,
       files: files.files.map(fileMetaToProjectRecord),
       extractSymbols: true,
+      extractDependencies: true,
+      semanticIndexer: ctx.projectSemanticIndexer,
     });
     const stats = ctx.projectIndex.getStats("default", ctx.workspaceRoot);
     return {
@@ -330,6 +332,8 @@ export const locateRelevantFilesTool: Tool<
     stopReason: "enough_confidence" | "locate_budget_exhausted" | "no_candidates";
     suggestedAction?: "continue_locating";
     explorationProgress: ExplorationProgressSnapshot;
+    semanticHits?: Array<{ path: string; score: number }>;
+    dependencyRelated?: Array<{ path: string; relation: "imports" | "imported_by"; depth: number }>;
     locateStats: {
       usedLocateSteps: number;
       usedSearchCalls: number;
@@ -414,16 +418,19 @@ export const locateRelevantFilesTool: Tool<
           workspaceRoot: ctx.workspaceRoot,
           files: files.files.map(fileMetaToProjectRecord),
           extractSymbols: true,
+          extractDependencies: true,
+          semanticIndexer: ctx.projectSemanticIndexer,
         });
       }
     }
     stats.visitedDirs = unique(files.files.map((f) => f.path.split("/").slice(0, -1).join("/") || ".")).slice(0, 80);
-    const ranked = await rankCandidates(ctx, files.files, searchPlan, budget, stats, ctx.projectIndex, input.projectId, {
+    const rankResult = await rankCandidates(ctx, files.files, searchPlan, budget, stats, ctx.projectIndex, input.projectId, {
       visitedFiles,
       visitedDirs,
       resumeCandidates,
       resumePrimary,
     }, explorationTracker);
+    const ranked = rankResult.ranked;
     const maxPrimary = Math.min(input.limit, budget.maxPrimaryFiles);
     const primaryFiles = ranked.filter((f) => f.score >= 0.7).slice(0, maxPrimary);
     const candidateFiles = ranked
@@ -460,6 +467,8 @@ export const locateRelevantFilesTool: Tool<
       stopReason,
       suggestedAction: needsMoreSearch ? "continue_locating" : undefined,
       explorationProgress,
+      semanticHits: rankResult.semanticHits.length ? rankResult.semanticHits : undefined,
+      dependencyRelated: rankResult.dependencyRelated.length ? rankResult.dependencyRelated : undefined,
       locateStats: stats,
       indexSource,
       locationResume: resumeCtx
@@ -721,8 +730,14 @@ async function rankCandidates(
     resumePrimary: Set<string>;
   },
   explorationTracker?: ExplorationProgressTracker,
-): Promise<LocatedFile[]> {
+): Promise<{
+  ranked: LocatedFile[];
+  semanticHits: Array<{ path: string; score: number }>;
+  dependencyRelated: Array<{ path: string; relation: "imports" | "imported_by"; depth: number }>;
+}> {
   const ranked: LocatedFile[] = [];
+  const semanticHits: Array<{ path: string; score: number }> = [];
+  const semanticBoost = new Map<string, number>();
   const recordedPaths = new Set<string>();
   const recordExploration = (input: {
     path: string;
@@ -736,6 +751,33 @@ async function rankCandidates(
   };
   const loweredKeywords = plan.keywords.map((k) => k.toLowerCase());
   const symbolSet = new Set(plan.possibleSymbols.map((s) => s.toLowerCase()));
+
+  if (ctx.projectSemanticIndexer) {
+    const query = [plan.goal, ...plan.keywords.slice(0, 6)].join(" ").trim();
+    if (query) {
+      const hits = await ctx.projectSemanticIndexer.searchFiles({ projectId, query, limit: 10 });
+      for (const hit of hits) {
+        semanticHits.push({ path: hit.path, score: hit.score });
+        semanticBoost.set(hit.path, hit.score * 0.35);
+        if (!files.some((f) => f.path === hit.path)) {
+          files.push({
+            path: hit.path,
+            fileName: path.posix.basename(hit.path),
+            extension: path.posix.extname(hit.path),
+            sizeBytes: 0,
+            modifiedAt: new Date(0).toISOString(),
+            language: languageFromExt(path.posix.extname(hit.path)),
+            symbols: [],
+            imports: [],
+            exports: [],
+            tags: tagsForPath(hit.path),
+            hash: `semantic:${hit.path}`,
+          });
+        }
+      }
+    }
+  }
+
   if (projectIndex && plan.possibleSymbols.length) {
     const indexedHits = projectIndex.searchSymbols(projectId, ctx.workspaceRoot, plan.possibleSymbols);
     for (const hit of indexedHits) {
@@ -764,9 +806,13 @@ async function rankCandidates(
   for (const file of files) {
     const p = file.path.toLowerCase();
     const name = file.fileName.toLowerCase();
-    let score = 0;
+    let score = semanticBoost.get(file.path) ?? 0;
     const matchTypes = new Set<LocatedFile["matchTypes"][number]>();
     const reasons: string[] = [];
+    if (semanticBoost.has(file.path)) {
+      matchTypes.add("memory");
+      reasons.push("LanceDB 语义召回");
+    }
     const alreadyVisited = resume?.visitedFiles.has(file.path) ?? false;
     if (resume?.resumePrimary.has(file.path)) {
       score += 0.4;
@@ -851,9 +897,45 @@ async function rankCandidates(
       });
     }
   }
-  return ranked
-    .sort((a, b) => b.score - a.score || a.path.localeCompare(b.path))
-    .slice(0, budget.maxCandidateFiles);
+
+  const dependencyRelated: Array<{ path: string; relation: "imports" | "imported_by"; depth: number }> = [];
+  if (projectIndex && ranked.length) {
+    const seeds = ranked.slice(0, 5).map((item) => item.path);
+    const neighbors = projectIndex.expandGraphNeighbors(projectId, ctx.workspaceRoot, seeds, {
+      maxDepth: 1,
+      limit: 16,
+    });
+    for (const neighbor of neighbors) {
+      dependencyRelated.push(neighbor);
+      const boost = neighbor.relation === "imported_by" ? 0.22 : 0.18;
+      const existingRank = ranked.find((item) => item.path === neighbor.path);
+      if (existingRank) {
+        existingRank.score = Number(Math.min(0.99, existingRank.score + boost).toFixed(2));
+        if (!existingRank.matchTypes.includes("importance")) {
+          existingRank.matchTypes.push("importance");
+        }
+        existingRank.reason = unique([
+          existingRank.reason,
+          neighbor.relation === "imported_by" ? "被高相关文件 import" : "import 高相关邻居",
+        ].filter(Boolean)).slice(0, 4).join("；");
+      } else {
+        ranked.push({
+          path: neighbor.path,
+          score: Number(boost.toFixed(2)),
+          reason: neighbor.relation === "imported_by" ? "模块依赖图：被 import" : "模块依赖图：import 邻居",
+          matchTypes: ["importance"],
+        });
+      }
+    }
+  }
+
+  return {
+    ranked: ranked
+      .sort((a, b) => b.score - a.score || a.path.localeCompare(b.path))
+      .slice(0, budget.maxCandidateFiles),
+    semanticHits,
+    dependencyRelated,
+  };
 }
 
 async function scoreFileContent(

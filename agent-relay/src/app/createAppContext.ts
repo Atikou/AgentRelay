@@ -22,6 +22,8 @@ import { Orchestrator } from "../orchestrator/Orchestrator.js";
 import { RunStore } from "../orchestrator/RunStore.js";
 import { RunStateStore } from "../orchestrator/RunStateStore.js";
 import { ProjectIndex } from "../context/ProjectIndex.js";
+import { ModuleDependencyGraph } from "../context/ModuleDependencyGraph.js";
+import { ProjectSemanticIndexer } from "../context/ProjectSemanticIndexer.js";
 import { Scheduler } from "../scheduler/index.js";
 import { SubAgentCoordinator } from "../subagent/index.js";
 import { createDefaultRegistry } from "../tools/index.js";
@@ -78,6 +80,8 @@ export class AppContext {
   readonly runs: RunStore;
   readonly runStateStore: RunStateStore;
   readonly projectIndex: ProjectIndex;
+  readonly projectSemanticIndexer: ProjectSemanticIndexer;
+  readonly moduleDependencyGraph: ModuleDependencyGraph;
   readonly orchestrator: Orchestrator;
   readonly subAgentCoordinator: SubAgentCoordinator;
   readonly smartModelRouter: SmartModelRouter;
@@ -114,6 +118,8 @@ export class AppContext {
     runs: RunStore;
     runStateStore: RunStateStore;
     projectIndex: ProjectIndex;
+    projectSemanticIndexer: ProjectSemanticIndexer;
+    moduleDependencyGraph: ModuleDependencyGraph;
     orchestrator: Orchestrator;
     subAgentCoordinator: SubAgentCoordinator;
     smartModelRouter: SmartModelRouter;
@@ -149,6 +155,8 @@ export class AppContext {
     this.runs = opts.runs;
     this.runStateStore = opts.runStateStore;
     this.projectIndex = opts.projectIndex;
+    this.projectSemanticIndexer = opts.projectSemanticIndexer;
+    this.moduleDependencyGraph = opts.moduleDependencyGraph;
     this.orchestrator = opts.orchestrator;
     this.subAgentCoordinator = opts.subAgentCoordinator;
     this.smartModelRouter = opts.smartModelRouter;
@@ -249,6 +257,8 @@ export class AppContext {
         runStateStore: true,
         projectIndex: true,
         symbolSearch: true,
+        projectSemanticLocate: true,
+        moduleDependencyGraph: true,
         costBudgetPerRun: true,
         ruleOnlyRouting: true,
         sqliteSchemaMigrations: true,
@@ -384,7 +394,12 @@ export function createAppContext(): AppContext {
   const runs = new RunStore(contextManager.db);
   const runStateStore = new RunStateStore(contextManager.db);
   const projectIndex = new ProjectIndex(contextManager.db);
-  registry.setDefaultContext({ projectIndex });
+  const projectSemanticIndexer = new ProjectSemanticIndexer(
+    contextManager.embeddings,
+    contextManager.vectors,
+  );
+  const moduleDependencyGraph = new ModuleDependencyGraph(projectIndex);
+  registry.setDefaultContext({ projectIndex, projectSemanticIndexer });
 
   const modelProfiles = buildModelProfiles(config.models.clients);
   for (const msg of validateModelProfiles(modelProfiles)) {
@@ -514,6 +529,8 @@ export function createAppContext(): AppContext {
     runs,
     runStateStore,
     projectIndex,
+    projectSemanticIndexer,
+    moduleDependencyGraph,
     orchestrator,
     subAgentCoordinator,
     smartModelRouter,

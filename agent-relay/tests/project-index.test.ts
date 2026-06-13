@@ -29,6 +29,86 @@ function tempWorkspace(): { dataDir: string; root: string; cleanup: () => void }
   return { dataDir, root, cleanup: () => rmSync(dataDir, { recursive: true, force: true }) };
 }
 
+test("memory.db schema v11 含 project_imports / project_exports", () => {
+  const { dataDir, cleanup } = tempWorkspace();
+  const dbm = new DatabaseManager(dataDir);
+  try {
+    assert.equal(dbm.schemaVersion, MEMORY_DB_SCHEMA_VERSION);
+    const importsTable = dbm.connection
+      .prepare(`SELECT name FROM sqlite_master WHERE type='table' AND name='project_imports'`)
+      .get() as { name: string };
+    const exportsTable = dbm.connection
+      .prepare(`SELECT name FROM sqlite_master WHERE type='table' AND name='project_exports'`)
+      .get() as { name: string };
+    assert.equal(importsTable.name, "project_imports");
+    assert.equal(exportsTable.name, "project_exports");
+  } finally {
+    dbm.close();
+    cleanup();
+  }
+});
+
+test("syncFiles 写入 import 依赖并可查询邻居", async () => {
+  const { dataDir, root, cleanup } = tempWorkspace();
+  mkdirSync(path.join(root, "src", "plan"), { recursive: true });
+  writeFileSync(
+    path.join(root, "src", "plan", "PlanCompiler.ts"),
+    "export class PlanCompiler {}\n",
+    "utf-8",
+  );
+  writeFileSync(
+    path.join(root, "src", "plan", "PlanRunner.ts"),
+    "import { PlanCompiler } from './PlanCompiler';\nexport class PlanRunner {}\n",
+    "utf-8",
+  );
+  const dbm = new DatabaseManager(dataDir);
+  const index = new ProjectIndex(dbm);
+  try {
+    await index.syncFiles({
+      projectId: "default",
+      workspaceRoot: root,
+      files: [
+        {
+          path: "src/plan/PlanCompiler.ts",
+          fileName: "PlanCompiler.ts",
+          extension: ".ts",
+          sizeBytes: 64,
+          modifiedAt: new Date().toISOString(),
+          mtimeMs: Date.now(),
+          contentHash: "hash-compiler",
+          language: "typescript",
+          tags: ["source"],
+        },
+        {
+          path: "src/plan/PlanRunner.ts",
+          fileName: "PlanRunner.ts",
+          extension: ".ts",
+          sizeBytes: 64,
+          modifiedAt: new Date().toISOString(),
+          mtimeMs: Date.now(),
+          contentHash: "hash-runner",
+          language: "typescript",
+          tags: ["source"],
+        },
+      ],
+      extractSymbols: true,
+      extractDependencies: true,
+    });
+    const deps = index.getDependencies("default", root, "src/plan/PlanRunner.ts");
+    assert.deepEqual(deps, ["src/plan/PlanCompiler.ts"]);
+    const dependents = index.getDependents("default", root, "src/plan/PlanCompiler.ts");
+    assert.deepEqual(dependents, ["src/plan/PlanRunner.ts"]);
+    const neighbors = index.expandGraphNeighbors("default", root, ["src/plan/PlanRunner.ts"], {
+      maxDepth: 1,
+      limit: 8,
+    });
+    assert.ok(neighbors.some((n) => n.path === "src/plan/PlanCompiler.ts" && n.relation === "imports"));
+  } finally {
+    dbm.close();
+    cleanup();
+  }
+});
+
 test("memory.db schema v10 含 project_files / project_symbols", () => {
   const { dataDir, cleanup } = tempWorkspace();
   const dbm = new DatabaseManager(dataDir);

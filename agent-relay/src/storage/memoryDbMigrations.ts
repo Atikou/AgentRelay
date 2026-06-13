@@ -5,7 +5,7 @@ import { ensureRoutingTables } from "../model-router/route-stores.js";
 import { ensureEvalTables } from "../model-router/eval-set-store.js";
 import { addColumnIfMissing, type SqliteMigration } from "./sqliteMigration.js";
 
-export const MEMORY_DB_SCHEMA_VERSION = 10;
+export const MEMORY_DB_SCHEMA_VERSION = 11;
 
 function ensureFts(
   db: DatabaseSync,
@@ -389,6 +389,42 @@ export const MEMORY_DB_MIGRATIONS: readonly SqliteMigration[] = [
           PRIMARY KEY (project_id, workspace_root, file_path, symbol)
         );
         CREATE INDEX IF NOT EXISTS idx_project_symbols_name ON project_symbols(project_id, workspace_root, symbol);
+      `);
+    },
+  },
+  {
+    version: 11,
+    name: "project_dependencies",
+    up(db) {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS project_imports (
+          project_id TEXT NOT NULL,
+          workspace_root TEXT NOT NULL,
+          from_path TEXT NOT NULL,
+          import_spec TEXT NOT NULL,
+          resolved_path TEXT,
+          kind TEXT NOT NULL,
+          line INTEGER NOT NULL,
+          indexed_at TEXT NOT NULL,
+          PRIMARY KEY (project_id, workspace_root, from_path, import_spec, line)
+        );
+        CREATE INDEX IF NOT EXISTS idx_project_imports_from
+          ON project_imports(project_id, workspace_root, from_path);
+        CREATE INDEX IF NOT EXISTS idx_project_imports_to
+          ON project_imports(project_id, workspace_root, resolved_path);
+
+        CREATE TABLE IF NOT EXISTS project_exports (
+          project_id TEXT NOT NULL,
+          workspace_root TEXT NOT NULL,
+          file_path TEXT NOT NULL,
+          export_name TEXT NOT NULL,
+          kind TEXT NOT NULL,
+          line INTEGER NOT NULL,
+          indexed_at TEXT NOT NULL,
+          PRIMARY KEY (project_id, workspace_root, file_path, export_name)
+        );
+        CREATE INDEX IF NOT EXISTS idx_project_exports_name
+          ON project_exports(project_id, workspace_root, export_name);
       `);
     },
   },

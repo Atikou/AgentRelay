@@ -143,9 +143,9 @@
 ## 4. P3：高级能力
 
 - [x] 独立 `symbol_search` 工具。
-- [ ] 模块依赖图。
-- [ ] import/export 关系分析。
-- [ ] 基于 LanceDB 的语义文件定位。
+- [x] 模块依赖图。
+- [x] import/export 关系分析。
+- [x] 基于 LanceDB 的语义文件定位。
 - [ ] 结合历史任务/项目记忆的相关文件召回。
 
 ---
@@ -155,7 +155,7 @@
 | 工具 | 状态 | 说明 |
 | --- | --- | --- |
 | `project_scan` | [x] | 轻量扫描项目结构与配置 |
-| `locate_relevant_files` | [x] | 生成 SearchPlan、候选排序、定位统计 |
+| `locate_relevant_files` | [x] | 生成 SearchPlan、候选排序、定位统计；含模块依赖图扩展与 LanceDB `semanticHits` |
 | `context_pack` | [x] | 多文件上下文打包 |
 | `symbol_search` | [x] | 优先查 ProjectIndex，回退文件系统符号提取 |
 | `project_index_update` | [ ] | 尚未实现（`project_scan` 已会增量写入索引） |
