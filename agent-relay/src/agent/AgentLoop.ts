@@ -4,6 +4,7 @@ import type { NotificationQueue } from "../background/NotificationQueue.js";
 import type { ContextManager } from "../context/ContextManager.js";
 import type { ModelTaskType } from "../model/taskType.js";
 import type { ChatMessage, ChatRequest, ModelResponse } from "../model/types.js";
+import type { AgentPromptStrategySummary, AgentRouterDecisionSummary, AgentRoutingMeta } from "../model-router/agent-routing-summary.js";
 import type { ToolRegistry } from "../tools/ToolRegistry.js";
 import type { TraceLogger } from "../trace/TraceLogger.js";
 import type { AgentStepPlan } from "../plan/types.js";
@@ -41,10 +42,15 @@ import {
   type RunState,
 } from "../orchestrator/runStateTypes.js";
 
+export interface LoopChatResponse extends ModelResponse {
+  /** Smart 路由路径：本轮模型调用的决策与提示策略（首轮回传至 Agent 响应）。 */
+  routingMeta?: AgentRoutingMeta;
+}
+
 export type LoopChatFn = (
   req: ChatRequest,
   opts?: { sensitive?: boolean; taskType?: ModelTaskType },
-) => Promise<ModelResponse>;
+) => Promise<LoopChatResponse>;
 
 export interface AgentRunResult {
   answer: string;
@@ -54,6 +60,10 @@ export interface AgentRunResult {
   reachedLimit: boolean;
   /** 本次运行实际生效的模式、预算、调用计数与停止原因。 */
   executionMeta: AgentExecutionMeta;
+  /** 首轮模型调用的 Smart 路由摘要（默认 Smart 路径；显式 clientName 时省略）。 */
+  routerDecision?: AgentRouterDecisionSummary;
+  /** 首轮模型调用的提示策略（temperature/风格/hints）。 */
+  promptStrategy?: AgentPromptStrategySummary;
   /** 本轮在安全点消费的系统通知（如后台任务完成）。 */
   notifications?: AgentNotification[];
   /** M6：持久化会话 id（启用 ContextManager 时返回）。 */
@@ -144,6 +154,7 @@ export class AgentLoop {
   private readonly policy: RunPolicy;
   private readonly finalizer = defaultFinalizer;
   private modelTurnMetrics: AgentModelTurnMetric[] = [];
+  private runRoutingMeta?: AgentRoutingMeta;
 
   constructor(private readonly options: AgentLoopOptions) {
     this.policy =
@@ -174,6 +185,7 @@ export class AgentLoop {
   async run(userMessage: string, system?: string): Promise<AgentRunResult> {
     this.budgetManager.markRunStarted();
     this.modelTurnMetrics = [];
+    this.runRoutingMeta = undefined;
     const isResume = Boolean(this.options.resumeState);
     const effectiveGoal = isResume ? this.options.resumeState!.goal : userMessage;
     const ctx = this.options.contextManager;
@@ -251,7 +263,7 @@ export class AgentLoop {
       const iteration = modelTurns + 1;
       modelTurns = iteration;
       const modelStart = Date.now();
-      let response: ModelResponse;
+      let response: LoopChatResponse;
       try {
         assertWithinCostBudget(
           sumModelTurnCost(this.modelTurnMetrics.map((m) => m.costUsd)),
@@ -261,6 +273,9 @@ export class AgentLoop {
           { messages, temperature: 0.2, onToken: this.options.onToken },
           { sensitive: this.options.sensitive, taskType: this.options.taskType },
         );
+        if (!this.runRoutingMeta && response.routingMeta) {
+          this.runRoutingMeta = response.routingMeta;
+        }
         this.recordModelTurn({
           iteration,
           success: true,
@@ -444,6 +459,8 @@ export class AgentLoop {
       iterations: input.iterations,
       reachedLimit: input.reachedLimit,
       executionMeta,
+      routerDecision: this.runRoutingMeta?.routerDecision,
+      promptStrategy: this.runRoutingMeta?.promptStrategy,
       notifications: input.consumedNotifications.length
         ? input.consumedNotifications
         : undefined,

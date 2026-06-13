@@ -258,6 +258,7 @@ export class AppContext {
         contextAnalyzerV8: true,
         promptStrategyBuilderV8: true,
         runtimeStatsFeedbackV8: true,
+        agentPromptStrategyV8: true,
         runPolicyManager: true,
         budgetManager: true,
         finalizer: true,

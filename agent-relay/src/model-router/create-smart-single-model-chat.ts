@@ -1,18 +1,25 @@
-import type { LoopChatFn } from "../agent/AgentLoop.js";
+import type { LoopChatFn, LoopChatResponse } from "../agent/AgentLoop.js";
 import type { RouteOptions } from "../model/ModelRouter.js";
 import type { ModelTaskType } from "../model/taskType.js";
 import type { ChatRequest, ModelResponse } from "../model/types.js";
 import type { ModelChatFn } from "../model-orchestrator/types.js";
+import { buildAgentRoutingMeta } from "./agent-routing-summary.js";
+import { applyPromptStrategyToMessages } from "./apply-prompt-strategy-messages.js";
+import {
+  defaultPromptStrategyBuilder,
+} from "./prompt-strategy-builder.js";
 import { buildRouterInputFromChat } from "./router-input.js";
 import { resolveRuleOnlyAnswer } from "./rule-only-responses.js";
 import { estimateRouterContextTokens } from "./router-context-estimate.js";
 import type { SmartModelRouter } from "./smart-model-router.js";
 import { RouterError, type RouterInput } from "./types.js";
 
+export type { AgentRoutingMeta } from "./agent-routing-summary.js";
+
 export type SmartSingleModelChatFn = (
   request: ChatRequest,
   opts?: { sensitive?: boolean; taskType?: ModelTaskType },
-) => Promise<ModelResponse>;
+) => Promise<LoopChatResponse>;
 
 /** 取最近一条 user 消息作为路由输入。 */
 export function extractLastUserMessage(
@@ -59,17 +66,24 @@ export function createSmartSingleModelChatFn(deps: {
 }): SmartSingleModelChatFn {
   return async (request, opts) => {
     const userInput = extractLastUserMessage(request.messages);
-    let decision;
+    const routerInput = deps.buildInput(userInput, opts, { messages: request.messages });
+    let routed;
     try {
-      decision = deps.smartRouter.route(
-        deps.buildInput(userInput, opts, { messages: request.messages }),
-      );
+      routed = deps.smartRouter.routeDetailed(routerInput);
     } catch (error) {
       if (error instanceof RouterError) {
         throw new Error(error.message);
       }
       throw error;
     }
+    const decision = routed.decision;
+    const promptStrategy = defaultPromptStrategyBuilder.build({
+      decision,
+      routingContext: routed.routingContext,
+      userInput,
+      qualityMode: routerInput.qualityMode,
+    });
+    const routingMeta = buildAgentRoutingMeta(decision, promptStrategy);
 
     const modelId = decision.selectedModelId;
     if (decision.executionStrategy === "rule_only") {
@@ -81,18 +95,24 @@ export function createSmartSingleModelChatFn(deps: {
         modelName: "rule-only",
         location: "local",
         latencyMs: 0,
+        routingMeta,
       };
     }
     if (!modelId) {
       throw new Error("路由未选出可用模型");
     }
 
-    const { response } = await deps.modelChatFn(modelId, request, {
+    const chatRequest: ChatRequest = {
+      ...request,
+      temperature: promptStrategy.temperature,
+      messages: applyPromptStrategyToMessages(request.messages, promptStrategy),
+    };
+    const { response } = await deps.modelChatFn(modelId, chatRequest, {
       routeLogId: decision.id,
       role: "primary",
       sessionId: decision.sessionId,
     });
-    return response;
+    return { ...response, routingMeta };
   };
 }
 

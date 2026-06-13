@@ -1690,6 +1690,14 @@
           "iterations": { "type": "integer" },
           "reachedLimit": { "type": "boolean" },
           "executionMeta": { "$ref": "#/components/schemas/AgentExecutionMeta" },
+          "routerDecision": {
+            "type": "object",
+            "description": "首轮 Smart 路由决策摘要（默认 Smart 路径；显式 clientName 时省略）"
+          },
+          "promptStrategy": {
+            "type": "object",
+            "description": "首轮提示策略（temperature/responseStyle/hints）"
+          },
           "sessionId": { "type": "string" },
           "notifications": { "type": "array", "items": { "$ref": "#/components/schemas/Notification" } },
           "runState": { "$ref": "#/components/schemas/RunState" },

@@ -1533,6 +1533,8 @@ export class Orchestrator {
         answer: result.answer,
         iterations: result.iterations,
         executionMeta: result.executionMeta,
+        routerDecision: result.routerDecision,
+        promptStrategy: result.promptStrategy,
         runState: runState
           ? { status: runState.status, pendingSteps: runState.pendingSteps, completedSteps: runState.completedSteps }
           : undefined,

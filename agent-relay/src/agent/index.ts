@@ -29,4 +29,5 @@ export {
   type AgentLoopOptions,
   type AgentRunResult,
   type LoopChatFn,
+  type LoopChatResponse,
 } from "./AgentLoop.js";

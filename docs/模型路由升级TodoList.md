@@ -2,7 +2,7 @@
 
 > 依据 `Agent_Model_Router_Auto_Upgrade_Roadmap.md` 对当前仓库扫描生成。  
 > **关联索引**：[外部规范-TodoList索引](外部规范-TodoList索引.md)  
-> **当前阶段：V8 P2 RuntimeStats 反馈已落地 → 继续 Agent 响应暴露 promptStrategy 等收尾，勿一次性做完 V8。**  
+> **当前阶段：V8 P3 Agent promptStrategy 暴露已落地 → 继续 CostBudget 等收尾，勿一次性做完 V8。**  
 > 推进模型路由相关改动前，请先读 [模型路由与协作](模型路由与协作.md) 了解已实现能力；**不要一次性实现完整自动路由（V8）**。
 
 ---
@@ -144,7 +144,7 @@
 - [x] `estimateRouterContextTokens` 统一 token 估计（Orchestrator / Agent / Planner）
 - [x] `/api/chat` Smart 路径应用 `promptStrategy` 并回传 `routerDecision.promptStrategy`
 - [x] `RuntimeStatsFeedback` 只读反馈影响候选排序（`source=runtime_stats`，不改配置）
-- [ ] Agent `/api/agent` 响应暴露 `promptStrategy`（当前仅内部路由用 token 估计）
+- [x] Agent `/api/agent` 响应暴露 `routerDecision` + `promptStrategy`（首轮 Smart 路由）
 
 ### P2：后续阶段（本清单阶段不做）
 

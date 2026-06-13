@@ -433,6 +433,32 @@
       }
     },
     {
+      "id": "m1-agent-config-prompt-strategy-v8",
+      "title": "GET /api/config 暴露 agentPromptStrategyV8",
+      "purpose": "确认 /api/agent 已支持首轮 promptStrategy 暴露并在 capabilities 声明。",
+      "method": "GET",
+      "path": "/api/config",
+      "input": {},
+      "expect": {
+        "status": 200,
+        "bodyPaths": {
+          "capabilities.agentPromptStrategyV8": true
+        }
+      }
+    },
+    {
+      "id": "m1-agent-api-spec-prompt-strategy",
+      "title": "API 规范登记 AgentResponse promptStrategy",
+      "purpose": "确认 api-spec 已声明 Agent 响应含 routerDecision 与 promptStrategy，便于集成方探测。",
+      "method": "GET",
+      "path": "/api/api-spec.json",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyContains": ["AgentResponse", "promptStrategy", "routerDecision"]
+      }
+    },
+    {
       "id": "m1-agent-unknown-client-still-force",
       "title": "未知 clientName 仍立即 404",
       "purpose": "确认 Smart 路由接入后，显式 clientName 校验行为不变，不会静默回退默认路由。",

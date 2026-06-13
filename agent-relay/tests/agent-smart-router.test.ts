@@ -149,6 +149,63 @@ test("短问候走 rule_only 且不调用模型", async () => {
   assert.equal(called, false);
   assert.equal(response.clientName, "rule-only");
   assert.match(response.content, /你好|AgentRelay/);
+  assert.equal(response.routingMeta?.routerDecision.executionStrategy, "rule_only");
+  assert.ok(response.routingMeta?.promptStrategy);
+});
+
+test("Agent chat 返回 routingMeta 含 routerDecision 与 promptStrategy", async () => {
+  const chatFn = createAgentChatFn({
+    smartRouter,
+    modelChatFn: async (modelId) => ({
+      response: {
+        clientName: modelId,
+        modelName: modelId,
+        location: "remote",
+        content: '{"action":"final","answer":"ok"}',
+        latencyMs: 1,
+      } satisfies ModelResponse,
+      callLogId: "c3",
+    }),
+  });
+
+  const response = await chatFn({
+    messages: [{ role: "user", content: "解释这个 TypeScript 报错" }],
+  });
+  assert.ok(response.routingMeta);
+  assert.equal(response.routingMeta.routerDecision.executionStrategy, "single_model");
+  assert.ok(response.routingMeta.promptStrategy.temperature >= 0);
+  assert.ok(Array.isArray(response.routingMeta.promptStrategy.hints));
+});
+
+test("Agent chat 应用 promptStrategy 温度与 system 补充", async () => {
+  let capturedTemp: number | undefined;
+  let capturedSystem = "";
+  const chatFn = createAgentChatFn({
+    smartRouter,
+    modelChatFn: async (modelId, request) => {
+      capturedTemp = request.temperature;
+      capturedSystem = request.messages.find((m) => m.role === "system")?.content ?? "";
+      return {
+        response: {
+          clientName: modelId,
+          modelName: modelId,
+          location: "remote",
+          content: "{}",
+          latencyMs: 1,
+        } satisfies ModelResponse,
+        callLogId: "c4",
+      };
+    },
+  });
+
+  await chatFn({
+    messages: [
+      { role: "system", content: "你是助手" },
+      { role: "user", content: "解释这个 TypeScript 报错" },
+    ],
+  });
+  assert.ok(capturedTemp !== undefined && capturedTemp <= 0.3);
+  assert.notEqual(capturedSystem, "你是助手");
 });
 
 let passed = 0;

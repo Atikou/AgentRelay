@@ -62,6 +62,15 @@ export {
   applyPromptStrategyToSystemText,
 } from "./prompt-strategy-builder.js";
 export type { PromptStrategy, PromptResponseStyle } from "./prompt-strategy-builder.js";
+export {
+  buildAgentRoutingMeta,
+} from "./agent-routing-summary.js";
+export type {
+  AgentRoutingMeta,
+  AgentRouterDecisionSummary,
+  AgentPromptStrategySummary,
+} from "./agent-routing-summary.js";
+export { applyPromptStrategyToMessages } from "./apply-prompt-strategy-messages.js";
 export { createModelChatFn } from "./create-model-chat.js";
 export {
   buildAgentRouterInput,
