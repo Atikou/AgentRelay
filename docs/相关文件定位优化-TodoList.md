@@ -11,7 +11,7 @@
 - [x] 明确问题不是简单调大单一迭代次数，而是定位阶段使用过多低层工具。
 - [x] 引入高级定位工具，减少 `list_files` / `search_text` / `read_file` 连续试探。
 - [x] 定位结果进入 `executionMeta.location`，便于区分普通运行预算耗尽与定位阶段不足。
-- [ ] 支持完整继续定位与恢复，不从头重新扫描。（RunState + resumeContext 已落地；见 `run-state-location` / `tools.test` 续跑用例）
+- [x] 支持完整继续定位与恢复，不从头重新扫描。（RunState + resumeContext + `run-state-store` 续跑集成测）
 
 ---
 

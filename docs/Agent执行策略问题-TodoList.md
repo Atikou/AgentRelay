@@ -87,7 +87,7 @@
 | PlanWorkflow | [x] | `src/agent/PlanWorkflow.ts` |
 | ProjectScanTool | [x] | `project_scan` / `locate_relevant_files` / `context_pack` |
 | RunStateStore | [x] | `RunStateStore.ts` + `run_states` 表 + `POST /api/agent/resume` |
-| IntentRouter | [~] | `inferRunMode()` + Orchestrator `parseRunMode` |
+| IntentRouter | [x] | `IntentRouter.ts`；模式推断 + `WorkflowPlanner` 工作流选择 |
 | WorkflowPlanner | [x] | `WorkflowPlanner.ts`；`plan_prescan` / `implement_locate` → `PlanWorkflow` 执行 |
 | ToolPermissionManager | [x] | `AgentLoop` + `ToolRegistry` `allowedPermissions` |
 
@@ -271,7 +271,7 @@
 ## 5. 推荐修复架构（§4）落地情况
 
 ```text
-用户输入 → IntentRouter(inferRunMode) ✅
+用户输入 → IntentRouter(route) ✅
   → RunPolicyManager ✅
   → BudgetManager ✅
   → ToolPermissionManager ✅

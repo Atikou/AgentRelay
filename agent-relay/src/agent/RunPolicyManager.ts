@@ -2,6 +2,7 @@ import { MODE_PERMISSIONS, type ToolPermission } from "./permissions.js";
 import type { ModelTaskType } from "../model/taskType.js";
 import type { AgentRunMode, ResolveRunPolicyInput, RunBudget, RunPolicy } from "./RunPolicy.js";
 import { BudgetManager } from "./BudgetManager.js";
+import { defaultIntentRouter } from "./IntentRouter.js";
 
 const MODE_DEFAULT_BUDGETS: Record<AgentRunMode, RunBudget> = {
   chat: {
@@ -100,7 +101,12 @@ const MODE_PERMISSIONS_BY_RUN_MODE: Record<AgentRunMode, ToolPermission[]> = {
 /** 解析运行模式、分项预算与权限策略；与 `BudgetManager` 配对使用。 */
 export class RunPolicyManager {
   resolve(input: ResolveRunPolicyInput = {}): RunPolicy {
-    const mode = this.parseMode(input.requestedMode) ?? this.inferMode(input);
+    const route = defaultIntentRouter.route({
+      requestedMode: input.requestedMode,
+      message: input.message,
+      taskType: input.taskType,
+    });
+    const mode = route.mode;
     const budget = this.resolveBudget(mode, input.budget);
     const suggestedBudget = mergeBudgetMax(MODE_SUGGESTED_BUDGETS[mode], budget);
 
@@ -131,21 +137,7 @@ export class RunPolicyManager {
   }
 
   inferMode(input: ResolveRunPolicyInput): AgentRunMode {
-    const text = input.message?.toLowerCase() ?? "";
-    if (
-      text.includes("计划模式") ||
-      text.includes("只读") ||
-      text.includes("不要修改") ||
-      text.includes("不做修改") ||
-      text.includes("先不要修改") ||
-      text.includes("plan mode")
-    ) {
-      return "plan";
-    }
-    if (text.includes("审阅") || text.includes("review")) return "review";
-    if (text.includes("调试") || text.includes("排错") || text.includes("debug")) return "debug";
-    if (input.taskType === "codegen") return "implement";
-    return "chat";
+    return defaultIntentRouter.inferMode(input);
   }
 
   resolveBudget(mode: AgentRunMode, override: Partial<RunBudget> | undefined): RunBudget {

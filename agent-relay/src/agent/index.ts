@@ -12,6 +12,7 @@ export {
   type WorkflowPlan,
   type AgentWorkflowId,
 } from "./WorkflowPlanner.js";
+export { IntentRouter, defaultIntentRouter, type IntentRouteResult } from "./IntentRouter.js";
 export { finalizePlan, sortSubtasksByPriority } from "./taskGraph.js";
 export {
   TaskRunner,
