@@ -34,7 +34,8 @@
 - [ ] `editWorkflow` / `generateFileWorkflow`：定位文件、生成修改方案、检查权限、执行修改、记录 diff。
   - [x] 首轮前只读预定位：`WorkflowPlanner` 按 intent 选择 `edit_locate` / `generate_file_locate`，`WorkflowExecutor` 通过 `PlanWorkflow` 执行 `locate_relevant_files` → `context_pack`。
   - [x] 写入前方案阶段：`EditProposalWorkflow` 注入 `targetFiles` / `changeSummary` / `permissionCheck` / `diffPlan` / `verificationPlan` 约束，要求模型先形成具体修改方案。
-  - [ ] 将方案阶段升级为可审计记录，并接入权限检查、执行修改、记录 diff。
+  - [x] 方案阶段可审计记录：`executionMeta.workflowProposals` 返回 `workflowType` / `phase` / `permissionPolicy` / `requiredFields` / `writeAllowedByPolicy` / `requiresConfirmationBeforeWrite`。
+  - [ ] 接入权限检查结果、执行修改、记录 diff。
 - [ ] `debugWorkflow`：报错分析、定位文件、最小修复、验证失败后继续迭代。
 - [ ] `refactorWorkflow`：强制先计划，分阶段修改，每阶段尽量可验证。
 - [x] `runWorkflow` / `verifyWorkflow`：执行安全命令、收集输出、分析结果；无法执行时降级为静态检查并说明。（`RunVerifyWorkflow` 白名单执行 `node --version` / `npm run typecheck` / `npm test` 等安全命令；无匹配命令、无 shell 权限或预算不足时静态降级。）

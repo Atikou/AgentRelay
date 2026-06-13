@@ -108,6 +108,12 @@ test("edit workflow prelocates files through WorkflowExecutor", async () => {
   assert.match(result.modelContexts[0]!, /editWorkflow read-only prelocation result/);
   assert.match(result.modelContexts[1]!, /editWorkflow proposal phase/);
   assert.match(result.modelContexts[1]!, /diffPlan/);
+  assert.equal(result.workflowProposals.length, 1);
+  assert.equal(result.workflowProposals[0]!.workflowType, "editWorkflow");
+  assert.equal(result.workflowProposals[0]!.permissionPolicy, "autoEdit");
+  assert.equal(result.workflowProposals[0]!.writeAllowedByPolicy, true);
+  assert.equal(result.workflowProposals[0]!.requiresConfirmationBeforeWrite, false);
+  assert.ok(result.workflowProposals[0]!.requiredFields.includes("diffPlan"));
   assert.equal(locate.calls.length, 1);
   assert.equal(contextPack.calls.length, 1);
 });
@@ -152,6 +158,10 @@ test("generate file workflow prelocates conventions through WorkflowExecutor", a
   assert.match(result.modelContexts[0]!, /generateFileWorkflow read-only prelocation result/);
   assert.match(result.modelContexts[1]!, /generateFileWorkflow proposal phase/);
   assert.match(result.modelContexts[1]!, /targetFiles/);
+  assert.equal(result.workflowProposals.length, 1);
+  assert.equal(result.workflowProposals[0]!.workflowType, "generateFileWorkflow");
+  assert.equal(result.workflowProposals[0]!.intent, "generate_file");
+  assert.ok(result.workflowProposals[0]!.requiredFields.includes("targetFiles"));
   assert.equal(locate.calls.length, 1);
   assert.equal(contextPack.calls.length, 1);
 });

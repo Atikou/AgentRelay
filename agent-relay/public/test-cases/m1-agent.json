@@ -1097,6 +1097,74 @@
       }
     },
     {
+      "id": "m1-agent-edit-proposal-audit-meta",
+      "title": "editWorkflow 返回 proposal 审计记录",
+      "purpose": "确认修改类请求在只读预定位和 proposal phase 后，会通过 executionMeta.workflowProposals 返回可审计结构化契约，而不是只把方案要求写进 prompt。",
+      "method": "POST",
+      "path": "/api/agent",
+      "input": {
+        "message": "修改 src/agent/AgentLoop.ts 的提示文案，先定位并生成修改方案",
+        "mode": "implement",
+        "permissionPolicy": "autoEdit",
+        "persist": false,
+        "budget": {
+          "maxModelTurns": 1,
+          "maxToolCalls": 2,
+          "maxReadCalls": 2,
+          "maxWriteCalls": 0,
+          "maxShellCalls": 0,
+          "maxRuntimeMs": 60000
+        }
+      },
+      "expect": {
+        "status": 200,
+        "bodyPaths": {
+          "executionMeta.intent": "edit",
+          "executionMeta.workflowType": "editWorkflow",
+          "executionMeta.workflowProposals.0.workflowType": "editWorkflow",
+          "executionMeta.workflowProposals.0.phase": "proposal",
+          "executionMeta.workflowProposals.0.permissionPolicy": "autoEdit",
+          "executionMeta.workflowProposals.0.writeAllowedByPolicy": true,
+          "executionMeta.workflowProposals.0.requiresConfirmationBeforeWrite": false
+        },
+        "bodyContains": ["workflowProposals", "diffPlan", "permissionCheck"]
+      }
+    },
+    {
+      "id": "m1-agent-generate-file-proposal-audit-meta",
+      "title": "generateFileWorkflow 返回 proposal 审计记录",
+      "purpose": "确认生成文件类请求会登记 generateFileWorkflow 的 proposal 审计记录，并暴露必填方案字段，便于测试台和审计链路理解写入前阶段。",
+      "method": "POST",
+      "path": "/api/agent",
+      "input": {
+        "message": "生成 src/agent/NewWorkflow.ts，先参考现有工作流风格并给出创建方案",
+        "mode": "implement",
+        "permissionPolicy": "confirmBeforeEdit",
+        "persist": false,
+        "budget": {
+          "maxModelTurns": 1,
+          "maxToolCalls": 2,
+          "maxReadCalls": 2,
+          "maxWriteCalls": 0,
+          "maxShellCalls": 0,
+          "maxRuntimeMs": 60000
+        }
+      },
+      "expect": {
+        "status": 200,
+        "bodyPaths": {
+          "executionMeta.intent": "generate_file",
+          "executionMeta.workflowType": "generateFileWorkflow",
+          "executionMeta.workflowProposals.0.workflowType": "generateFileWorkflow",
+          "executionMeta.workflowProposals.0.phase": "proposal",
+          "executionMeta.workflowProposals.0.permissionPolicy": "confirmBeforeEdit",
+          "executionMeta.workflowProposals.0.writeAllowedByPolicy": true,
+          "executionMeta.workflowProposals.0.requiresConfirmationBeforeWrite": true
+        },
+        "bodyContains": ["workflowProposals", "targetFiles", "verificationPlan"]
+      }
+    },
+    {
       "id": "m1-agent-unknown-client-still-force",
       "title": "未知 clientName 仍立即 404",
       "purpose": "确认 Smart 路由接入后，显式 clientName 校验行为不变，不会静默回退默认路由。",

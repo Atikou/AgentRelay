@@ -58,6 +58,17 @@ export interface LocationExecutionMeta {
   suggestedAction?: AgentSuggestedAction;
 }
 
+export interface AgentWorkflowProposal {
+  workflowType: Extract<AgentWorkflowType, "editWorkflow" | "generateFileWorkflow">;
+  phase: "proposal";
+  goal: string;
+  intent: Extract<AgentIntentType, "edit" | "generate_file">;
+  permissionPolicy: UserPermissionPolicy;
+  requiredFields: string[];
+  writeAllowedByPolicy: boolean;
+  requiresConfirmationBeforeWrite: boolean;
+}
+
 export interface AgentExecutionMeta {
   mode: AgentRunMode;
   modeSource?: "explicit" | "inferred";
@@ -65,6 +76,7 @@ export interface AgentExecutionMeta {
   workflowType?: AgentWorkflowType;
   permissionPolicy?: UserPermissionPolicy;
   permissionPolicySource?: UserPermissionPolicySource;
+  workflowProposals?: AgentWorkflowProposal[];
   budget: RunBudget;
   usage: RunBudgetUsage;
   budgetExhausted?: RunBudgetKey;

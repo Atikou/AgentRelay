@@ -439,6 +439,12 @@ test("editWorkflow injects proposal phase before model writes", async () => {
   assert.match(firstPrompt, /targetFiles/);
   assert.match(firstPrompt, /diffPlan/);
   assert.match(firstPrompt, /permissionPolicy: autoEdit/);
+  assert.equal(res.executionMeta.workflowProposals?.length, 1);
+  assert.equal(res.executionMeta.workflowProposals?.[0]?.workflowType, "editWorkflow");
+  assert.equal(res.executionMeta.workflowProposals?.[0]?.phase, "proposal");
+  assert.equal(res.executionMeta.workflowProposals?.[0]?.writeAllowedByPolicy, true);
+  assert.equal(res.executionMeta.workflowProposals?.[0]?.requiresConfirmationBeforeWrite, false);
+  assert.ok(res.executionMeta.workflowProposals?.[0]?.requiredFields.includes("permissionCheck"));
   assert.equal(res.executionMeta.usedWriteCalls, 0);
 });
 

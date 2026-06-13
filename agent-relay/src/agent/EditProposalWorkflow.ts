@@ -1,5 +1,5 @@
 import type { AgentIntentType } from "./IntentTypes.js";
-import type { UserPermissionPolicy } from "./RunPolicyTypes.js";
+import type { AgentWorkflowProposal, UserPermissionPolicy } from "./RunPolicyTypes.js";
 
 export interface EditProposalWorkflowInput {
   goal: string;
@@ -9,6 +9,7 @@ export interface EditProposalWorkflowInput {
 
 export interface EditProposalWorkflowResult {
   modelContext: string;
+  proposal: AgentWorkflowProposal;
 }
 
 /**
@@ -22,8 +23,37 @@ export class EditProposalWorkflow {
     if (input.intent !== "edit" && input.intent !== "generate_file") return undefined;
     return {
       modelContext: renderEditProposalContext(input),
+      proposal: buildProposal(input),
     };
   }
+}
+
+const requiredProposalFields = [
+  "targetFiles",
+  "changeSummary",
+  "permissionCheck",
+  "diffPlan",
+  "verificationPlan",
+];
+
+function buildProposal(input: EditProposalWorkflowInput): AgentWorkflowProposal {
+  const intent = input.intent === "generate_file" ? "generate_file" : "edit";
+  const workflowType = intent === "generate_file" ? "generateFileWorkflow" : "editWorkflow";
+  return {
+    workflowType,
+    phase: "proposal",
+    goal: input.goal,
+    intent,
+    permissionPolicy: input.permissionPolicy,
+    requiredFields: requiredProposalFields,
+    writeAllowedByPolicy:
+      input.permissionPolicy === "confirmBeforeEdit" ||
+      input.permissionPolicy === "autoEdit" ||
+      input.permissionPolicy === "confirmBeforeRun" ||
+      input.permissionPolicy === "autoRun",
+    requiresConfirmationBeforeWrite:
+      input.permissionPolicy === "confirmBeforeEdit" || input.permissionPolicy === "confirmBeforeRun",
+  };
 }
 
 function renderEditProposalContext(input: EditProposalWorkflowInput): string {

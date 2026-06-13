@@ -6,7 +6,7 @@ import type { BudgetManager } from "./BudgetManager.js";
 import type { ToolPermission } from "./permissions.js";
 import { EditProposalWorkflow } from "./EditProposalWorkflow.js";
 import { PlanWorkflow, type PlanWorkflowResumeContext } from "./PlanWorkflow.js";
-import type { RunPolicy, RunBudget } from "./RunPolicyTypes.js";
+import type { AgentWorkflowProposal, RunPolicy, RunBudget } from "./RunPolicyTypes.js";
 import { RunVerifyWorkflow } from "./RunVerifyWorkflow.js";
 import type { AgentToolStep } from "./toolStep.js";
 import { defaultWorkflowPlanner } from "./WorkflowPlanner.js";
@@ -34,6 +34,7 @@ export interface WorkflowExecutionInput {
 export interface WorkflowExecutionResult {
   steps: AgentToolStep[];
   modelContexts: string[];
+  workflowProposals: AgentWorkflowProposal[];
 }
 
 export class WorkflowExecutor {
@@ -42,6 +43,7 @@ export class WorkflowExecutor {
   async executeBeforeModel(input: WorkflowExecutionInput): Promise<WorkflowExecutionResult> {
     const steps: AgentToolStep[] = [];
     const modelContexts: string[] = [];
+    const workflowProposals: AgentWorkflowProposal[] = [];
 
     const planResult = await this.runPlanWorkflow(input);
     if (planResult) {
@@ -52,6 +54,7 @@ export class WorkflowExecutor {
     const editProposalResult = this.runEditProposalWorkflow(input.goal);
     if (editProposalResult) {
       modelContexts.push(editProposalResult.modelContext);
+      workflowProposals.push(editProposalResult.proposal);
     }
 
     const runVerifyResult = await this.runRunVerifyWorkflow(input.goal);
@@ -60,7 +63,7 @@ export class WorkflowExecutor {
       modelContexts.push(runVerifyResult.modelContext);
     }
 
-    return { steps, modelContexts };
+    return { steps, modelContexts, workflowProposals };
   }
 
   private async runPlanWorkflow(

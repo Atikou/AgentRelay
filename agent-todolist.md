@@ -28,6 +28,7 @@
   - [x] 计划/审阅类项目分析先执行只读 `PlanWorkflow` 预扫描（`project_scan` → `locate_relevant_files` → `context_pack`），减少主循环探索轮次。
   - [x] 修改/生成文件类请求先执行只读预定位（`edit_locate` / `generate_file_locate`：`locate_relevant_files` → `context_pack`），再进入模型生成方案或补丁。
   - [x] 修改/生成文件类请求在写入前注入方案阶段约束（`EditProposalWorkflow`：`targetFiles` / `changeSummary` / `permissionCheck` / `diffPlan` / `verificationPlan`）。
+  - [x] 修改/生成文件类请求会在 `executionMeta.workflowProposals` 返回可审计 proposal 记录（`workflowType` / `permissionPolicy` / `requiredFields` / 写入策略判断）。
   - [x] 输出目标、范围、风险、依赖和执行步骤。
   - [x] 明确哪些步骤需要用户确认。
 - [x] 实现任务模式。（控制流 + 工具真实执行 ToolStepExecutor 已就绪）

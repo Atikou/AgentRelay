@@ -29,6 +29,7 @@ import {
   type AgentExecutionMeta,
   type AgentRunMode,
   type AgentStopReason,
+  type AgentWorkflowProposal,
   type LocationExecutionMeta,
   type RunBudget,
   type RunBudgetKey,
@@ -161,6 +162,7 @@ export class AgentLoop {
   private readonly finalizer = defaultFinalizer;
   private modelTurnMetrics: AgentModelTurnMetric[] = [];
   private runRoutingMeta?: AgentRoutingMeta;
+  private workflowProposals: AgentWorkflowProposal[] = [];
 
   constructor(private readonly options: AgentLoopOptions) {
     this.policy =
@@ -194,6 +196,7 @@ export class AgentLoop {
     this.budgetManager.markRunStarted();
     this.modelTurnMetrics = [];
     this.runRoutingMeta = undefined;
+    this.workflowProposals = [];
     const isResume = Boolean(this.options.resumeState);
     const effectiveGoal = isResume ? this.options.resumeState!.goal : userMessage;
     const ctx = this.options.contextManager;
@@ -235,6 +238,7 @@ export class AgentLoop {
     injectNotifications();
 
     const workflowResult = await this.runWorkflowExecutor(effectiveGoal, isResume, sessionId);
+    this.workflowProposals = workflowResult.workflowProposals;
     for (const step of workflowResult.steps) {
       steps.push(step);
       this.options.onStep?.(step);
@@ -692,6 +696,7 @@ export class AgentLoop {
       workflowType: this.policy.workflowType,
       permissionPolicy: this.policy.permissionPolicy,
       permissionPolicySource: this.policy.permissionPolicySource,
+      workflowProposals: this.workflowProposals.length ? this.workflowProposals : undefined,
       budget: this.budget,
       usage,
       budgetExhausted: input.budgetExhausted,
