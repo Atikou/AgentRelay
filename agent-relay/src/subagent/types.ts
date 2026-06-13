@@ -1,4 +1,4 @@
-import type { AgentToolStep } from "../agent/AgentLoop.js";
+import type { AgentToolStep } from "../agent/toolStep.js";
 import type { ToolPermission } from "../agent/permissions.js";
 import type { RunBudget } from "../agent/RunPolicy.js";
 

@@ -3,9 +3,9 @@ import { Planner } from "../agent/Planner.js";
 import {
   AgentLoop,
   type AgentRunResult,
-  type AgentToolStep,
   type LoopChatFn,
 } from "../agent/AgentLoop.js";
+import type { AgentToolStep } from "../agent/toolStep.js";
 import type { AgentStreamEvent } from "./AgentStream.js";
 
 import { DryRunExecutor, TaskRunner } from "../agent/TaskRunner.js";

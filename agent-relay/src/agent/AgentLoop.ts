@@ -12,6 +12,7 @@ import { wrapUntrustedToolOutput } from "../util/injection.js";
 import { redactPreview } from "../util/redact.js";
 import { PlanWorkflow, type PlanWorkflowResult } from "./PlanWorkflow.js";
 import { CONFIRMATION_REQUIRED, MODE_PERMISSIONS, type ToolPermission } from "./permissions.js";
+import type { AgentToolStep } from "./toolStep.js";
 import {
   resolveRunPolicy,
   type AgentExecutionMeta,
@@ -28,21 +29,6 @@ export type LoopChatFn = (
   req: ChatRequest,
   opts?: { sensitive?: boolean; taskType?: ModelTaskType },
 ) => Promise<ModelResponse>;
-
-/** 一次工具调用的记录（用于回显执行过程）。 */
-export interface AgentToolStep {
-  iteration: number;
-  toolCallId?: string;
-  tool: string;
-  input: unknown;
-  permission?: ToolPermission;
-  thought?: string;
-  ok: boolean;
-  output?: unknown;
-  error?: string;
-  durationMs?: number;
-  blocked?: boolean;
-}
 
 export interface AgentRunResult {
   answer: string;

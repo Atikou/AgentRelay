@@ -1,11 +1,11 @@
-/** 后台任务生命周期状态。 */
-export type BackgroundTaskStatus = "running" | "completed" | "failed" | "cancelled" | "timed_out";
-
 import type {
   BackgroundTriggerOnMatch,
   OutputMatchResult,
   OutputMatchRule,
-} from "./outputMatcher.js";
+} from "./outputTypes.js";
+
+/** 后台任务生命周期状态。 */
+export type BackgroundTaskStatus = "running" | "completed" | "failed" | "cancelled" | "timed_out";
 
 export interface BackgroundStartOptions {
   cwd?: string;

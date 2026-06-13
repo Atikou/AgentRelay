@@ -1,4 +1,5 @@
-import type { AgentRunResult, AgentToolStep } from "../agent/AgentLoop.js";
+import type { AgentRunResult } from "../agent/AgentLoop.js";
+import type { AgentToolStep } from "../agent/toolStep.js";
 
 /** SSE 事件：与 `event:` 字段同名。 */
 export type AgentStreamEvent =
