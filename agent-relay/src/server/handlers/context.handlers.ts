@@ -70,6 +70,12 @@ export async function handleContextSearch(app: AppContext, url: URL): Promise<Ap
   }
 }
 
+export function handleContextProjectIndex(app: AppContext, url: URL) {
+  const projectId = url.searchParams.get("projectId")?.trim() || "default";
+  const stats = app.projectIndex.getStats(projectId, app.workspaceRoot);
+  return { status: 200, body: { stats } };
+}
+
 export function handleContextMemoriesList(app: AppContext, url: URL) {
   const scope = url.searchParams.get("scope") as MemoryScope | null;
   const scopeId = url.searchParams.get("scopeId") ?? undefined;

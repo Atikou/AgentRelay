@@ -1,3 +1,5 @@
+export { ProjectIndex, projectFileToScanMeta, extractSymbolsFromContent } from "./ProjectIndex.js";
+export type * from "./projectIndexTypes.js";
 export { ContextManager, createLlmSummarize } from "./ContextManager.js";
 export { DatabaseManager, estimateTokens } from "./DatabaseManager.js";
 export {

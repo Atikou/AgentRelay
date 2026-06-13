@@ -27,6 +27,8 @@ export interface ToolContext {
   networkPolicy?: NetworkPolicy;
   /** 取消信号。 */
   signal?: AbortSignal;
+  /** 持久化项目文件索引（project_files / project_symbols）。 */
+  projectIndex?: import("../context/ProjectIndex.js").ProjectIndex;
 }
 
 /**

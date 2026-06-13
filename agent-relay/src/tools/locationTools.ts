@@ -3,6 +3,9 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import { z } from "zod";
 
+import type { ProjectIndex } from "../context/ProjectIndex.js";
+import { projectFileToScanMeta } from "../context/ProjectIndex.js";
+import type { ProjectFileRecord } from "../context/projectIndexTypes.js";
 import { DEFAULT_IGNORED_DIRS, DEFAULT_READ_MAX_BYTES } from "./constants.js";
 import { resolveInsideWorkspace, shouldIgnoreDir } from "./pathSafe.js";
 import type { Tool, ToolContext } from "./types.js";
@@ -71,7 +74,7 @@ export interface SearchPlan {
   taskType: "architecture_or_code_edit" | "debug" | "review" | "documentation" | "unknown";
 }
 
-interface FileMeta {
+export interface ProjectFileMeta {
   path: string;
   fileName: string;
   extension: string;
@@ -83,6 +86,7 @@ interface FileMeta {
   exports: string[];
   tags: string[];
   hash: string;
+  mtimeMs?: number;
 }
 
 interface LocatedFile {
@@ -191,6 +195,14 @@ export const projectScanTool: Tool<
     importantFiles: string[];
     scannedFiles: number;
     truncated: boolean;
+    projectIndex?: {
+      fileCount: number;
+      symbolCount: number;
+      upserted: number;
+      removed: number;
+      symbolsUpdated: number;
+      skipped: number;
+    };
   }
 > = {
   name: "project_scan",
@@ -224,7 +236,7 @@ export const projectScanTool: Tool<
     const scripts = isRecord(packageJson) && isRecord(packageJson.scripts)
       ? packageJson.scripts as Record<string, string>
       : {};
-    return {
+    const baseResult = {
       projectType: detectProjectType(paths, packageJson),
       sourceRoots,
       configFiles,
@@ -233,6 +245,22 @@ export const projectScanTool: Tool<
       importantFiles,
       scannedFiles: paths.length,
       truncated: files.truncated,
+    };
+    if (!ctx.projectIndex) return baseResult;
+    const sync = await ctx.projectIndex.syncFiles({
+      projectId: "default",
+      workspaceRoot: ctx.workspaceRoot,
+      files: files.files.map(fileMetaToProjectRecord),
+      extractSymbols: true,
+    });
+    const stats = ctx.projectIndex.getStats("default", ctx.workspaceRoot);
+    return {
+      ...baseResult,
+      projectIndex: {
+        fileCount: stats.fileCount,
+        symbolCount: stats.symbolCount,
+        ...sync,
+      },
     };
   },
 };
@@ -256,6 +284,7 @@ export const locateRelevantFilesTool: Tool<
       visitedFiles: string[];
       visitedDirs: string[];
     };
+    indexSource: "project_index" | "filesystem";
   }
 > = {
   name: "locate_relevant_files",
@@ -276,20 +305,38 @@ export const locateRelevantFilesTool: Tool<
     const stats = {
       usedLocateSteps: 1,
       usedSearchCalls: 0,
-      usedListCalls: 1,
+      usedListCalls: 0,
       usedReadForLocationCalls: 0,
       visitedFiles: [] as string[],
       visitedDirs: [] as string[],
     };
-    const files = await collectProjectFiles(ctx, {
-      root: ".",
-      maxDepth: 8,
-      limit: 2000,
-      extraIgnore: new Set(searchPlan.exclude),
-      includeContent: false,
-    });
+    let files: { files: ProjectFileMeta[]; truncated: boolean };
+    let indexSource: "project_index" | "filesystem" = "filesystem";
+    if (ctx.projectIndex?.hasUsableIndex(input.projectId, ctx.workspaceRoot)) {
+      const indexed = ctx.projectIndex.listFiles(input.projectId, ctx.workspaceRoot);
+      files = { files: indexed.map(projectFileToScanMeta), truncated: false };
+      indexSource = "project_index";
+      stats.usedListCalls = 0;
+    } else {
+      files = await collectProjectFiles(ctx, {
+        root: ".",
+        maxDepth: 8,
+        limit: 2000,
+        extraIgnore: new Set(searchPlan.exclude),
+        includeContent: false,
+      });
+      stats.usedListCalls = 1;
+      if (ctx.projectIndex) {
+        await ctx.projectIndex.syncFiles({
+          projectId: input.projectId,
+          workspaceRoot: ctx.workspaceRoot,
+          files: files.files.map(fileMetaToProjectRecord),
+          extractSymbols: true,
+        });
+      }
+    }
     stats.visitedDirs = unique(files.files.map((f) => f.path.split("/").slice(0, -1).join("/") || ".")).slice(0, 80);
-    const ranked = await rankCandidates(ctx, files.files, searchPlan, budget, stats);
+    const ranked = await rankCandidates(ctx, files.files, searchPlan, budget, stats, ctx.projectIndex, input.projectId);
     const maxPrimary = Math.min(input.limit, budget.maxPrimaryFiles);
     const primaryFiles = ranked.filter((f) => f.score >= 0.7).slice(0, maxPrimary);
     const candidateFiles = ranked
@@ -320,6 +367,7 @@ export const locateRelevantFilesTool: Tool<
       needsMoreSearch,
       stopReason,
       locateStats: stats,
+      indexSource,
     };
   },
 };
@@ -392,7 +440,7 @@ export const contextPackTool: Tool<
   },
 };
 
-async function collectProjectFiles(
+export async function collectProjectFiles(
   ctx: ToolContext,
   options: {
     root: string;
@@ -401,9 +449,9 @@ async function collectProjectFiles(
     extraIgnore?: Set<string>;
     includeContent: boolean;
   },
-): Promise<{ files: FileMeta[]; truncated: boolean }> {
+): Promise<{ files: ProjectFileMeta[]; truncated: boolean }> {
   const rootAbs = resolveInsideWorkspace(ctx.workspaceRoot, options.root);
-  const files: FileMeta[] = [];
+  const files: ProjectFileMeta[] = [];
   let truncated = false;
   const walk = async (dir: string, depth: number): Promise<void> => {
     if (files.length >= options.limit) {
@@ -443,6 +491,7 @@ async function collectProjectFiles(
         extension: ext,
         sizeBytes: stat.size,
         modifiedAt: stat.mtime.toISOString(),
+        mtimeMs: stat.mtimeMs,
         language: languageFromExt(ext),
         symbols: [],
         imports: [],
@@ -458,14 +507,40 @@ async function collectProjectFiles(
 
 async function rankCandidates(
   ctx: ToolContext,
-  files: FileMeta[],
+  files: ProjectFileMeta[],
   plan: SearchPlan,
   budget: LocateBudget,
   stats: { usedSearchCalls: number; usedReadForLocationCalls: number; visitedFiles: string[] },
+  projectIndex?: ProjectIndex,
+  projectId = "default",
 ): Promise<LocatedFile[]> {
   const ranked: LocatedFile[] = [];
   const loweredKeywords = plan.keywords.map((k) => k.toLowerCase());
   const symbolSet = new Set(plan.possibleSymbols.map((s) => s.toLowerCase()));
+  if (projectIndex && plan.possibleSymbols.length) {
+    const indexedHits = projectIndex.searchSymbols(projectId, ctx.workspaceRoot, plan.possibleSymbols);
+    for (const hit of indexedHits) {
+      symbolSet.add(hit.symbol.toLowerCase());
+      const existing = files.find((f) => f.path === hit.filePath);
+      if (!existing) {
+        files.push({
+          path: hit.filePath,
+          fileName: path.posix.basename(hit.filePath),
+          extension: path.posix.extname(hit.filePath),
+          sizeBytes: 0,
+          modifiedAt: new Date(0).toISOString(),
+          language: languageFromExt(path.posix.extname(hit.filePath)),
+          symbols: [hit.symbol],
+          imports: [],
+          exports: [],
+          tags: tagsForPath(hit.filePath),
+          hash: `symbol:${hit.symbol}`,
+        });
+      } else if (!existing.symbols.includes(hit.symbol)) {
+        existing.symbols.push(hit.symbol);
+      }
+    }
+  }
   const pathHints = plan.possiblePaths.map((p) => p.toLowerCase().replace(/\\/g, "/"));
   for (const file of files) {
     const p = file.path.toLowerCase();
@@ -485,6 +560,13 @@ async function rankCandidates(
         score += 0.22;
         matchTypes.add("keyword");
         reasons.push(`文件路径/名称命中 ${keyword}`);
+      }
+    }
+    for (const symbol of file.symbols) {
+      if (symbolSet.has(symbol.toLowerCase())) {
+        score += 0.28;
+        matchTypes.add("symbol");
+        reasons.push(`索引符号命中 ${symbol}`);
       }
     }
     if (CONFIG_FILE_NAMES.has(file.fileName) || file.tags.includes("entry")) {
@@ -631,6 +713,20 @@ function estimateTokens(text: string): number {
 
 function unique<T>(items: T[]): T[] {
   return [...new Set(items)];
+}
+
+function fileMetaToProjectRecord(file: ProjectFileMeta): ProjectFileRecord {
+  return {
+    path: file.path,
+    fileName: file.fileName,
+    extension: file.extension,
+    sizeBytes: file.sizeBytes,
+    modifiedAt: file.modifiedAt,
+    mtimeMs: file.mtimeMs ?? Date.parse(file.modifiedAt),
+    contentHash: file.hash,
+    language: file.language,
+    tags: file.tags,
+  };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

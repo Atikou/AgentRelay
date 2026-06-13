@@ -249,6 +249,36 @@
       }
     },
     {
+      "id": "m1-tools-project-index-capability",
+      "title": "GET /api/config 暴露 projectIndex",
+      "purpose": "确认 capabilities 声明 ProjectIndex 已落地，客户端可探测持久化项目索引能力。",
+      "method": "GET",
+      "path": "/api/config",
+      "input": {},
+      "expect": {
+        "status": 200,
+        "bodyPaths": {
+          "capabilities.projectIndex": true
+        }
+      }
+    },
+    {
+      "id": "m1-tools-project-index-stats",
+      "title": "GET /api/context/project-index 返回索引统计",
+      "purpose": "验证 ProjectIndex 统计接口可返回 fileCount/symbolCount。",
+      "method": "GET",
+      "path": "/api/context/project-index?projectId=default",
+      "input": {},
+      "expect": {
+        "status": 200,
+        "bodyPaths": {
+          "stats.projectId": "default",
+          "stats.fileCount": "number",
+          "stats.symbolCount": "number"
+        }
+      }
+    },
+    {
       "id": "m1-tools-context-pack",
       "title": "context_pack 打包多个文件",
       "purpose": "验证上下文打包工具能一次读取并摘要多个文件，避免 Agent 连续 read_file。",

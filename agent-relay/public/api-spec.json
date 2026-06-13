@@ -1131,6 +1131,40 @@
         }
       }
     },
+    "/api/context/project-index": {
+      "get": {
+        "tags": ["上下文与记忆"],
+        "summary": "项目文件索引统计",
+        "operationId": "getProjectIndexStats",
+        "parameters": [
+          { "name": "projectId", "in": "query", "schema": { "type": "string", "default": "default" } }
+        ],
+        "responses": {
+          "200": {
+            "description": "索引统计",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "stats": {
+                      "type": "object",
+                      "properties": {
+                        "projectId": { "type": "string" },
+                        "workspaceRoot": { "type": "string" },
+                        "fileCount": { "type": "integer" },
+                        "symbolCount": { "type": "integer" },
+                        "lastIndexedAt": { "type": "string" }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/context/search": {
       "get": {
         "tags": ["上下文与记忆"],

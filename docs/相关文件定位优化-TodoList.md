@@ -72,7 +72,7 @@
 - [x] 返回 `primaryFiles`、`candidateFiles`、`unresolvedHints`、`confidence`。
 - [x] 返回 `needsMoreSearch` 与 `stopReason`。
 - [x] 返回定位统计 `locateStats`。
-- [ ] 尚未接入持久化 ProjectIndex。
+- [x] 已接入持久化 ProjectIndex（`project_scan` 写入、`locate_relevant_files` 复用）。
 - [ ] 尚未接入独立 symbol_search 工具。
 
 **验收**：已可一次性定位相关文件；索引与符号搜索待补。
@@ -116,11 +116,11 @@
 
 ### P2-1：ProjectIndex
 
-- [ ] SQLite 表 `project_files`。
-- [ ] SQLite 表 `project_symbols`。
-- [ ] 文件 mtime/hash 增量更新。
-- [ ] 文件摘要缓存。
-- [ ] 第二次定位复用索引，避免重新全量扫描。
+- [x] SQLite 表 `project_files`。
+- [x] SQLite 表 `project_symbols`。
+- [x] 文件 mtime/hash 增量更新。
+- [x] 文件摘要缓存（`summary` 列，预留）。
+- [x] 第二次定位复用索引，避免重新全量扫描（`locate_relevant_files.indexSource=project_index`）。
 
 ### P2-2：RunStateStore
 

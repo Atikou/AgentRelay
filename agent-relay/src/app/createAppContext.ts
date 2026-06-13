@@ -21,6 +21,7 @@ import {
 import { Orchestrator } from "../orchestrator/Orchestrator.js";
 import { RunStore } from "../orchestrator/RunStore.js";
 import { RunStateStore } from "../orchestrator/RunStateStore.js";
+import { ProjectIndex } from "../context/ProjectIndex.js";
 import { Scheduler } from "../scheduler/index.js";
 import { SubAgentCoordinator } from "../subagent/index.js";
 import { createDefaultRegistry } from "../tools/index.js";
@@ -76,6 +77,7 @@ export class AppContext {
   readonly contextManager: ContextManager;
   readonly runs: RunStore;
   readonly runStateStore: RunStateStore;
+  readonly projectIndex: ProjectIndex;
   readonly orchestrator: Orchestrator;
   readonly subAgentCoordinator: SubAgentCoordinator;
   readonly smartModelRouter: SmartModelRouter;
@@ -111,6 +113,7 @@ export class AppContext {
     contextManager: ContextManager;
     runs: RunStore;
     runStateStore: RunStateStore;
+    projectIndex: ProjectIndex;
     orchestrator: Orchestrator;
     subAgentCoordinator: SubAgentCoordinator;
     smartModelRouter: SmartModelRouter;
@@ -145,6 +148,7 @@ export class AppContext {
     this.contextManager = opts.contextManager;
     this.runs = opts.runs;
     this.runStateStore = opts.runStateStore;
+    this.projectIndex = opts.projectIndex;
     this.orchestrator = opts.orchestrator;
     this.subAgentCoordinator = opts.subAgentCoordinator;
     this.smartModelRouter = opts.smartModelRouter;
@@ -243,6 +247,7 @@ export class AppContext {
         finalizer: true,
         toolResultLayers: true,
         runStateStore: true,
+        projectIndex: true,
         costBudgetPerRun: true,
         ruleOnlyRouting: true,
         sqliteSchemaMigrations: true,
@@ -377,6 +382,8 @@ export function createAppContext(): AppContext {
   const contextManager = new ContextManager({ dataDir, useLanceDb: true });
   const runs = new RunStore(contextManager.db);
   const runStateStore = new RunStateStore(contextManager.db);
+  const projectIndex = new ProjectIndex(contextManager.db);
+  registry.setDefaultContext({ projectIndex });
 
   const modelProfiles = buildModelProfiles(config.models.clients);
   for (const msg of validateModelProfiles(modelProfiles)) {
@@ -504,6 +511,7 @@ export function createAppContext(): AppContext {
     contextManager,
     runs,
     runStateStore,
+    projectIndex,
     orchestrator,
     subAgentCoordinator,
     smartModelRouter,

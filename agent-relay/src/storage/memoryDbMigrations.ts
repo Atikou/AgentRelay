@@ -5,7 +5,7 @@ import { ensureRoutingTables } from "../model-router/route-stores.js";
 import { ensureEvalTables } from "../model-router/eval-set-store.js";
 import { addColumnIfMissing, type SqliteMigration } from "./sqliteMigration.js";
 
-export const MEMORY_DB_SCHEMA_VERSION = 9;
+export const MEMORY_DB_SCHEMA_VERSION = 10;
 
 function ensureFts(
   db: DatabaseSync,
@@ -351,6 +351,44 @@ export const MEMORY_DB_MIGRATIONS: readonly SqliteMigration[] = [
         );
         CREATE INDEX IF NOT EXISTS idx_run_states_status ON run_states(status, updated_at DESC);
         CREATE INDEX IF NOT EXISTS idx_run_states_session ON run_states(session_id, updated_at DESC);
+      `);
+    },
+  },
+  {
+    version: 10,
+    name: "project_index",
+    up(db) {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS project_files (
+          project_id TEXT NOT NULL,
+          workspace_root TEXT NOT NULL,
+          path TEXT NOT NULL,
+          file_name TEXT NOT NULL,
+          extension TEXT NOT NULL,
+          size_bytes INTEGER NOT NULL,
+          modified_at TEXT NOT NULL,
+          mtime_ms INTEGER NOT NULL,
+          content_hash TEXT NOT NULL,
+          language TEXT NOT NULL,
+          tags_json TEXT NOT NULL,
+          summary TEXT,
+          indexed_at TEXT NOT NULL,
+          PRIMARY KEY (project_id, workspace_root, path)
+        );
+        CREATE INDEX IF NOT EXISTS idx_project_files_root ON project_files(workspace_root, indexed_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_project_files_hash ON project_files(project_id, workspace_root, content_hash);
+
+        CREATE TABLE IF NOT EXISTS project_symbols (
+          project_id TEXT NOT NULL,
+          workspace_root TEXT NOT NULL,
+          file_path TEXT NOT NULL,
+          symbol TEXT NOT NULL,
+          kind TEXT NOT NULL,
+          line INTEGER NOT NULL,
+          indexed_at TEXT NOT NULL,
+          PRIMARY KEY (project_id, workspace_root, file_path, symbol)
+        );
+        CREATE INDEX IF NOT EXISTS idx_project_symbols_name ON project_symbols(project_id, workspace_root, symbol);
       `);
     },
   },

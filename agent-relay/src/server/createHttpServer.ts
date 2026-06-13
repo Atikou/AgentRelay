@@ -25,6 +25,7 @@ import {
   handleContextMemoriesList,
   handleContextMemoryCreate,
   handleContextMemoryDeactivate,
+  handleContextProjectIndex,
   handleContextSearch,
   handleContextSessionCompress,
   handleContextSessionCreate,
@@ -345,6 +346,11 @@ export function createHttpServer(app: AppContext, opts?: HttpServerOptions): Ser
         }
         if (pathname === "/api/context/search" && method === "GET") {
           const result = await handleContextSearch(app, url);
+          sendJson(res, result.status, result.body);
+          return;
+        }
+        if (pathname === "/api/context/project-index" && method === "GET") {
+          const result = handleContextProjectIndex(app, url);
           sendJson(res, result.status, result.body);
           return;
         }

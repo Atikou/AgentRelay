@@ -120,6 +120,35 @@ test("locate_relevant_files 根据目标返回 primaryFiles", async () => {
   assert.ok(out.confidence > 0);
 });
 
+test("locate_relevant_files 在已有 ProjectIndex 时复用索引", async () => {
+  const { DatabaseManager } = await import("../src/context/DatabaseManager.js");
+  const { ProjectIndex } = await import("../src/context/ProjectIndex.js");
+  const dbm = new DatabaseManager(dataDir);
+  const projectIndex = new ProjectIndex(dbm);
+  const r = reg();
+  r.setDefaultContext({ projectIndex });
+  try {
+    for (let i = 0; i < 10; i += 1) {
+      await r.run(
+        "write_file",
+        { path: `src/module/file${i}.ts`, content: `export const v${i} = ${i};`, backup: false },
+        await ctx(),
+      );
+    }
+    await r.run("project_scan", { root: ".", maxDepth: 4 }, await ctx());
+    const res = await r.run(
+      "locate_relevant_files",
+      { goal: "查看 module 目录文件", possiblePaths: ["src/module"], limit: 5 },
+      await ctx(),
+    );
+    assert.equal(res.ok, true);
+    const out = (res as { output: { indexSource: string } }).output;
+    assert.equal(out.indexSource, "project_index");
+  } finally {
+    dbm.close();
+  }
+});
+
 test("context_pack 一次性打包多个相关文件", async () => {
   const r = reg();
   await r.run("write_file", { path: "src/context/A.ts", content: "export function alpha() { return 1; }", backup: false }, await ctx());
