@@ -491,6 +491,50 @@
       }
     },
     {
+      "id": "m1-agent-explicit-permission-policy-meta",
+      "title": "显式权限策略进入 executionMeta",
+      "purpose": "确认统一 Agent 入口接受 permissionPolicy，并在 executionMeta 中返回策略与来源，作为后续 PermissionGuard 的可观测输入。",
+      "method": "POST",
+      "path": "/api/agent",
+      "input": {
+        "message": "运行测试验证结果",
+        "permissionPolicy": "confirmBeforeRun",
+        "persist": false,
+        "budget": {
+          "maxModelTurns": 1,
+          "maxToolCalls": 0,
+          "maxReadCalls": 0,
+          "maxWriteCalls": 0,
+          "maxShellCalls": 0,
+          "maxRuntimeMs": 60000
+        }
+      },
+      "expect": {
+        "status": 200,
+        "bodyPaths": {
+          "executionMeta.permissionPolicy": "confirmBeforeRun",
+          "executionMeta.permissionPolicySource": "explicit",
+          "executionMeta.workflowType": "verifyWorkflow"
+        }
+      }
+    },
+    {
+      "id": "m1-agent-invalid-permission-policy",
+      "title": "非法权限策略返回 400",
+      "purpose": "确认 permissionPolicy 只接受受控枚举，避免调用方传入未知权限策略被静默忽略或误认为已授权。",
+      "method": "POST",
+      "path": "/api/agent",
+      "input": {
+        "message": "运行测试",
+        "permissionPolicy": "fullAccess"
+      },
+      "expect": {
+        "status": 400,
+        "bodyHasKeys": ["error"],
+        "bodyContains": ["permissionPolicy"]
+      }
+    },
+    {
       "id": "m1-agent-config-prompt-strategy-v8",
       "title": "GET /api/config 暴露 agentPromptStrategyV8",
       "purpose": "确认 /api/agent 已支持首轮 promptStrategy 暴露并在 capabilities 声明。",

@@ -24,12 +24,20 @@ test("parseMode 拒绝非法 mode", () => {
   assert.equal(defaultRunPolicyManager.parseMode("plan"), "plan");
 });
 
+test("parsePermissionPolicy 拒绝非法策略", () => {
+  assert.equal(defaultRunPolicyManager.parsePermissionPolicy("invalid"), undefined);
+  assert.equal(defaultRunPolicyManager.parsePermissionPolicy("readOnly"), "readOnly");
+  assert.equal(defaultRunPolicyManager.parsePermissionPolicy("autoRun"), "autoRun");
+});
+
 test("resolve 计划模式使用只读权限与更高默认预算", () => {
   const policy = defaultRunPolicyManager.resolve({ message: "请进入计划模式，只读分析当前项目" });
   assert.equal(policy.mode, "plan");
   assert.equal(policy.modeSource, "inferred");
   assert.equal(policy.intent, "plan");
   assert.equal(policy.workflowType, "planWorkflow");
+  assert.equal(policy.permissionPolicy, "readOnly");
+  assert.equal(policy.permissionPolicySource, "inferred");
   assert.equal(policy.budget.maxModelTurns, 16);
   assert.equal(policy.budget.maxWriteCalls, 0);
   assert.equal(policy.budget.maxShellCalls, 0);
@@ -46,6 +54,28 @@ test("resolve 支持 budget 覆盖", () => {
   assert.equal(policy.budget.maxModelTurns, 1);
   assert.equal(policy.budget.maxReadCalls, 2);
   assert.ok(policy.suggestedBudget.maxModelTurns >= 16);
+});
+
+test("resolve 支持显式权限策略覆盖推断", () => {
+  const policy = defaultRunPolicyManager.resolve({
+    message: "请运行测试验证结果",
+    requestedPermissionPolicy: "confirmBeforeRun",
+    autoConfirm: true,
+  });
+  assert.equal(policy.intent, "verify");
+  assert.equal(policy.permissionPolicy, "confirmBeforeRun");
+  assert.equal(policy.permissionPolicySource, "explicit");
+});
+
+test("resolve 根据意图与 autoConfirm 推断权限策略", () => {
+  const edit = defaultRunPolicyManager.resolve({ message: "修改 src/app.ts" });
+  assert.equal(edit.permissionPolicy, "confirmBeforeEdit");
+  const autoEdit = defaultRunPolicyManager.resolve({ message: "修改 src/app.ts", autoConfirm: true });
+  assert.equal(autoEdit.permissionPolicy, "autoEdit");
+  const run = defaultRunPolicyManager.resolve({ message: "运行测试验证结果" });
+  assert.equal(run.permissionPolicy, "confirmBeforeRun");
+  const autoRun = defaultRunPolicyManager.resolve({ message: "运行测试验证结果", autoConfirm: true });
+  assert.equal(autoRun.permissionPolicy, "autoRun");
 });
 
 test("createBudgetManager 与 policy 预算一致", () => {

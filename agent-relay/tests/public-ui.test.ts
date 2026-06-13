@@ -53,6 +53,7 @@ test("Agent 结果卡展示自动工作流状态", async () => {
   assert.ok(js.includes("verifyWorkflow: \"正在验证结果\""));
   assert.ok(js.includes("intent=${m.intent"));
   assert.ok(js.includes("workflow=${m.workflowType"));
+  assert.ok(js.includes("permissionPolicy=${m.permissionPolicy"));
 });
 
 test("Agent 工作流状态样式已登记", async () => {

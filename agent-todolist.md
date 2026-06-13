@@ -53,7 +53,7 @@
   - [x] 发布、部署、推送代码。（npm publish / git push --force 归 dangerous 拦截）
 - [x] 实现只读模式、受限写模式和完全任务模式。（plan 只读 / `allowedPermissions` 受限 / task 全集）
 - [x] 对每次工具调用记录操作日志。（`TraceLogger`）
-- [ ] 支持按项目、任务、用户配置权限策略。（当前按模式，未细化到用户）
+- [~] 支持按项目、任务、用户配置权限策略。（已新增用户侧 `permissionPolicy` 枚举与 `executionMeta` 元信息；真正 PermissionGuard 与执行层解耦仍待做）
 
 ## 4. 计划撰写与任务拆分
 
@@ -174,7 +174,7 @@
 ## 11. 状态机与任务编排
 
 - [x] 设计 Agent 主状态机。（`AgentLoop`：模型→解析→工具→回灌→迭代/终止）
-- [x] 统一入口下暴露内部意图与工作流元信息，并在测试台展示当前内部处理状态。（`IntentRouter`：`intent` / `workflowType` / `modeSource` → `RunPolicy` → `executionMeta` → Agent 结果卡）
+- [x] 统一入口下暴露内部意图、工作流与用户侧权限策略元信息，并在测试台展示当前内部处理状态。（`IntentRouter`：`intent` / `workflowType` / `modeSource` → `RunPolicy`：`permissionPolicy` → `executionMeta` → Agent 结果卡）
 - [x] 设计任务状态机。（`TaskRunner`：pending/running/blocked/completed/failed/cancelled）
 - [x] 设计后台线程状态机。（running / completed / failed / cancelled）
 - [x] 设计子 Agent 生命周期。（completed/failed/timeout + batch 汇总）

@@ -6,6 +6,15 @@ export type AgentRunMode = "chat" | "plan" | "implement" | "debug" | "review";
 
 export type AgentStopReason = "completed" | "budget_exhausted" | "error" | "user_cancelled";
 
+export type UserPermissionPolicy =
+  | "readOnly"
+  | "confirmBeforeEdit"
+  | "autoEdit"
+  | "confirmBeforeRun"
+  | "autoRun";
+
+export type UserPermissionPolicySource = "explicit" | "inferred";
+
 export interface RunBudget {
   maxModelTurns: number;
   maxToolCalls: number;
@@ -54,6 +63,8 @@ export interface AgentExecutionMeta {
   modeSource?: "explicit" | "inferred";
   intent?: AgentIntentType;
   workflowType?: AgentWorkflowType;
+  permissionPolicy?: UserPermissionPolicy;
+  permissionPolicySource?: UserPermissionPolicySource;
   budget: RunBudget;
   usage: RunBudgetUsage;
   budgetExhausted?: RunBudgetKey;
@@ -83,6 +94,8 @@ export interface RunPolicy {
   modeSource: "explicit" | "inferred";
   intent: AgentIntentType;
   workflowType: AgentWorkflowType;
+  permissionPolicy: UserPermissionPolicy;
+  permissionPolicySource: UserPermissionPolicySource;
   budget: RunBudget;
   allowedPermissions: ToolPermission[];
   requireFinalAnswer: boolean;
@@ -93,6 +106,8 @@ export interface RunPolicy {
 
 export interface ResolveRunPolicyInput {
   requestedMode?: string;
+  requestedPermissionPolicy?: string;
+  autoConfirm?: boolean;
   budget?: Partial<RunBudget>;
   taskType?: ModelTaskType;
   message?: string;
@@ -107,6 +122,23 @@ export function parseRunModeValue(mode: string | undefined): AgentRunMode | unde
     normalized === "implement" ||
     normalized === "debug" ||
     normalized === "review"
+  ) {
+    return normalized;
+  }
+  return undefined;
+}
+
+export function parseUserPermissionPolicyValue(
+  policy: string | undefined,
+): UserPermissionPolicy | undefined {
+  if (!policy) return undefined;
+  const normalized = policy.trim();
+  if (
+    normalized === "readOnly" ||
+    normalized === "confirmBeforeEdit" ||
+    normalized === "autoEdit" ||
+    normalized === "confirmBeforeRun" ||
+    normalized === "autoRun"
   ) {
     return normalized;
   }

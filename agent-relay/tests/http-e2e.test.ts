@@ -126,6 +126,13 @@ test("POST /api/agent/stream 空 message 返回 400 JSON", async () => {
   assert.match(res.headers.get("content-type") ?? "", /application\/json/);
 });
 
+test("POST /api/agent 非法 permissionPolicy 返回 400", async () => {
+  const res = await postJson("/api/agent", { message: "运行测试", permissionPolicy: "fullAccess" });
+  assert.equal(res.status, 400);
+  const body = (await res.json()) as { error: string };
+  assert.match(body.error, /permissionPolicy/);
+});
+
 test("POST /api/task/dry-run 缺 plan 返回 400", async () => {
   const res = await postJson("/api/task/dry-run", {});
   assert.equal(res.status, 400);

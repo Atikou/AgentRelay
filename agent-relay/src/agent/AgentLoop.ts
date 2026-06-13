@@ -102,6 +102,8 @@ export interface AgentLoopOptions {
   roleAllowedPermissions?: ToolPermission[];
   /** 运行模式；未传时可由上层 RunPolicy 推断，默认 chat。 */
   mode?: AgentRunMode;
+  /** 用户侧权限策略；本阶段仅用于元信息与后续 PermissionGuard 铺垫。 */
+  permissionPolicy?: string;
   /** 上层解析好的运行策略。 */
   policy?: RunPolicy;
   budget?: Partial<RunBudget>;
@@ -166,6 +168,8 @@ export class AgentLoop {
       options.policy ??
       defaultRunPolicyManager.resolve({
         requestedMode: options.mode,
+        requestedPermissionPolicy: options.permissionPolicy,
+        autoConfirm: options.autoConfirm,
         budget: options.budget,
         taskType: options.taskType,
       });
@@ -696,6 +700,8 @@ export class AgentLoop {
       modeSource: this.policy.modeSource,
       intent: this.policy.intent,
       workflowType: this.policy.workflowType,
+      permissionPolicy: this.policy.permissionPolicy,
+      permissionPolicySource: this.policy.permissionPolicySource,
       budget: this.budget,
       usage,
       budgetExhausted: input.budgetExhausted,

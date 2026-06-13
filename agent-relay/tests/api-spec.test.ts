@@ -89,6 +89,22 @@ test("动态路径含 path 参数", async () => {
   assert.ok(spec.paths["/api/context/sessions/{sessionId}/restore"]);
 });
 
+test("Agent API 规范登记 permissionPolicy", async () => {
+  const raw = await readFile(specPath, "utf-8");
+  const spec = JSON.parse(raw) as {
+    components: {
+      schemas: Record<string, { properties?: Record<string, { enum?: string[] }> }>;
+    };
+  };
+  const requestPolicy = spec.components.schemas.AgentRequest?.properties?.permissionPolicy;
+  const resumePolicy = spec.components.schemas.AgentResumeRequest?.properties?.permissionPolicy;
+  const metaPolicy = spec.components.schemas.AgentExecutionMeta?.properties?.permissionPolicy;
+  assert.ok(requestPolicy?.enum?.includes("readOnly"));
+  assert.ok(requestPolicy?.enum?.includes("autoRun"));
+  assert.ok(resumePolicy?.enum?.includes("confirmBeforeRun"));
+  assert.ok(metaPolicy?.enum?.includes("confirmBeforeEdit"));
+});
+
 test("api-docs 页面使用 Scalar 官方 script 集成", async () => {
   const html = await readFile(apiDocsHtml, "utf-8");
   assert.ok(html.includes('id="api-reference"'));

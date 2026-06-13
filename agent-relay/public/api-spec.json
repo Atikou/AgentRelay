@@ -1611,6 +1611,11 @@
             "description": "任务类型路由提示：simple 优先本地；reasoning/codegen/long_context 优先远程"
           },
           "autoConfirm": { "type": "boolean", "description": "允许写/命令等副作用工具" },
+          "permissionPolicy": {
+            "type": "string",
+            "enum": ["readOnly", "confirmBeforeEdit", "autoEdit", "confirmBeforeRun", "autoRun"],
+            "description": "用户侧权限策略元信息；本阶段用于解耦 mode 与权限意图，实际工具放行仍受现有权限上限、确认门和风险策略约束"
+          },
           "streamTokens": { "type": "boolean", "description": "SSE 流式推送模型 token 增量（/api/agent/stream）" },
           "persist": { "type": "boolean", "description": "是否持久化会话上下文，默认 true" },
           "budget": { "$ref": "#/components/schemas/RunBudget" },
@@ -1666,6 +1671,11 @@
             "type": "string",
             "enum": ["answerWorkflow", "planWorkflow", "editWorkflow", "runWorkflow", "debugWorkflow", "reviewWorkflow", "verifyWorkflow", "summarizeWorkflow", "searchWorkflow", "refactorWorkflow", "generateFileWorkflow"]
           },
+          "permissionPolicy": {
+            "type": "string",
+            "enum": ["readOnly", "confirmBeforeEdit", "autoEdit", "confirmBeforeRun", "autoRun"]
+          },
+          "permissionPolicySource": { "type": "string", "enum": ["explicit", "inferred"] },
           "budget": { "$ref": "#/components/schemas/RunBudget" },
           "usage": { "$ref": "#/components/schemas/RunBudgetUsage" },
           "location": { "$ref": "#/components/schemas/LocationExecutionMeta" },
@@ -1723,6 +1733,10 @@
           "budget": { "$ref": "#/components/schemas/RunBudget", "description": "续跑时覆盖的运行预算（通常高于首次）" },
           "message": { "type": "string", "description": "可选覆盖用户消息；默认使用原 goal" },
           "autoConfirm": { "type": "boolean" },
+          "permissionPolicy": {
+            "type": "string",
+            "enum": ["readOnly", "confirmBeforeEdit", "autoEdit", "confirmBeforeRun", "autoRun"]
+          },
           "sensitive": { "type": "boolean" },
           "taskType": { "type": "string", "enum": ["simple", "reasoning", "codegen", "long_context"] },
           "clientName": { "type": "string" }

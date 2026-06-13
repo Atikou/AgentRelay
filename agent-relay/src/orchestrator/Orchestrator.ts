@@ -877,6 +877,7 @@ export class Orchestrator {
       autoConfirm?: boolean;
       sensitive?: boolean;
       taskType?: string;
+      permissionPolicy?: string;
       clientName?: string;
     };
     const runId = (payload.runId ?? "").trim();
@@ -904,9 +905,19 @@ export class Orchestrator {
     if (!taskTypeParsed.ok) {
       return { status: 400, body: { error: taskTypeParsed.error } };
     }
+    if (payload.permissionPolicy && !defaultRunPolicyManager.parsePermissionPolicy(payload.permissionPolicy)) {
+      return {
+        status: 400,
+        body: {
+          error: "permissionPolicy 必须是 readOnly/confirmBeforeEdit/autoEdit/confirmBeforeRun/autoRun",
+        },
+      };
+    }
 
     const policy = defaultRunPolicyManager.resolve({
       requestedMode: state.mode,
+      requestedPermissionPolicy: payload.permissionPolicy,
+      autoConfirm: payload.autoConfirm,
       budget: payload.budget,
       taskType: taskTypeParsed.taskType,
       message: state.goal,
@@ -1436,6 +1447,7 @@ export class Orchestrator {
       sensitive?: boolean;
       taskType?: string;
       mode?: string;
+      permissionPolicy?: string;
       budget?: Partial<RunBudget>;
       sessionId?: string;
       persist?: boolean;
@@ -1450,8 +1462,21 @@ export class Orchestrator {
     if (payload.mode && !defaultRunPolicyManager.parseMode(payload.mode)) {
       return { error: { status: 400, body: { error: "mode 必须是 chat/plan/implement/debug/review" } } };
     }
+    if (payload.permissionPolicy && !defaultRunPolicyManager.parsePermissionPolicy(payload.permissionPolicy)) {
+      return {
+        error: {
+          status: 400,
+          body: {
+            error:
+              "permissionPolicy 必须是 readOnly/confirmBeforeEdit/autoEdit/confirmBeforeRun/autoRun",
+          },
+        },
+      };
+    }
     const policy = defaultRunPolicyManager.resolve({
       requestedMode: payload.mode,
+      requestedPermissionPolicy: payload.permissionPolicy,
+      autoConfirm: payload.autoConfirm,
       budget: payload.budget,
       taskType: taskTypeParsed.taskType,
       message,

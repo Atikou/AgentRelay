@@ -1162,7 +1162,7 @@ function renderAgentRun(result) {
       ? `\nlocation=${m.location.usedLocateSteps ?? 0} steps · found=${(m.location.locatedFiles || []).slice(0, 4).join(",") || "-"} · continue=${m.location.needsContinue ? "yes" : "no"}`
       : "";
     metaBox.innerHTML = `${workflowStatus}<strong>执行元信息</strong><br>${escapeHtml(
-      `mode=${m.mode}${m.modeSource ? `/${m.modeSource}` : ""} · intent=${m.intent ?? "-"} · workflow=${m.workflowType ?? "-"} · stop=${m.stopReason}${m.budgetExhausted ? `(${m.budgetExhausted})` : ""} · model=${u.modelTurns ?? m.usedModelTurns}/${b.maxModelTurns ?? "-"} · tools=${u.toolCalls ?? m.usedToolCalls}/${b.maxToolCalls ?? "-"} · read=${u.readCalls ?? m.usedReadCalls}/${b.maxReadCalls ?? "-"} · write=${u.writeCalls ?? m.usedWriteCalls}/${b.maxWriteCalls ?? "-"} · shell=${u.shellCalls ?? m.usedShellCalls}/${b.maxShellCalls ?? "-"} · runtime=${u.runtimeMs ?? 0}/${b.maxRuntimeMs ?? "-"}ms${
+      `mode=${m.mode}${m.modeSource ? `/${m.modeSource}` : ""} · intent=${m.intent ?? "-"} · workflow=${m.workflowType ?? "-"} · permissionPolicy=${m.permissionPolicy ?? "-"}${m.permissionPolicySource ? `/${m.permissionPolicySource}` : ""} · stop=${m.stopReason}${m.budgetExhausted ? `(${m.budgetExhausted})` : ""} · model=${u.modelTurns ?? m.usedModelTurns}/${b.maxModelTurns ?? "-"} · tools=${u.toolCalls ?? m.usedToolCalls}/${b.maxToolCalls ?? "-"} · read=${u.readCalls ?? m.usedReadCalls}/${b.maxReadCalls ?? "-"} · write=${u.writeCalls ?? m.usedWriteCalls}/${b.maxWriteCalls ?? "-"} · shell=${u.shellCalls ?? m.usedShellCalls}/${b.maxShellCalls ?? "-"} · runtime=${u.runtimeMs ?? 0}/${b.maxRuntimeMs ?? "-"}ms${
         m.needsMoreBudget && m.suggestedBudget
           ? ` · 建议预算=${formatBudget(m.suggestedBudget)}`
           : ""
@@ -1198,6 +1198,7 @@ function renderWorkflowStatus(meta) {
   if (!label) return "";
   const details = [
     meta.intent ? `意图：${INTENT_STATUS_LABELS[meta.intent] || meta.intent}` : "",
+    meta.permissionPolicy ? `权限：${meta.permissionPolicy}` : "",
     meta.mode ? `模式：${meta.mode}` : "",
     meta.modeSource ? `来源：${meta.modeSource === "explicit" ? "显式" : "自动"}` : "",
   ]

@@ -3,10 +3,12 @@ import { BudgetManager } from "./BudgetManager.js";
 import { defaultIntentRouter } from "./IntentRouter.js";
 import {
   parseRunModeValue,
+  parseUserPermissionPolicyValue,
   type AgentRunMode,
   type ResolveRunPolicyInput,
   type RunBudget,
   type RunPolicy,
+  type UserPermissionPolicy,
 } from "./RunPolicyTypes.js";
 
 const MODE_DEFAULT_BUDGETS: Record<AgentRunMode, RunBudget> = {
@@ -114,12 +116,20 @@ export class RunPolicyManager {
     const mode = route.mode;
     const budget = this.resolveBudget(mode, input.budget);
     const suggestedBudget = mergeBudgetMax(MODE_SUGGESTED_BUDGETS[mode], budget);
+    const explicitPermissionPolicy = parseUserPermissionPolicyValue(input.requestedPermissionPolicy);
+    const permissionPolicy = explicitPermissionPolicy ?? inferPermissionPolicy({
+      mode,
+      intent: route.intent,
+      autoConfirm: input.autoConfirm === true,
+    });
 
     return {
       mode,
       modeSource: route.modeSource,
       intent: route.intent,
       workflowType: route.workflowType,
+      permissionPolicy,
+      permissionPolicySource: explicitPermissionPolicy ? "explicit" : "inferred",
       budget,
       allowedPermissions: [...MODE_PERMISSIONS_BY_RUN_MODE[mode]],
       requireFinalAnswer: true,
@@ -131,6 +141,10 @@ export class RunPolicyManager {
 
   parseMode(mode: string | undefined): AgentRunMode | undefined {
     return parseRunModeValue(mode);
+  }
+
+  parsePermissionPolicy(policy: string | undefined): UserPermissionPolicy | undefined {
+    return parseUserPermissionPolicyValue(policy);
   }
 
   inferMode(input: ResolveRunPolicyInput): AgentRunMode {
@@ -195,4 +209,26 @@ function buildSystemHint(mode: AgentRunMode): string {
     return "当前运行模式：implement。可以在确认边界内完成实现；预算不足时输出已完成变更、缺失事项和继续建议。";
   }
   return "当前运行模式：chat。需要工具时遵守权限和确认边界；预算不足时输出已有信息与继续建议。";
+}
+
+function inferPermissionPolicy(input: {
+  mode: AgentRunMode;
+  intent: string;
+  autoConfirm: boolean;
+}): UserPermissionPolicy {
+  if (
+    input.mode === "plan" ||
+    input.mode === "review" ||
+    input.intent === "answer" ||
+    input.intent === "plan" ||
+    input.intent === "review" ||
+    input.intent === "summarize" ||
+    input.intent === "search"
+  ) {
+    return "readOnly";
+  }
+  if (input.intent === "run" || input.intent === "verify" || input.intent === "debug") {
+    return input.autoConfirm ? "autoRun" : "confirmBeforeRun";
+  }
+  return input.autoConfirm ? "autoEdit" : "confirmBeforeEdit";
 }

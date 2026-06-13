@@ -60,6 +60,8 @@ test("循环：调用只读工具后给出最终答案", async () => {
   assert.equal(res.executionMeta.stopReason, "completed");
   assert.equal(res.executionMeta.intent, "answer");
   assert.equal(res.executionMeta.workflowType, "answerWorkflow");
+  assert.equal(res.executionMeta.permissionPolicy, "readOnly");
+  assert.equal(res.executionMeta.permissionPolicySource, "inferred");
   assert.equal(res.executionMeta.usedReadCalls, 1);
   assert.equal(res.steps.length, 1);
   assert.equal(res.steps[0]!.ok, true);
@@ -89,9 +91,28 @@ test("开启自动确认时写工具可执行", async () => {
     workspaceRoot: sandbox,
     autoConfirm: true,
   });
-  const res = await loop.run("写个文件");
+  const res = await loop.run("新建文件");
   assert.equal(res.steps[0]!.ok, true);
   assert.equal(await fs.readFile(path.join(sandbox, "w.txt"), "utf-8"), "hello");
+});
+
+test("显式权限策略进入 executionMeta 但不放宽执行权限", async () => {
+  const chat = scriptedChat([
+    '{"action":"tool","tool":"write_file","input":{"path":"policy.txt","content":"bad"}}',
+    '{"action":"final","answer":"完成"}',
+  ]);
+  const loop = new AgentLoop({
+    chat,
+    registry: createDefaultRegistry(),
+    workspaceRoot: sandbox,
+    permissionPolicy: "autoEdit",
+    autoConfirm: false,
+  });
+  const res = await loop.run("修改文件");
+  assert.equal(res.executionMeta.permissionPolicy, "autoEdit");
+  assert.equal(res.executionMeta.permissionPolicySource, "explicit");
+  assert.equal(res.steps[0]!.blocked, true);
+  await assert.rejects(fs.access(path.join(sandbox, "policy.txt")));
 });
 
 test("达到迭代上限时返回 reachedLimit", async () => {

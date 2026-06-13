@@ -189,6 +189,8 @@ Content-Type: application/json
 
   "mode": "plan",
 
+  "permissionPolicy": "readOnly",
+
   "autoConfirm": false,
 
   "budget": {
@@ -206,7 +208,7 @@ Content-Type: application/json
 
 
 
-`mode` 可选 `chat` / `plan` / `implement` / `debug` / `review`；省略时会根据用户消息推断。`plan` / `review` 在执行层只开放 read 权限，即使模型尝试写入也会被阻塞。`budget` 是运行预算对象；省略时由 `RunPolicy` 按模式动态分配，支持 `maxModelTurns`、`maxToolCalls`、`maxReadCalls`、`maxWriteCalls`、`maxShellCalls`、`maxRuntimeMs`。
+`mode` 可选 `chat` / `plan` / `implement` / `debug` / `review`；省略时会根据用户消息推断。`permissionPolicy` 可选 `readOnly` / `confirmBeforeEdit` / `autoEdit` / `confirmBeforeRun` / `autoRun`，省略时按内部意图与 `autoConfirm` 保守推断；当前阶段它是可观测元策略，实际工具放行仍受运行模式权限上限、确认门和风险策略约束。`plan` / `review` 在执行层只开放 read 权限，即使模型尝试写入也会被阻塞。`budget` 是运行预算对象；省略时由 `RunPolicy` 按模式动态分配，支持 `maxModelTurns`、`maxToolCalls`、`maxReadCalls`、`maxWriteCalls`、`maxShellCalls`、`maxRuntimeMs`。
 
 `autoConfirm: true` 时允许写文件、`shell_run` 等副作用工具；默认需人工确认或走任务模式。响应含 `runId`、`taskId` 与 `executionMeta`：
 
@@ -219,6 +221,8 @@ Content-Type: application/json
     "modeSource": "inferred",
     "intent": "plan",
     "workflowType": "planWorkflow",
+    "permissionPolicy": "readOnly",
+    "permissionPolicySource": "explicit",
     "budget": {
       "maxModelTurns": 8,
       "maxToolCalls": 8,
