@@ -491,6 +491,32 @@
       }
     },
     {
+      "id": "m2-config-runtime-stats-feedback-v8",
+      "title": "GET /api/config 暴露 runtimeStatsFeedbackV8",
+      "purpose": "确认 V8 P2 RuntimeStats 只读反馈已落地并在 capabilities 声明。",
+      "method": "GET",
+      "path": "/api/config",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyPaths": {
+          "capabilities.runtimeStatsFeedbackV8": true
+        }
+      }
+    },
+    {
+      "id": "m2-routing-doc-runtime-stats-feedback-v8",
+      "title": "模型路由文档说明 V8 RuntimeStatsFeedback",
+      "purpose": "确认文档已登记 V8 P2 运行指标降权选型，避免误以为会自动改配置。",
+      "method": "GET",
+      "path": "/api/docs/content?slug=模型路由与协作",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyContains": ["RuntimeStatsFeedback", "runtime_stats"]
+      }
+    },
+    {
       "id": "m2-routing-doc-prompt-strategy-v8",
       "title": "模型路由文档说明 V8 PromptStrategyBuilder",
       "purpose": "确认文档已登记 V8 P1 提示策略与统一 token 估计，避免误以为完整自动路由已全部启用。",

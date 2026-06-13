@@ -3,17 +3,23 @@ import { randomUUID } from "node:crypto";
 import type { ModelRegistry } from "./model-registry.js";
 import { applyRoutingContext, type RoutingContext } from "./context-analyzer.js";
 import { RouterModelEvaluator } from "./router-model-evaluator.js";
+import type { RuntimeStatsFeedback } from "./runtime-stats-feedback.js";
 import {
   RouterError,
+  type ModelProfile,
   type RouterDecision,
   type RouterInput,
   type RuleRouteResult,
+  type TaskType,
 } from "./types.js";
 
 export class DecisionEngine {
   private readonly evaluator = new RouterModelEvaluator();
 
-  constructor(private readonly registry: ModelRegistry) {}
+  constructor(
+    private readonly registry: ModelRegistry,
+    private readonly runtimeFeedback?: RuntimeStatsFeedback,
+  ) {}
 
   decide(rule: RuleRouteResult, input: RouterInput, routingContext?: RoutingContext): RouterDecision {
     const context = routingContext;
@@ -89,34 +95,62 @@ export class DecisionEngine {
       if (primary.length === 0) {
         throw new RouterError("NO_AVAILABLE_MODEL", "没有可用模型满足当前任务要求");
       }
+      const ranked = this.rankWithRuntimeFeedback(primary, effectiveRule.taskType);
       const evaluation = this.evaluator.evaluate({
         routerInput: input,
         rule: effectiveRule,
-        candidates: primary,
+        candidates: ranked.candidates,
         routingContext: context,
       });
-      let pick = primary[0]!;
+      let pick = ranked.candidates[0]!;
       let source: RouterDecision["source"] = "rule";
       let reason = base.reason;
       if (evaluation.shouldOverrideRule && evaluation.recommendedModelId) {
-        const override = primary.find((p) => p.id === evaluation.recommendedModelId);
+        const override = ranked.candidates.find((p) => p.id === evaluation.recommendedModelId);
         if (override) {
           pick = override;
           source = "evaluator";
           reason = `${base.reason}；V3 评估：${evaluation.reasons.join("，")}`;
         }
       }
+      if (
+        this.runtimeFeedback &&
+        ranked.signals.length > 0 &&
+        pick.id !== ranked.candidates[0]!.id
+      ) {
+        pick = ranked.candidates[0]!;
+        source = "runtime_stats";
+        reason = `${base.reason}；V8 运行反馈：${ranked.signals.join("，")}`;
+      } else if (pick.id !== primary[0]!.id && source === "rule") {
+        source = "runtime_stats";
+        reason = `${base.reason}；V8 运行反馈：${ranked.signals.join("，")}`;
+      }
+      const contextSignals = [
+        ...(context?.signals ?? []),
+        ...ranked.signals.map((s) => `stats:${s}`),
+      ];
       return {
         ...base,
         source,
         executionStrategy: "single_model",
         selectedModelId: pick.id,
-        candidates: primary.map((p) => p.id),
+        candidates: ranked.candidates.map((p) => p.id),
+        contextSignals: contextSignals.length > 0 ? contextSignals : undefined,
         reason: `${reason}${contextNote}`,
       };
     }
 
     return this.decideCollaboration(effectiveRule, input, base, context, contextNote);
+  }
+
+  private rankWithRuntimeFeedback(
+    candidates: ModelProfile[],
+    taskType: TaskType,
+  ): { candidates: ModelProfile[]; signals: string[] } {
+    if (!this.runtimeFeedback || candidates.length <= 1) {
+      return { candidates, signals: [] };
+    }
+    return this.runtimeFeedback.rankCandidates(candidates, taskType);
   }
 
   private decideCollaboration(
@@ -127,8 +161,27 @@ export class DecisionEngine {
     contextNote = "",
   ): RouterDecision {
     const tokenNeed = routingContext?.effectiveTokenEstimate ?? input.contextTokenEstimate;
-    const drafts = this.registry.findDraftCandidates(rule, input.localOnly, tokenNeed);
-    const reviews = this.registry.findReviewCandidates(rule, input.localOnly);
+    const draftRanked = this.rankWithRuntimeFeedback(
+      this.registry.findDraftCandidates(rule, input.localOnly, tokenNeed),
+      rule.taskType,
+    );
+    const reviewRanked = this.rankWithRuntimeFeedback(
+      this.registry.findReviewCandidates(rule, input.localOnly),
+      rule.taskType,
+    );
+    const drafts = draftRanked.candidates;
+    const reviews = reviewRanked.candidates;
+    const statsSignals = [...draftRanked.signals, ...reviewRanked.signals];
+    const statsNote =
+      statsSignals.length > 0 ? `；V8 运行反馈：${statsSignals.join("，")}` : "";
+    const mergedContextSignals = [
+      ...(routingContext?.signals ?? []),
+      ...statsSignals.map((s) => `stats:${s}`),
+    ];
+    const withStats = {
+      ...base,
+      contextSignals: mergedContextSignals.length > 0 ? mergedContextSignals : base.contextSignals,
+    };
 
     if (reviews.length === 0) {
       if (rule.risk === "high") {
@@ -141,15 +194,16 @@ export class DecisionEngine {
       if (primary.length === 0) {
         throw new RouterError("NO_AVAILABLE_MODEL", "没有可用模型满足当前任务要求");
       }
-      const strong = primary.find((p) => p.defaultLevel >= 3) ?? primary[0]!;
+      const ranked = this.rankWithRuntimeFeedback(primary, rule.taskType);
+      const strong = ranked.candidates.find((p) => p.defaultLevel >= 3) ?? ranked.candidates[0]!;
       return {
-        ...base,
+        ...withStats,
         source: "fallback",
         executionStrategy: "single_model",
         selectedModelId: strong.id,
-        candidates: primary.map((p) => p.id),
+        candidates: ranked.candidates.map((p) => p.id),
         fallbackNote: "无审查模型，降级为 single_model",
-        reason: `${base.reason}；无 review 模型${contextNote}`,
+        reason: `${base.reason}；无 review 模型${statsNote}${contextNote}`,
       };
     }
 
@@ -160,35 +214,35 @@ export class DecisionEngine {
     if (!draft) {
       if (rule.risk === "low") {
         return {
-          ...base,
+          ...withStats,
           source: "fallback",
           executionStrategy: "single_model",
           selectedModelId: review.id,
           candidates: allCandidates,
           fallbackNote: "无草稿模型，直接使用审查模型",
-          reason: `${base.reason}${contextNote}`,
+          reason: `${base.reason}${statsNote}${contextNote}`,
         };
       }
       return {
-        ...base,
+        ...withStats,
         source: "fallback",
         executionStrategy: "single_model",
         selectedModelId: review.id,
         candidates: allCandidates,
         fallbackNote: "无草稿模型，中高风险改用强单模型",
-        reason: `${base.reason}${contextNote}`,
+        reason: `${base.reason}${statsNote}${contextNote}`,
       };
     }
 
     return {
-      ...base,
+      ...withStats,
       source: "rule",
       executionStrategy: "local_draft_remote_review",
       draftModelId: draft.id,
       reviewModelId: review.id,
       finalModelId: review.id,
       candidates: allCandidates,
-      reason: `${base.reason}${contextNote}`,
+      reason: `${base.reason}${statsNote}${contextNote}`,
     };
   }
 }

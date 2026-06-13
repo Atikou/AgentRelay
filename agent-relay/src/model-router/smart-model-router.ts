@@ -1,6 +1,7 @@
 import { DecisionEngine } from "./decision-engine.js";
 import { defaultContextAnalyzer, type RoutingContext } from "./context-analyzer.js";
 import type { ModelRegistry } from "./model-registry.js";
+import type { RuntimeStatsFeedback } from "./runtime-stats-feedback.js";
 import { RuleRouter } from "./route-rules.js";
 import type { RouteLogStore } from "./route-stores.js";
 import type { RouterDecision, RouterInput } from "./types.js";
@@ -13,8 +14,9 @@ export class SmartModelRouter {
   constructor(
     registry: ModelRegistry,
     private readonly routeLogStore?: RouteLogStore,
+    runtimeFeedback?: RuntimeStatsFeedback,
   ) {
-    this.decisionEngine = new DecisionEngine(registry);
+    this.decisionEngine = new DecisionEngine(registry, runtimeFeedback);
   }
 
   route(input: RouterInput): RouterDecision {

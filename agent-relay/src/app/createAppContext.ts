@@ -42,6 +42,7 @@ import {
   ModelRegistry,
   RouteLogStore,
   SmartModelRouter,
+  RuntimeStatsFeedback,
   FallbackManager,
   FallbackLogStore,
   EvalSetRunner,
@@ -256,6 +257,7 @@ export class AppContext {
         modelCapabilitiesV5: true,
         contextAnalyzerV8: true,
         promptStrategyBuilderV8: true,
+        runtimeStatsFeedbackV8: true,
         runPolicyManager: true,
         budgetManager: true,
         finalizer: true,
@@ -429,7 +431,12 @@ export function createAppContext(): AppContext {
   const modelEvalStore = new ModelEvalStore(contextManager.db.connection);
   const evalSetRunner = new EvalSetRunner(profileRegistry, modelEvalStore);
   const fallbackManager = new FallbackManager(profileRegistry);
-  const smartModelRouter = new SmartModelRouter(profileRegistry, routeLogStore);
+  const runtimeStatsFeedback = new RuntimeStatsFeedback(contextManager.db.connection);
+  const smartModelRouter = new SmartModelRouter(
+    profileRegistry,
+    routeLogStore,
+    runtimeStatsFeedback,
+  );
   const modelChatFn = createModelChatFn(clientMap, modelCallLogStore, trace);
   const defaultAgentChat = createAgentChatFn({ smartRouter: smartModelRouter, modelChatFn });
   const planner = new Planner(

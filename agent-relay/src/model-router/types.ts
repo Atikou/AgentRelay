@@ -118,7 +118,7 @@ export interface RouterDecision {
   selectedLevel: ModelLevel;
   risk: RiskLevel;
   reason: string;
-  source: "rule" | "manual_override" | "fallback" | "evaluator";
+  source: "rule" | "manual_override" | "fallback" | "evaluator" | "runtime_stats";
   executionStrategy: ExecutionStrategy;
   selectedModelId?: string;
   draftModelId?: string;

@@ -37,6 +37,7 @@ export type {
   TaskCapabilityRequirement,
 } from "./model-capabilities.js";
 export { RuntimeStatsCollector } from "./runtime-stats.js";
+export { RuntimeStatsFeedback } from "./runtime-stats-feedback.js";
 export type {
   RuntimeStatsSnapshot,
   RuntimeStatsSuggestion,

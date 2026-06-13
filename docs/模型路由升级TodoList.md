@@ -2,7 +2,7 @@
 
 > 依据 `Agent_Model_Router_Auto_Upgrade_Roadmap.md` 对当前仓库扫描生成。  
 > **关联索引**：[外部规范-TodoList索引](外部规范-TodoList索引.md)  
-> **当前阶段：V8 P1 PromptStrategyBuilder 已落地 → 继续 RuntimeStats 反馈闭环，勿一次性做完 V8。**  
+> **当前阶段：V8 P2 RuntimeStats 反馈已落地 → 继续 Agent 响应暴露 promptStrategy 等收尾，勿一次性做完 V8。**  
 > 推进模型路由相关改动前，请先读 [模型路由与协作](模型路由与协作.md) 了解已实现能力；**不要一次性实现完整自动路由（V8）**。
 
 ---
@@ -38,7 +38,7 @@
 | RouterModelEvaluator | ✅ | V3 启发式已接入 `DecisionEngine`（高风险不覆盖） |
 | ContextAnalyzer | ✅ | `context-analyzer.ts`；V8 P0 多信号接入 DecisionEngine |
 | PromptStrategyBuilder | [~] | `prompt-strategy-builder.ts`；V8 P1 接入 Orchestrator `/api/chat` |
-| router-context-estimate | ✅ | `router-context-estimate.ts`；统一 token 估计（chat/agent/planner） |
+| RuntimeStatsFeedback | ✅ | `runtime-stats-feedback.ts`；V8 P2 候选降权（不改配置） |
 | RuntimeStats / EvalSetRunner | ✅ | V6/V7 已落地 |
 | 拖拽编排 (V9) | ❌ | 终局可选 |
 
@@ -90,7 +90,7 @@
 | V5 | ModelProfile 能力矩阵 | ✅ |
 | V6 | RuntimeStats | ✅ 只读建议 API |
 | V7 | EvalSetRunner | ✅ 离线评测 API |
-| V8 | 完整自动路由 | [~] P0 ContextAnalyzer + P1 PromptStrategyBuilder 已接入 |
+| V8 | 完整自动路由 | [~] P0–P2 已接入；Agent promptStrategy 暴露待续 |
 | V9 | 拖拽式可视化编排 | 终局可选 |
 
 ---
@@ -143,7 +143,7 @@
 - [x] `PromptStrategyBuilder` + `applyPromptStrategyToSystemText`（温度/风格/system 补充）
 - [x] `estimateRouterContextTokens` 统一 token 估计（Orchestrator / Agent / Planner）
 - [x] `/api/chat` Smart 路径应用 `promptStrategy` 并回传 `routerDecision.promptStrategy`
-- [ ] RuntimeStats 只读反馈影响选型（不改配置）
+- [x] `RuntimeStatsFeedback` 只读反馈影响候选排序（`source=runtime_stats`，不改配置）
 - [ ] Agent `/api/agent` 响应暴露 `promptStrategy`（当前仅内部路由用 token 估计）
 
 ### P2：后续阶段（本清单阶段不做）
@@ -153,7 +153,7 @@
 - [x] V5 ModelCapabilities 能力矩阵
 - [x] V6 RuntimeStats（只建议，不改配置）
 - [x] V7 EvalSetRunner（离线评测 + model_eval_results）
-- [ ] V8 完整自动路由（P0 ContextAnalyzer + P1 PromptStrategyBuilder 已落地；RuntimeStats 反馈待续）
+- [ ] V8 完整自动路由（P0–P2 已落地；Agent promptStrategy 暴露待续）
 - [ ] V9 WorkflowGraphRunner + 拖拽 UI
 
 ---
@@ -292,7 +292,7 @@
 | V5 | ModelCapabilities 能力矩阵 | [x] |
 | V6 | RuntimeStats 指标回流（只建议不改配置） | [x] |
 | V7 | EvalSetRunner + model_eval_results | [x] |
-| V8 | ContextAnalyzer + PromptStrategyBuilder + 多信号 DecisionEngine | [~] P0+P1 已接入；RuntimeStats 反馈待续 |
+| V8 | ContextAnalyzer + PromptStrategyBuilder + RuntimeStatsFeedback | [~] P0–P2 已接入 |
 | V9 | WorkflowGraphRunner / NodeRegistry / 拖拽 UI | [ ] |
 
 ---
