@@ -589,6 +589,58 @@
       }
     },
     {
+      "id": "m1-agent-workflow-router-generate-file-meta",
+      "title": "WorkflowRouter 路由生成文件工作流",
+      "purpose": "确认生成文件意图由 WorkflowRouter 集中映射为 generateFileWorkflow，避免继续在 IntentRouter 中散落拼接规则。",
+      "method": "POST",
+      "path": "/api/agent",
+      "input": {
+        "message": "生成文件 README 草稿，只返回当前工作流元信息。",
+        "persist": false,
+        "budget": {
+          "maxModelTurns": 1,
+          "maxToolCalls": 0,
+          "maxReadCalls": 0,
+          "maxWriteCalls": 0,
+          "maxShellCalls": 0,
+          "maxRuntimeMs": 60000
+        }
+      },
+      "expect": {
+        "status": 200,
+        "bodyPaths": {
+          "executionMeta.intent": "generate_file",
+          "executionMeta.workflowType": "generateFileWorkflow"
+        }
+      }
+    },
+    {
+      "id": "m1-agent-workflow-router-search-meta",
+      "title": "WorkflowRouter 路由搜索工作流",
+      "purpose": "确认搜索/定位意图由 WorkflowRouter 集中映射为 searchWorkflow，并保持只读工作流元信息可观测。",
+      "method": "POST",
+      "path": "/api/agent",
+      "input": {
+        "message": "查找当前项目里 AgentLoop 在哪里，只返回当前工作流元信息。",
+        "persist": false,
+        "budget": {
+          "maxModelTurns": 1,
+          "maxToolCalls": 0,
+          "maxReadCalls": 0,
+          "maxWriteCalls": 0,
+          "maxShellCalls": 0,
+          "maxRuntimeMs": 60000
+        }
+      },
+      "expect": {
+        "status": 200,
+        "bodyPaths": {
+          "executionMeta.intent": "search",
+          "executionMeta.workflowType": "searchWorkflow"
+        }
+      }
+    },
+    {
       "id": "m1-agent-permission-guard-ui-meta",
       "title": "测试台执行元信息展示权限策略",
       "purpose": "确认测试台脚本会展示 executionMeta.permissionPolicy，便于排查 PermissionGuard 的 allow / needsConfirmation / deny 判定来源。",

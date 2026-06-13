@@ -2,6 +2,7 @@ import type { ModelTaskType } from "../model/taskType.js";
 import { parseRunModeValue, type AgentRunMode } from "./RunPolicyTypes.js";
 import { defaultWorkflowPlanner, type WorkflowPlan } from "./WorkflowPlanner.js";
 import type { AgentIntentType, AgentWorkflowType } from "./IntentTypes.js";
+import { defaultWorkflowRouter } from "./WorkflowRouter.js";
 export type { AgentIntentType, AgentWorkflowType } from "./IntentTypes.js";
 
 export type IntentModeSource = "explicit" | "inferred";
@@ -33,7 +34,7 @@ export class IntentRouter {
       mode,
       modeSource: explicit ? "explicit" : "inferred",
       intent,
-      workflowType: workflowForIntent(intent),
+      workflowType: defaultWorkflowRouter.routeIntent(intent).workflowType,
       workflowPlan: defaultWorkflowPlanner.plan(goal, mode),
     };
   }
@@ -105,9 +106,4 @@ function modeForIntent(intent: AgentIntentType): AgentRunMode {
   if (intent === "debug" || intent === "run" || intent === "verify") return "debug";
   if (intent === "edit" || intent === "refactor" || intent === "generate_file") return "implement";
   return "chat";
-}
-
-function workflowForIntent(intent: AgentIntentType): AgentWorkflowType {
-  if (intent === "generate_file") return "generateFileWorkflow";
-  return `${intent}Workflow` as AgentWorkflowType;
 }
