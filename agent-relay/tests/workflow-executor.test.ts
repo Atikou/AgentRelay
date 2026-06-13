@@ -113,6 +113,9 @@ test("edit workflow prelocates files through WorkflowExecutor", async () => {
   assert.equal(result.workflowProposals[0]!.permissionPolicy, "autoEdit");
   assert.equal(result.workflowProposals[0]!.writeAllowedByPolicy, true);
   assert.equal(result.workflowProposals[0]!.requiresConfirmationBeforeWrite, false);
+  assert.equal(result.workflowProposals[0]!.permissionSummary, "write_allowed");
+  assert.equal(result.workflowProposals[0]!.permissionChecks[0]!.toolName, "apply_patch");
+  assert.equal(result.workflowProposals[0]!.permissionChecks[0]!.decision, "allow");
   assert.ok(result.workflowProposals[0]!.requiredFields.includes("diffPlan"));
   assert.equal(locate.calls.length, 1);
   assert.equal(contextPack.calls.length, 1);
@@ -161,9 +164,53 @@ test("generate file workflow prelocates conventions through WorkflowExecutor", a
   assert.equal(result.workflowProposals.length, 1);
   assert.equal(result.workflowProposals[0]!.workflowType, "generateFileWorkflow");
   assert.equal(result.workflowProposals[0]!.intent, "generate_file");
+  assert.equal(result.workflowProposals[0]!.permissionSummary, "write_allowed");
   assert.ok(result.workflowProposals[0]!.requiredFields.includes("targetFiles"));
   assert.equal(locate.calls.length, 1);
   assert.equal(contextPack.calls.length, 1);
+});
+
+test("edit proposal records confirmation-required permission checks", async () => {
+  const locate = createMockTool({
+    name: "locate_relevant_files",
+    permission: "read",
+    output: {
+      primaryFiles: [{ path: "src/agent/AgentLoop.ts", score: 0.9, reason: "target" }],
+      candidateFiles: [],
+      locateStats: {},
+    },
+  });
+  const contextPack = createMockTool({
+    name: "context_pack",
+    permission: "read",
+    output: { files: [{ path: "src/agent/AgentLoop.ts", content: "export class AgentLoop {}" }] },
+  });
+  const policy = resolveRunPolicy({
+    requestedMode: "implement",
+    message: "edit src/agent/AgentLoop.ts prompt text",
+    requestedPermissionPolicy: "confirmBeforeEdit",
+  });
+  const executor = new WorkflowExecutor({
+    registry: createMockRegistry([locate, contextPack]),
+    workspaceRoot: sandbox,
+    allowedPermissions: policy.allowedPermissions,
+    budget: policy.budget,
+    budgetManager: defaultRunPolicyManager.createBudgetManager(policy),
+    policy,
+  });
+
+  const result = await executor.executeBeforeModel({
+    goal: "edit src/agent/AgentLoop.ts prompt text",
+  });
+
+  assert.equal(result.workflowProposals.length, 1);
+  assert.equal(result.workflowProposals[0]!.permissionSummary, "confirmation_required");
+  assert.equal(result.workflowProposals[0]!.requiresConfirmationBeforeWrite, true);
+  assert.deepEqual(
+    result.workflowProposals[0]!.permissionChecks.map((check) => check.decision),
+    ["needsConfirmation", "needsConfirmation"],
+  );
+  assert.match(result.modelContexts.join("\n"), /preflightPermissionChecks/);
 });
 
 test("verify workflow is dispatched through WorkflowExecutor", async () => {

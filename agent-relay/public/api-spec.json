@@ -202,7 +202,7 @@
       "post": {
         "tags": ["对话与智能体"],
         "summary": "自主 Agent 循环（ReAct JSON）",
-        "description": "统一 Agent 入口。模型首轮前的确定性工作流由 WorkflowExecutor 统一调度：PlanWorkflow 负责只读预扫描；editWorkflow/generateFileWorkflow 会先执行 locate_relevant_files + context_pack 只读预定位，再由 EditProposalWorkflow 注入 proposal phase（targetFiles/changeSummary/permissionCheck/diffPlan/verificationPlan）以约束写入前方案，并在 executionMeta.workflowProposals 返回可审计 proposal 记录；runWorkflow/verifyWorkflow 会尝试执行白名单安全命令（node --version、npm --version、npm run typecheck、npm test、npm run build）；无安全命令、无 shell 权限或预算不足时静态降级并说明。",
+        "description": "统一 Agent 入口。模型首轮前的确定性工作流由 WorkflowExecutor 统一调度：PlanWorkflow 负责只读预扫描；editWorkflow/generateFileWorkflow 会先执行 locate_relevant_files + context_pack 只读预定位，再由 EditProposalWorkflow 注入 proposal phase（targetFiles/changeSummary/permissionCheck/diffPlan/verificationPlan）以约束写入前方案，并在 executionMeta.workflowProposals 返回可审计 proposal 记录和 PermissionGuard 写入前预检结果；runWorkflow/verifyWorkflow 会尝试执行白名单安全命令（node --version、npm --version、npm run typecheck、npm test、npm run build）；无安全命令、无 shell 权限或预算不足时静态降级并说明。",
         "operationId": "runAgent",
         "requestBody": {
           "required": true,
@@ -1679,7 +1679,33 @@
             "items": { "type": "string" }
           },
           "writeAllowedByPolicy": { "type": "boolean" },
-          "requiresConfirmationBeforeWrite": { "type": "boolean" }
+          "requiresConfirmationBeforeWrite": { "type": "boolean" },
+          "permissionSummary": {
+            "type": "string",
+            "enum": ["write_allowed", "confirmation_required", "denied"]
+          },
+          "permissionChecks": {
+            "type": "array",
+            "description": "EditProposalWorkflow 复用 PermissionGuard 对写入工具做出的预检结果；仅用于审计和提示，不执行写入。",
+            "items": {
+              "type": "object",
+              "properties": {
+                "toolName": { "type": "string", "enum": ["apply_patch", "write_file"] },
+                "permission": { "type": "string", "enum": ["write"] },
+                "decision": { "type": "string", "enum": ["allow", "needsConfirmation", "deny"] },
+                "reason": { "type": "string" },
+                "risk": {
+                  "type": "object",
+                  "properties": {
+                    "tier": { "type": "string", "enum": ["low", "medium", "high", "critical"] },
+                    "category": { "type": "string" },
+                    "requiresConfirmation": { "type": "boolean" },
+                    "policyBlocked": { "type": "boolean" }
+                  }
+                }
+              }
+            }
+          }
         }
       },
       "AgentExecutionMeta": {

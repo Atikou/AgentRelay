@@ -136,6 +136,7 @@ export class WorkflowExecutor {
       goal,
       intent: this.options.policy.intent,
       permissionPolicy: this.options.policy.permissionPolicy,
+      allowedPermissions: this.options.allowedPermissions,
     });
   }
 }

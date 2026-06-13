@@ -445,6 +445,9 @@ test("editWorkflow injects proposal phase before model writes", async () => {
   assert.equal(res.executionMeta.workflowProposals?.[0]?.writeAllowedByPolicy, true);
   assert.equal(res.executionMeta.workflowProposals?.[0]?.requiresConfirmationBeforeWrite, false);
   assert.ok(res.executionMeta.workflowProposals?.[0]?.requiredFields.includes("permissionCheck"));
+  assert.equal(res.executionMeta.workflowProposals?.[0]?.permissionSummary, "write_allowed");
+  assert.equal(res.executionMeta.workflowProposals?.[0]?.permissionChecks[0]?.toolName, "apply_patch");
+  assert.equal(res.executionMeta.workflowProposals?.[0]?.permissionChecks[0]?.decision, "allow");
   assert.equal(res.executionMeta.usedWriteCalls, 0);
 });
 

@@ -67,6 +67,21 @@ export interface AgentWorkflowProposal {
   requiredFields: string[];
   writeAllowedByPolicy: boolean;
   requiresConfirmationBeforeWrite: boolean;
+  permissionChecks: AgentWorkflowPermissionCheck[];
+  permissionSummary: "write_allowed" | "confirmation_required" | "denied";
+}
+
+export interface AgentWorkflowPermissionCheck {
+  toolName: "apply_patch" | "write_file";
+  permission: Extract<ToolPermission, "write">;
+  decision: "allow" | "needsConfirmation" | "deny";
+  reason?: string;
+  risk: {
+    tier: "low" | "medium" | "high" | "critical";
+    category: string;
+    requiresConfirmation: boolean;
+    policyBlocked: boolean;
+  };
 }
 
 export interface AgentExecutionMeta {

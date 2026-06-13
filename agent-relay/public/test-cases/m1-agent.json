@@ -1125,9 +1125,12 @@
           "executionMeta.workflowProposals.0.phase": "proposal",
           "executionMeta.workflowProposals.0.permissionPolicy": "autoEdit",
           "executionMeta.workflowProposals.0.writeAllowedByPolicy": true,
-          "executionMeta.workflowProposals.0.requiresConfirmationBeforeWrite": false
+          "executionMeta.workflowProposals.0.requiresConfirmationBeforeWrite": false,
+          "executionMeta.workflowProposals.0.permissionSummary": "write_allowed",
+          "executionMeta.workflowProposals.0.permissionChecks.0.toolName": "apply_patch",
+          "executionMeta.workflowProposals.0.permissionChecks.0.decision": "allow"
         },
-        "bodyContains": ["workflowProposals", "diffPlan", "permissionCheck"]
+        "bodyContains": ["workflowProposals", "diffPlan", "permissionCheck", "permissionChecks"]
       }
     },
     {
@@ -1159,9 +1162,12 @@
           "executionMeta.workflowProposals.0.phase": "proposal",
           "executionMeta.workflowProposals.0.permissionPolicy": "confirmBeforeEdit",
           "executionMeta.workflowProposals.0.writeAllowedByPolicy": true,
-          "executionMeta.workflowProposals.0.requiresConfirmationBeforeWrite": true
+          "executionMeta.workflowProposals.0.requiresConfirmationBeforeWrite": true,
+          "executionMeta.workflowProposals.0.permissionSummary": "confirmation_required",
+          "executionMeta.workflowProposals.0.permissionChecks.0.toolName": "apply_patch",
+          "executionMeta.workflowProposals.0.permissionChecks.0.decision": "needsConfirmation"
         },
-        "bodyContains": ["workflowProposals", "targetFiles", "verificationPlan"]
+        "bodyContains": ["workflowProposals", "targetFiles", "verificationPlan", "permissionChecks"]
       }
     },
     {
