@@ -127,6 +127,44 @@ test("searchWorkflow 即使显式 autoRun 也保持只读工具上限", async ()
   await assert.rejects(fs.access(path.join(sandbox, "search-write.txt")));
 });
 
+test("verifyWorkflow 会先执行安全命令并把结果注入模型上下文", async () => {
+  const message = "运行 node --version 验证环境";
+  let seenPrompt = "";
+  const chat: LoopChatFn = async (req) => {
+    seenPrompt = req.messages.map((m) => m.content).join("\n");
+    return {
+      content: '{"action":"final","answer":"node version checked"}',
+      toolCalls: [],
+      clientName: "fake",
+      modelName: "fake",
+      location: "local",
+      latencyMs: 1,
+    };
+  };
+  const loop = new AgentLoop({
+    chat,
+    registry: createDefaultRegistry(),
+    workspaceRoot: sandbox,
+    policy: resolveRunPolicy({
+      message,
+      requestedPermissionPolicy: "autoRun",
+      budget: {
+        maxModelTurns: 2,
+        maxToolCalls: 2,
+        maxReadCalls: 0,
+        maxWriteCalls: 0,
+        maxShellCalls: 1,
+        maxRuntimeMs: 60000,
+      },
+    }),
+  });
+  const res = await loop.run(message);
+  assert.equal(res.executionMeta.intent, "verify");
+  assert.equal(res.steps[0]!.tool, "shell_run");
+  assert.equal(res.steps[0]!.ok, true);
+  assert.match(seenPrompt, /verifyWorkflow automatic verification result/);
+});
+
 test("显式确认型权限策略进入 executionMeta 且不自动执行", async () => {
   const chat = scriptedChat([
     '{"action":"tool","tool":"write_file","input":{"path":"policy.txt","content":"bad"}}',

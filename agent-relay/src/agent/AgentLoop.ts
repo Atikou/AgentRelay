@@ -12,6 +12,7 @@ import { assertWithinCostBudget, sumModelTurnCost } from "../util/costBudget.js"
 import { wrapUntrustedToolOutput } from "../util/injection.js";
 import { redactPreview } from "../util/redact.js";
 import { PlanWorkflow, type PlanWorkflowResumeContext } from "./PlanWorkflow.js";
+import { RunVerifyWorkflow } from "./RunVerifyWorkflow.js";
 import { defaultWorkflowPlanner } from "./WorkflowPlanner.js";
 import {
   buildToolResultLayers,
@@ -251,6 +252,15 @@ export class AgentLoop {
           content: `${workflow.modelContext}\n\n（续跑：已完成步骤已保留，请继续分析或输出 final。）`,
         });
       }
+    }
+
+    const runVerifyWorkflow = await this.runRunVerifyWorkflow(effectiveGoal);
+    if (runVerifyWorkflow) {
+      for (const step of runVerifyWorkflow.steps) {
+        steps.push(step);
+        this.options.onStep?.(step);
+      }
+      messages.push({ role: "user", content: runVerifyWorkflow.modelContext });
     }
 
     let modelTurns = 0;
@@ -513,6 +523,20 @@ export class AgentLoop {
       taskId: this.options.taskId,
       requestId: this.options.requestId ?? this.options.runId,
     }).run(userMessage, this.policy.mode, resume);
+  }
+
+  private runRunVerifyWorkflow(userMessage: string) {
+    return new RunVerifyWorkflow({
+      registry: this.options.registry,
+      workspaceRoot: this.options.workspaceRoot,
+      allowedPermissions: this.allowed,
+      budget: this.budget,
+      trace: this.options.trace,
+      contextManager: this.options.contextManager,
+      sessionId: this.options.sessionId,
+      taskId: this.options.taskId,
+      requestId: this.options.requestId ?? this.options.runId,
+    }).run(userMessage, this.policy.intent);
   }
 
   private async runToolAction(

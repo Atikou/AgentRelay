@@ -821,6 +821,65 @@
       }
     },
     {
+      "id": "m1-agent-run-verify-safe-command",
+      "title": "verifyWorkflow 执行白名单安全命令",
+      "purpose": "确认统一 Agent 入口在验证意图中识别 node --version，并在 autoRun 与 shell 预算允许时先执行 shell_run 收集输出。",
+      "method": "POST",
+      "path": "/api/agent",
+      "input": {
+        "message": "运行 node --version 验证环境",
+        "permissionPolicy": "autoRun",
+        "persist": false,
+        "budget": {
+          "maxModelTurns": 1,
+          "maxToolCalls": 1,
+          "maxReadCalls": 0,
+          "maxWriteCalls": 0,
+          "maxShellCalls": 1,
+          "maxRuntimeMs": 60000
+        }
+      },
+      "expect": {
+        "status": 200,
+        "bodyPaths": {
+          "executionMeta.intent": "verify",
+          "executionMeta.workflowType": "verifyWorkflow",
+          "steps.0.tool": "shell_run",
+          "steps.0.ok": true,
+          "executionMeta.usedShellCalls": 1
+        }
+      }
+    },
+    {
+      "id": "m1-agent-run-verify-static-fallback",
+      "title": "verifyWorkflow 无 shell 权限时静态降级",
+      "purpose": "确认验证意图在只读权限策略下不会强行执行命令，仍返回 verifyWorkflow 元信息并让模型基于静态降级说明作答。",
+      "method": "POST",
+      "path": "/api/agent",
+      "input": {
+        "message": "运行 node --version 验证环境",
+        "permissionPolicy": "readOnly",
+        "persist": false,
+        "budget": {
+          "maxModelTurns": 1,
+          "maxToolCalls": 1,
+          "maxReadCalls": 0,
+          "maxWriteCalls": 0,
+          "maxShellCalls": 1,
+          "maxRuntimeMs": 60000
+        }
+      },
+      "expect": {
+        "status": 200,
+        "bodyPaths": {
+          "executionMeta.intent": "verify",
+          "executionMeta.workflowType": "verifyWorkflow",
+          "executionMeta.permissionPolicy": "readOnly",
+          "executionMeta.usedShellCalls": 0
+        }
+      }
+    },
+    {
       "id": "m1-agent-unknown-client-still-force",
       "title": "未知 clientName 仍立即 404",
       "purpose": "确认 Smart 路由接入后，显式 clientName 校验行为不变，不会静默回退默认路由。",
