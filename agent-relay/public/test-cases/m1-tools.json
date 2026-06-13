@@ -144,7 +144,9 @@
         "bodyPaths": {
           "needsConfirmation": true,
           "preview.kind": "write_file",
-          "preview.patchPreview": "string"
+          "preview.patchPreview": "string",
+          "risk.tier": "medium",
+          "risk.category": "file_write"
         }
       }
     },
@@ -157,7 +159,21 @@
       "input": { "name": "shell_run", "input": { "command": "node -v" } },
       "expect": {
         "status": 200,
-        "bodyPaths": { "needsConfirmation": true, "tool": "shell_run" }
+        "bodyPaths": { "needsConfirmation": true, "tool": "shell_run", "risk.tier": "low", "risk.category": "shell_command" }
+      }
+    },
+    {
+      "id": "m1-tools-structured-risk-capability",
+      "title": "配置暴露结构化工具风险能力",
+      "purpose": "确认服务端声明高风险工具输出会附带统一 risk 结构，便于测试台与审计页展示。",
+      "method": "GET",
+      "path": "/api/config",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyPaths": {
+          "capabilities.structuredToolRisk": true
+        }
       }
     },
     {

@@ -71,13 +71,29 @@ export const SchedulerConfigSchema = z.object({
 });
 export type SchedulerConfig = z.infer<typeof SchedulerConfigSchema>;
 
+const ToolPermissionSchema = z.enum(["read", "write", "shell", "network", "dangerous"]);
+
 export const SecurityConfigSchema = z.object({
+  permissions: z
+    .object({
+      /** 项目级权限上限；未配置则允许全部内置权限。 */
+      allowed: z.array(ToolPermissionSchema).optional(),
+    })
+    .optional(),
   shell: z
     .object({
       /** 正则列表：命中任一条时拒绝 shell_run / 后台命令。 */
       denyCommands: z.array(z.string().min(1)).default([]),
       /** 正则列表：配置后 shell_run / 后台命令必须命中任一条。 */
       allowCommands: z.array(z.string().min(1)).default([]),
+    })
+    .default({}),
+  network: z
+    .object({
+      /** 正则列表：命中任一条时拒绝网络工具访问（对规范化 hostname 匹配）。 */
+      denyDomains: z.array(z.string().min(1)).default([]),
+      /** 正则列表：配置后网络工具目标必须命中任一条；未配置则不启用 allowlist。 */
+      allowDomains: z.array(z.string().min(1)).default([]),
     })
     .default({}),
   budget: z

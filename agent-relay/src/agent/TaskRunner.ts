@@ -1,5 +1,6 @@
 import type { TraceLogger } from "../trace/TraceLogger.js";
 import { MODE_PERMISSIONS, type ToolPermission } from "./permissions.js";
+import { resolveEffectivePermissions } from "../policy/PermissionPolicy.js";
 import {
   indexPlanSteps,
   propagateDependencyBlocks,
@@ -41,6 +42,8 @@ export interface TaskRunnerOptions {
   autoConfirm?: boolean;
   /** 本次运行允许的权限边界，默认任务模式的全集。 */
   allowedPermissions?: ToolPermission[];
+  /** 项目级权限上限（来自 config.security.permissions）。 */
+  projectAllowedPermissions?: ToolPermission[];
   onUpdate?: (plan: Plan) => void;
   trace?: TraceLogger;
   runId?: string;
@@ -55,12 +58,24 @@ export interface TaskRunnerOptions {
 export class TaskRunner {
   private cancelled = false;
   private readonly confirmedStepIds = new Set<string>();
+  private readonly allowed: ToolPermission[];
   private lastTaskStatus: string;
 
   constructor(
     private readonly plan: Plan,
     private readonly options: TaskRunnerOptions,
   ) {
+    const resolved = resolveEffectivePermissions({
+      projectAllowed: options.projectAllowedPermissions,
+      modeAllowed: MODE_PERMISSIONS.task,
+      modeSource: "task.mode",
+      taskAllowed: options.allowedPermissions,
+      taskSource: "task.allowedPermissions",
+    });
+    this.allowed =
+      resolved.allowed.length > 0
+        ? resolved.allowed
+        : (options.allowedPermissions ?? MODE_PERMISSIONS.task);
     this.lastTaskStatus = aggregateTaskStatus(plan.steps);
   }
 
@@ -154,8 +169,9 @@ export class TaskRunner {
 
   private async runStep(step: PlanStep): Promise<PlanStep["status"]> {
     // 1) 权限边界：超出本次允许权限集的步骤直接阻塞。
-    const allowed: string[] = this.options.allowedPermissions ?? MODE_PERMISSIONS.task;
-    const disallowed = step.requiredPermissions.filter((p) => !allowed.includes(p));
+    const disallowed = step.requiredPermissions.filter(
+      (p) => !this.allowed.includes(p as ToolPermission),
+    );
     if (disallowed.length > 0) {
       this.setStepStatus(step, "blocked", {
         error: `任务模式不允许的权限：${disallowed.join(", ")}`,

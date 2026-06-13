@@ -2,6 +2,7 @@ import path from "node:path";
 
 import type { TraceLogger } from "../trace/TraceLogger.js";
 import type { ShellPolicy } from "../policy/ShellPolicy.js";
+import type { NetworkPolicy } from "../policy/NetworkPolicy.js";
 import {
   applyPatchTool,
   backupFileTool,
@@ -72,17 +73,23 @@ export interface CreateRegistryOptions {
   /** 数据目录（含 agent_data/）；传入后启用备份、变更追踪与 tool_logs。 */
   dataDir?: string;
   shellPolicy?: ShellPolicy;
+  networkPolicy?: NetworkPolicy;
 }
 
 /** 创建包含全部内置工具的注册表。 */
 export function createDefaultRegistry(opts?: CreateRegistryOptions | TraceLogger): ToolRegistry {
   const options: CreateRegistryOptions =
-    opts && typeof opts === "object" && ("dataDir" in opts || "trace" in opts || "shellPolicy" in opts)
+    opts && typeof opts === "object" && ("dataDir" in opts || "trace" in opts || "shellPolicy" in opts || "networkPolicy" in opts)
       ? opts
       : { trace: opts as TraceLogger | undefined };
   const storage = options.dataDir ? new ToolStorage(options.dataDir) : undefined;
   const registry = new ToolRegistry(options.trace, storage);
-  if (options.shellPolicy) registry.setDefaultContext({ shellPolicy: options.shellPolicy });
+  if (options.shellPolicy || options.networkPolicy) {
+    registry.setDefaultContext({
+      shellPolicy: options.shellPolicy,
+      networkPolicy: options.networkPolicy,
+    });
+  }
   for (const tool of BUILTIN_TOOLS) {
     registry.register(tool);
   }

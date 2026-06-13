@@ -1,4 +1,6 @@
 import type { ToolPermission } from "./permissions.js";
+import { MODE_PERMISSIONS } from "./permissions.js";
+import { resolveEffectivePermissions } from "../policy/PermissionPolicy.js";
 import { StepExecutionError, type StepContext, type StepExecutor, type StepResult } from "./TaskRunner.js";
 import type { PlanStep } from "./types.js";
 import type { ToolRegistry } from "../tools/ToolRegistry.js";
@@ -10,6 +12,7 @@ export interface ToolStepExecutorOptions {
   sessionId?: string;
   requestId?: string;
   allowedPermissions?: ToolPermission[];
+  projectAllowedPermissions?: ToolPermission[];
 }
 
 /**
@@ -17,7 +20,21 @@ export interface ToolStepExecutorOptions {
  * 未绑定工具的步骤视为手工/说明步骤，仅返回提示而不产生副作用。
  */
 export class ToolStepExecutor implements StepExecutor {
-  constructor(private readonly options: ToolStepExecutorOptions) {}
+  private readonly allowed: ToolPermission[];
+
+  constructor(private readonly options: ToolStepExecutorOptions) {
+    const resolved = resolveEffectivePermissions({
+      projectAllowed: options.projectAllowedPermissions,
+      modeAllowed: MODE_PERMISSIONS.task,
+      modeSource: "task.mode",
+      taskAllowed: options.allowedPermissions,
+      taskSource: "task.allowedPermissions",
+    });
+    this.allowed =
+      resolved.allowed.length > 0
+        ? resolved.allowed
+        : (options.allowedPermissions ?? MODE_PERMISSIONS.task);
+  }
 
   async execute(step: PlanStep, ctx: StepContext): Promise<StepResult> {
     if (!step.tool) {
@@ -32,7 +49,7 @@ export class ToolStepExecutor implements StepExecutor {
       requestId: this.options.requestId,
       toolCallId,
       signal: ctx.signal,
-      allowedPermissions: this.options.allowedPermissions,
+      allowedPermissions: this.allowed,
     });
 
     if (!result.ok) {

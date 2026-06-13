@@ -1,4 +1,9 @@
 import type { ToolPermission } from "../agent/permissions.js";
+import {
+  ALL_PERMISSIONS,
+  resolveEffectivePermissions,
+  assertUserGrantWithinCeiling,
+} from "../policy/PermissionPolicy.js";
 import type { SubAgentRoleDefinition, SubAgentRoleId } from "./types.js";
 
 /** 内置只读子 Agent 角色（M5 第一版）。 */
@@ -62,16 +67,24 @@ export function listSubAgentRoles(): SubAgentRoleDefinition[] {
   return Object.values(SUB_AGENT_ROLES);
 }
 
-/** 校验父 Agent 授予的权限是否为角色允许集的子集。 */
+/** 校验父 Agent 授予的权限是否为角色允许集的子集，并按项目级上限收敛。 */
 export function resolveGrantedPermissions(
   role: SubAgentRoleDefinition,
   requested?: ToolPermission[],
+  projectAllowed: ToolPermission[] = ALL_PERMISSIONS,
 ): ToolPermission[] {
-  const grant = requested ?? role.allowedPermissions;
-  for (const p of grant) {
-    if (!role.allowedPermissions.includes(p)) {
-      throw new Error(`角色「${role.title}」不允许授予权限：${p}`);
-    }
+  if (requested) {
+    assertUserGrantWithinCeiling(requested, role.allowedPermissions, `角色「${role.title}」`);
   }
-  return grant.length > 0 ? grant : role.allowedPermissions;
+  const resolved = resolveEffectivePermissions({
+    projectAllowed,
+    modeAllowed: ALL_PERMISSIONS,
+    modeSource: "subagent.run",
+    roleAllowed: role.allowedPermissions,
+    roleSource: `subagent.role=${role.id}`,
+    userGranted: requested,
+    userSource: "subagent.grantedPermissions",
+    strictUserGrant: requested != null,
+  });
+  return resolved.allowed.length > 0 ? resolved.allowed : role.allowedPermissions;
 }

@@ -2,8 +2,11 @@ import { performance } from "node:perf_hooks";
 import crypto from "node:crypto";
 
 import type { TraceLogger } from "../trace/TraceLogger.js";
+import { extractNetworkTarget } from "../policy/NetworkPolicy.js";
+import { assessPermissionDeniedRisk, assessToolRisk } from "../policy/ToolRiskAssessment.js";
 import { redactPreview, redactString, redactValue } from "../util/redact.js";
 import type { ToolPermission } from "../agent/permissions.js";
+import { CONFIRMATION_REQUIRED } from "../agent/permissions.js";
 import type { ToolStorage } from "./storage/ToolStorage.js";
 import type { Tool, ToolContext, ToolErrorCategory, ToolErrorCode, ToolRunResult, ToolSpec } from "./types.js";
 
@@ -78,6 +81,12 @@ export class ToolRegistry {
     }
 
     if (ctx.allowedPermissions && !ctx.allowedPermissions.includes(tool.permission)) {
+      const risk = assessPermissionDeniedRisk(tool.permission, `当前不允许的权限：${tool.permission}`, {
+        toolName: name,
+        input: rawInput,
+        shellPolicy: ctx.shellPolicy ?? this.defaultContext.shellPolicy,
+        networkPolicy: ctx.networkPolicy ?? this.defaultContext.networkPolicy,
+      });
       const result: ToolRunResult = {
         ok: false,
         tool: name,
@@ -86,6 +95,7 @@ export class ToolRegistry {
         error: `当前不允许的权限：${tool.permission}`,
         durationMs: elapsed(),
         toolCallId,
+        risk,
       };
       this.logStorage(name, rawInput, result, startedAt, ctx);
       return result;
@@ -106,6 +116,42 @@ export class ToolRegistry {
       return result;
     }
 
+    if (tool.permission === "network") {
+      const networkPolicy = ctx.networkPolicy ?? this.defaultContext.networkPolicy;
+      const target = extractNetworkTarget(parsed.data);
+      if (networkPolicy && target) {
+        const decision = networkPolicy.evaluateTarget(target);
+        if (decision.blocked) {
+          const risk = assessPermissionDeniedRisk(
+            "network",
+            decision.reason ?? `域名被策略拒绝：${decision.hostname}`,
+            { toolName: name, input: parsed.data, networkPolicy },
+          );
+          const result: ToolRunResult = {
+            ok: false,
+            tool: name,
+            code: "permission_denied",
+            category: "permission_error",
+            error: decision.reason ?? `域名被策略拒绝：${decision.hostname}`,
+            durationMs: elapsed(),
+            toolCallId,
+            risk,
+          };
+          this.logStorage(name, rawInput, result, startedAt, ctx);
+          return result;
+        }
+      }
+    }
+
+    const execCtx: ToolContext = {
+      ...this.defaultContext,
+      ...ctx,
+      toolCallId,
+      storage: ctx.storage ?? this.storage,
+      shellPolicy: ctx.shellPolicy ?? this.defaultContext.shellPolicy,
+      networkPolicy: ctx.networkPolicy ?? this.defaultContext.networkPolicy,
+    };
+
     this.trace?.write({
       type: "tool_audit",
       tool: name,
@@ -116,15 +162,16 @@ export class ToolRegistry {
       runId: ctx.requestId,
       sessionId: ctx.sessionId,
       taskId: ctx.taskId,
+      riskTier: CONFIRMATION_REQUIRED.includes(tool.permission)
+        ? assessToolRisk({
+            toolName: name,
+            permission: tool.permission,
+            input: parsed.data,
+            shellPolicy: execCtx.shellPolicy,
+            networkPolicy: execCtx.networkPolicy,
+          }).tier
+        : undefined,
     });
-
-    const execCtx: ToolContext = {
-      ...this.defaultContext,
-      ...ctx,
-      toolCallId,
-      storage: ctx.storage ?? this.storage,
-      shellPolicy: ctx.shellPolicy ?? this.defaultContext.shellPolicy,
-    };
 
     try {
       const output = await this.withTimeout(tool, () => tool.execute(parsed.data, execCtx), ctx.signal);
@@ -148,6 +195,20 @@ export class ToolRegistry {
       const code: ToolErrorCode = isTimeout ? "timeout" : "error";
       const error = isTimeout ? `工具执行超时（${tool.timeoutMs}ms）` : String(err);
       const category = classifyToolError(code, error);
+      const risk =
+        category === "permission_error" || /策略拒绝|高风险命令被拒绝/.test(error)
+          ? assessToolRisk({
+              toolName: name,
+              permission: tool.permission,
+              input: parsed.data,
+              shellPolicy: execCtx.shellPolicy,
+              networkPolicy: execCtx.networkPolicy,
+            })
+          : undefined;
+      if (risk?.policyBlocked === false && /策略拒绝|高风险命令被拒绝/.test(error)) {
+        risk.policyBlocked = true;
+        risk.tier = "critical";
+      }
       this.trace?.write({
         type: "tool_audit",
         tool: name,
@@ -168,6 +229,7 @@ export class ToolRegistry {
         error,
         durationMs: elapsed(),
         toolCallId,
+        risk,
       };
       this.logStorage(name, parsed.data, result, startedAt, ctx);
       return result;

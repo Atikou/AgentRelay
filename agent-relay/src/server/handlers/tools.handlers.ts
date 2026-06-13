@@ -2,7 +2,11 @@ import { readFile } from "node:fs/promises";
 
 import type { AppContext } from "../../app/createAppContext.js";
 import type { ApiResult } from "../../orchestrator/Orchestrator.js";
-import { ALL_PERMISSIONS, CONFIRMATION_REQUIRED } from "../../policy/index.js";
+import {
+  CONFIRMATION_REQUIRED,
+  resolveEffectivePermissions,
+  assessToolRisk,
+} from "../../policy/index.js";
 import { buildUnifiedDiff, truncateDiff } from "../../tools/file/diff.js";
 import { hashContent } from "../../tools/file/hash.js";
 import { resolveInsideWorkspace, resolveInsideWorkspaceAsync, assertIsFile } from "../../tools/pathSafe.js";
@@ -144,15 +148,28 @@ export async function handleToolRun(app: AppContext, body: unknown): Promise<Api
     } catch (error) {
       return { status: 400, body: { ok: false, code: "PREVIEW_ERROR", error: String(error) } };
     }
+    const risk = assessToolRisk({
+      toolName: name,
+      permission: tool.permission,
+      input: parsed.data,
+      shellPolicy: app.shellPolicy,
+      networkPolicy: app.networkPolicy,
+      preview,
+    });
     return {
       status: 200,
-      body: { needsConfirmation: true, tool: name, permission: tool.permission, preview },
+      body: { needsConfirmation: true, tool: name, permission: tool.permission, preview, risk },
     };
   }
 
+  const { allowed } = resolveEffectivePermissions({
+    projectAllowed: app.projectAllowedPermissions,
+    projectSource: "config.security.permissions",
+  });
+
   const result = await app.registry.run(name, parsed.data, {
     workspaceRoot: app.workspaceRoot,
-    allowedPermissions: ALL_PERMISSIONS,
+    allowedPermissions: allowed,
   });
   return { status: result.ok ? 200 : 400, body: result };
 }

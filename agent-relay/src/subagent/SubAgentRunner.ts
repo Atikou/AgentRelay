@@ -24,6 +24,7 @@ export interface SubAgentRunnerDeps {
   registry: ToolRegistry;
   workspaceRoot: string;
   trace?: TraceLogger;
+  projectAllowedPermissions?: ToolPermission[];
 }
 
 /** 运行单个子 Agent：独立上下文、受限权限、超时与 trace。 */
@@ -33,7 +34,11 @@ export class SubAgentRunner {
   async run(options: SubAgentRunOptions): Promise<SubAgentRunResult> {
     const id = randomUUID();
     const role = getSubAgentRole(options.role);
-    const granted = resolveGrantedPermissions(role, options.grantedPermissions);
+    const granted = resolveGrantedPermissions(
+      role,
+      options.grantedPermissions,
+      this.deps.projectAllowedPermissions,
+    );
     const timeoutMs = options.timeoutMs ?? role.defaultTimeoutMs ?? DEFAULT_TIMEOUT_MS;
     const budget = { ...role.defaultBudget, ...options.budget };
     const parentTaskId = options.parentTaskId;
@@ -125,7 +130,9 @@ export class SubAgentRunner {
       chat: this.deps.chat,
       registry: this.deps.registry,
       workspaceRoot: this.deps.workspaceRoot,
-      allowedPermissions: granted,
+      projectAllowedPermissions: this.deps.projectAllowedPermissions,
+      roleAllowedPermissions: role.allowedPermissions,
+      allowedPermissions: options.grantedPermissions,
       budget,
       autoConfirm: false,
       sensitive: options.sensitive,

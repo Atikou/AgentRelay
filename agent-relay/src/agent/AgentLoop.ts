@@ -12,6 +12,10 @@ import { wrapUntrustedToolOutput } from "../util/injection.js";
 import { redactPreview } from "../util/redact.js";
 import { PlanWorkflow, type PlanWorkflowResult } from "./PlanWorkflow.js";
 import { CONFIRMATION_REQUIRED, MODE_PERMISSIONS, type ToolPermission } from "./permissions.js";
+import {
+  resolveEffectivePermissions,
+} from "../policy/PermissionPolicy.js";
+import { assessPermissionDeniedRisk, assessToolRisk } from "../policy/ToolRiskAssessment.js";
 import type { AgentToolStep } from "./toolStep.js";
 import {
   resolveRunPolicy,
@@ -65,6 +69,10 @@ export interface AgentLoopOptions {
   workspaceRoot: string;
   /** 暴露给模型/可执行的权限集，默认任务模式全集。 */
   allowedPermissions?: ToolPermission[];
+  /** 项目级权限上限（来自 config.security.permissions）。 */
+  projectAllowedPermissions?: ToolPermission[];
+  /** 子 Agent 角色上限（仅子 Agent 路径传入）。 */
+  roleAllowedPermissions?: ToolPermission[];
   /** 运行模式；未传时可由上层 RunPolicy 推断，默认 chat。 */
   mode?: AgentRunMode;
   /** 上层解析好的运行策略。 */
@@ -127,7 +135,17 @@ export class AgentLoop {
         budget: options.budget,
         taskType: options.taskType,
       });
-    this.allowed = options.allowedPermissions ?? this.policy.allowedPermissions ?? MODE_PERMISSIONS.task;
+    const resolved = resolveEffectivePermissions({
+      projectAllowed: options.projectAllowedPermissions,
+      modeAllowed: this.policy.allowedPermissions,
+      modeSource: `run.mode=${this.policy.mode}`,
+      roleAllowed: options.roleAllowedPermissions,
+      roleSource: options.roleAllowedPermissions ? "subagent.role" : undefined,
+      userGranted: options.allowedPermissions,
+      userSource: "agent.allowedPermissions",
+      strictUserGrant: options.allowedPermissions != null,
+    });
+    this.allowed = resolved.allowed;
     this.budget = this.policy.budget;
   }
 
@@ -406,15 +424,25 @@ export class AgentLoop {
     const withPermission = { ...base, permission: tool.permission };
 
     if (!this.allowed.includes(tool.permission)) {
-      return { ...withPermission, blocked: true, error: `当前模式不允许的权限：${tool.permission}` };
+      const risk = assessPermissionDeniedRisk(tool.permission, `当前模式不允许的权限：${tool.permission}`, {
+        toolName: tool.name,
+        input: action.input ?? {},
+      });
+      return { ...withPermission, blocked: true, error: risk.reasons[0], risk };
     }
 
     // 副作用/高风险工具：未自动确认则阻塞（在非交互的循环里更安全）。
     if (CONFIRMATION_REQUIRED.includes(tool.permission) && !this.options.autoConfirm) {
+      const risk = assessToolRisk({
+        toolName: tool.name,
+        permission: tool.permission,
+        input: action.input ?? {},
+      });
       return {
         ...withPermission,
         blocked: true,
         error: `工具「${tool.name}」需要确认（权限 ${tool.permission}）。未开启自动确认，已跳过。`,
+        risk,
       };
     }
 
@@ -447,6 +475,7 @@ export class AgentLoop {
       error: `[${result.code}] ${result.error}`,
       durationMs: result.durationMs,
       toolCallId: result.toolCallId,
+      risk: result.ok ? undefined : result.risk,
     };
   }
 

@@ -2,6 +2,8 @@ import type { z } from "zod";
 
 import type { ToolPermission } from "../agent/permissions.js";
 import type { ShellPolicy } from "../policy/ShellPolicy.js";
+import type { NetworkPolicy } from "../policy/NetworkPolicy.js";
+import type { StructuredToolRisk } from "../policy/ToolRiskAssessment.js";
 
 export type { ToolPermission };
 
@@ -21,6 +23,8 @@ export interface ToolContext {
   storage?: import("./storage/ToolStorage.js").ToolStorage;
   /** Shell 执行策略（allowlist / denylist / 风险拦截），可选。 */
   shellPolicy?: ShellPolicy;
+  /** 网络域名策略（allowlist / denylist），供未来 network 权限工具复用。 */
+  networkPolicy?: NetworkPolicy;
   /** 取消信号。 */
   signal?: AbortSignal;
 }
@@ -77,4 +81,6 @@ export type ToolRunResult =
       error: string;
       durationMs: number;
       toolCallId?: string;
+      /** 结构化风险字段（策略拒绝 / 高风险预览）。 */
+      risk?: StructuredToolRisk;
     };
