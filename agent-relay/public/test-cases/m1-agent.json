@@ -517,6 +517,30 @@
       }
     },
     {
+      "id": "m1-agent-ui-workflow-status-script",
+      "title": "测试台脚本登记工作流状态文案",
+      "purpose": "确认测试台前端脚本会把 executionMeta.workflowType 渲染为用户可读的内部处理状态，减少自动工作流黑盒感。",
+      "method": "GET",
+      "path": "/app.js",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyContains": ["WORKFLOW_STATUS_LABELS", "renderWorkflowStatus", "正在验证结果"]
+      }
+    },
+    {
+      "id": "m1-agent-ui-workflow-status-style",
+      "title": "测试台样式登记工作流状态行",
+      "purpose": "确认测试台前端样式包含工作流状态行和详情文本样式，避免状态标签破坏 Agent 结果卡布局。",
+      "method": "GET",
+      "path": "/styles.css",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyContains": [".workflow-status", ".workflow-status-detail"]
+      }
+    },
+    {
       "id": "m1-agent-unknown-client-still-force",
       "title": "未知 clientName 仍立即 404",
       "purpose": "确认 Smart 路由接入后，显式 clientName 校验行为不变，不会静默回退默认路由。",

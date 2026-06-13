@@ -540,6 +540,17 @@ body {
   background: var(--hover);
   color: var(--text-faint);
 }
+.workflow-status {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.workflow-status-detail {
+  color: var(--text-soft);
+  font-size: 12px;
+}
 
 /* 输入区 */
 .composer {

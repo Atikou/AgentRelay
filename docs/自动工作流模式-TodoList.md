@@ -11,7 +11,7 @@
 - [x] 扩展 `IntentRouter.route()`，在保持现有 `mode` 兼容的同时返回 `intent`、`workflowType`、`modeSource`。
 - [x] 扩展 `RunPolicy` 与 `executionMeta`，让 `/api/agent` 响应暴露内部意图与工作流元信息。
 - [x] 补测试：规则识别、显式 mode 覆盖、`executionMeta` 元信息。
-- [ ] 测试台展示当前内部处理状态：如“计划生成中 / 正在验证结果 / 正在修改文件”。
+- [x] 测试台展示当前内部处理状态：如“计划生成中 / 正在验证结果 / 正在修改文件”。
 
 ## P1：权限策略与工作流解耦
 

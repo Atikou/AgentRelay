@@ -15,6 +15,34 @@ let appConfig = null;
 const ACTIVE_SESSION_KEY = "agentrelay.activeSessionId";
 let activeSessionId = localStorage.getItem(ACTIVE_SESSION_KEY) || undefined;
 
+const WORKFLOW_STATUS_LABELS = {
+  answerWorkflow: "普通回答",
+  planWorkflow: "计划生成中",
+  editWorkflow: "正在修改文件",
+  runWorkflow: "正在执行命令",
+  debugWorkflow: "正在调试修复",
+  reviewWorkflow: "正在审阅代码",
+  verifyWorkflow: "正在验证结果",
+  summarizeWorkflow: "正在总结内容",
+  searchWorkflow: "正在定位信息",
+  refactorWorkflow: "正在规划重构",
+  generateFileWorkflow: "正在生成文件",
+};
+
+const INTENT_STATUS_LABELS = {
+  answer: "问答",
+  plan: "计划",
+  edit: "修改",
+  run: "运行",
+  debug: "调试",
+  review: "审阅",
+  verify: "验证",
+  summarize: "总结",
+  search: "搜索",
+  refactor: "重构",
+  generate_file: "生成文件",
+};
+
 function setActiveSessionId(sessionId) {
   activeSessionId = sessionId || undefined;
   if (activeSessionId) localStorage.setItem(ACTIVE_SESSION_KEY, activeSessionId);
@@ -1129,11 +1157,12 @@ function renderAgentRun(result) {
     const metaBox = document.createElement("div");
     metaBox.className = "plan-step-desc";
     metaBox.style.marginBottom = "8px";
+    const workflowStatus = renderWorkflowStatus(m);
     const locationInfo = m.location
       ? `\nlocation=${m.location.usedLocateSteps ?? 0} steps · found=${(m.location.locatedFiles || []).slice(0, 4).join(",") || "-"} · continue=${m.location.needsContinue ? "yes" : "no"}`
       : "";
-    metaBox.innerHTML = `<strong>执行元信息</strong><br>${escapeHtml(
-      `mode=${m.mode} · stop=${m.stopReason}${m.budgetExhausted ? `(${m.budgetExhausted})` : ""} · model=${u.modelTurns ?? m.usedModelTurns}/${b.maxModelTurns ?? "-"} · tools=${u.toolCalls ?? m.usedToolCalls}/${b.maxToolCalls ?? "-"} · read=${u.readCalls ?? m.usedReadCalls}/${b.maxReadCalls ?? "-"} · write=${u.writeCalls ?? m.usedWriteCalls}/${b.maxWriteCalls ?? "-"} · shell=${u.shellCalls ?? m.usedShellCalls}/${b.maxShellCalls ?? "-"} · runtime=${u.runtimeMs ?? 0}/${b.maxRuntimeMs ?? "-"}ms${
+    metaBox.innerHTML = `${workflowStatus}<strong>执行元信息</strong><br>${escapeHtml(
+      `mode=${m.mode}${m.modeSource ? `/${m.modeSource}` : ""} · intent=${m.intent ?? "-"} · workflow=${m.workflowType ?? "-"} · stop=${m.stopReason}${m.budgetExhausted ? `(${m.budgetExhausted})` : ""} · model=${u.modelTurns ?? m.usedModelTurns}/${b.maxModelTurns ?? "-"} · tools=${u.toolCalls ?? m.usedToolCalls}/${b.maxToolCalls ?? "-"} · read=${u.readCalls ?? m.usedReadCalls}/${b.maxReadCalls ?? "-"} · write=${u.writeCalls ?? m.usedWriteCalls}/${b.maxWriteCalls ?? "-"} · shell=${u.shellCalls ?? m.usedShellCalls}/${b.maxShellCalls ?? "-"} · runtime=${u.runtimeMs ?? 0}/${b.maxRuntimeMs ?? "-"}ms${
         m.needsMoreBudget && m.suggestedBudget
           ? ` · 建议预算=${formatBudget(m.suggestedBudget)}`
           : ""
@@ -1154,8 +1183,29 @@ function renderAgentRun(result) {
   card.appendChild(answer);
 
   const metaInfo = result.executionMeta;
-  const meta = `模型轮次 ${result.iterations} · 工具请求 ${result.steps ? result.steps.length : 0} 次${metaInfo ? ` · ${metaInfo.mode}/${metaInfo.stopReason}` : ""}${result.reachedLimit ? " · 已达预算" : ""}${sessionMeta()}`;
+  const workflowLabel = metaInfo ? getWorkflowStatusLabel(metaInfo) : "";
+  const meta = `模型轮次 ${result.iterations} · 工具请求 ${result.steps ? result.steps.length : 0} 次${metaInfo ? ` · ${workflowLabel || metaInfo.mode}/${metaInfo.stopReason}` : ""}${result.reachedLimit ? " · 已达预算" : ""}${sessionMeta()}`;
   addMessage("assistant", card, meta);
+}
+
+function getWorkflowStatusLabel(meta) {
+  return WORKFLOW_STATUS_LABELS[meta.workflowType] || meta.workflowType || meta.intent || meta.mode || "";
+}
+
+function renderWorkflowStatus(meta) {
+  if (!meta) return "";
+  const label = getWorkflowStatusLabel(meta);
+  if (!label) return "";
+  const details = [
+    meta.intent ? `意图：${INTENT_STATUS_LABELS[meta.intent] || meta.intent}` : "",
+    meta.mode ? `模式：${meta.mode}` : "",
+    meta.modeSource ? `来源：${meta.modeSource === "explicit" ? "显式" : "自动"}` : "",
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  return `<div class="workflow-status"><span class="status status-running">${escapeHtml(label)}</span>${
+    details ? `<span class="workflow-status-detail">${escapeHtml(details)}</span>` : ""
+  }</div>`;
 }
 
 function formatBudget(budget) {

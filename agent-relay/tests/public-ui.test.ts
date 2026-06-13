@@ -46,6 +46,21 @@ test("模型路由文档标记测试台面板已落地", async () => {
   assert.ok(!md.includes("测试台面板待做"));
 });
 
+test("Agent 结果卡展示自动工作流状态", async () => {
+  const js = await readFile(path.join(publicDir, "app.js"), "utf-8");
+  assert.ok(js.includes("WORKFLOW_STATUS_LABELS"));
+  assert.ok(js.includes("renderWorkflowStatus"));
+  assert.ok(js.includes("verifyWorkflow: \"正在验证结果\""));
+  assert.ok(js.includes("intent=${m.intent"));
+  assert.ok(js.includes("workflow=${m.workflowType"));
+});
+
+test("Agent 工作流状态样式已登记", async () => {
+  const css = await readFile(path.join(publicDir, "styles.css"), "utf-8");
+  assert.ok(css.includes(".workflow-status"));
+  assert.ok(css.includes(".workflow-status-detail"));
+});
+
 let passed = 0;
 for (const { name, fn } of tests) {
   try {
