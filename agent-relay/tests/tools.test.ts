@@ -167,6 +167,7 @@ test("symbol_search 优先使用 ProjectIndex", async () => {
     assert.ok(out.symbols.some((s) => s.symbol === "AgentLoop" && s.kind === "class"));
   } finally {
     dbm.close();
+    r.setDefaultContext({ projectIndex: undefined });
   }
 });
 
@@ -203,6 +204,7 @@ test("locate_relevant_files 在已有 ProjectIndex 时复用索引", async () =>
     assert.equal(out.indexSource, "project_index");
   } finally {
     dbm.close();
+    r.setDefaultContext({ projectIndex: undefined });
   }
 });
 
@@ -252,9 +254,50 @@ test("locate_relevant_files resumeContext 合并 searchPlan 并跳过已访问�
     }).output;
     assert.equal(secondOut.locationResume?.mergedSearchPlan, true);
     assert.ok(secondOut.searchPlan.keywords.includes("PlanCompiler"));
+    const progress = (second as { output: { explorationProgress: { duplicateCount: number } } }).output
+      .explorationProgress;
+    assert.ok(progress.duplicateCount >= 0);
+    assert.equal(
+      (second as { output: { suggestedAction?: string } }).output.suggestedAction,
+      "continue_locating",
+    );
   } finally {
     dbm.close();
+    r.setDefaultContext({ projectIndex: undefined });
   }
+});
+
+test("locate_relevant_files 低预算返回 explorationProgress 与 suggestedAction", async () => {
+  const r = reg();
+  await r.run(
+    "write_file",
+    { path: "src/locate/A.ts", content: "export class LocateAlpha {}\n", backup: false },
+    await ctx(),
+  );
+  await r.run(
+    "write_file",
+    { path: "src/locate/B.ts", content: "export class LocateBeta {}\n", backup: false },
+    await ctx(),
+  );
+  const res = await r.run(
+    "locate_relevant_files",
+    {
+      goal: "分析 LocateAlpha 与 LocateBeta 模块",
+      possibleSymbols: ["LocateAlpha", "LocateBeta"],
+      locateBudget: { maxReadForLocationCalls: 0 },
+    },
+    await ctx(),
+  );
+  assert.equal(res.ok, true);
+  const out = (res as {
+    output: {
+      suggestedAction?: string;
+      explorationProgress: { steps: unknown[] };
+      stopReason: string;
+    };
+  }).output;
+  assert.equal(out.suggestedAction, "continue_locating");
+  assert.ok(Array.isArray(out.explorationProgress.steps));
 });
 
 test("context_pack 一次性打包多个相关文件", async () => {

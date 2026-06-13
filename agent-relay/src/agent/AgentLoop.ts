@@ -709,6 +709,13 @@ export class AgentLoop {
     let stopReason: string | undefined;
     let needsContinue = false;
     let confidence: number | undefined;
+    let suggestedAction: "continue_locating" | undefined;
+    let exploration: {
+      duplicateCount: number;
+      newInformationCount: number;
+      informationGain: number;
+      lowYieldLoop: boolean;
+    } | undefined;
 
     for (const step of locationSteps) {
       const output = step.output as Record<string, unknown> | undefined;
@@ -719,7 +726,20 @@ export class AgentLoop {
       usedReadForLocationCalls += readNumber(stats?.usedReadForLocationCalls);
       stopReason = typeof output.stopReason === "string" ? output.stopReason : stopReason;
       needsContinue = needsContinue || output.needsMoreSearch === true || output.needsContinue === true;
+      if (output.suggestedAction === "continue_locating") {
+        suggestedAction = "continue_locating";
+      }
       confidence = Math.max(confidence ?? 0, readNumber(output.confidence));
+
+      const progress = output.explorationProgress as Record<string, unknown> | undefined;
+      if (progress) {
+        exploration = {
+          duplicateCount: readNumber(progress.duplicateCount),
+          newInformationCount: readNumber(progress.newInformationCount),
+          informationGain: readNumber(progress.informationGain),
+          lowYieldLoop: progress.lowYieldLoop === true,
+        };
+      }
 
       for (const item of readPathItems(output.primaryFiles)) locatedFiles.add(item);
       for (const item of readPathItems(output.files)) locatedFiles.add(item);
@@ -737,6 +757,8 @@ export class AgentLoop {
       stopReason,
       needsContinue,
       confidence,
+      exploration,
+      suggestedAction: needsContinue ? (suggestedAction ?? "continue_locating") : undefined,
     };
   }
 

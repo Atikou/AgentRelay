@@ -173,6 +173,54 @@
       }
     },
     {
+      "id": "m1-agent-budget-suggested-action",
+      "title": "预算耗尽且定位不足返回 suggestedAction",
+      "purpose": "确认 executionMeta 在 needsMoreBudget 且定位未完成时返回结构化 continue_locating，便于续跑。",
+      "method": "POST",
+      "path": "/api/agent",
+      "input": {
+        "message": "请进入计划模式，只读分析当前项目所有模块与路由实现。",
+        "mode": "plan",
+        "budget": {
+          "maxModelTurns": 1,
+          "maxToolCalls": 2,
+          "maxReadCalls": 1,
+          "maxWriteCalls": 0,
+          "maxShellCalls": 0,
+          "maxRuntimeMs": 60000
+        },
+        "persist": false
+      },
+      "expect": {
+        "status": 200,
+        "bodyHasKeys": ["answer", "executionMeta"],
+        "bodyPaths": {
+          "executionMeta.stopReason": "budget_exhausted",
+          "executionMeta.needsMoreBudget": true,
+          "executionMeta.suggestedAction": "continue_locating"
+        }
+      }
+    },
+    {
+      "id": "m1-agent-location-exploration-meta",
+      "title": "executionMeta.location 含 exploration 统计",
+      "purpose": "确认 PlanWorkflow 预扫描后 executionMeta.location 聚合 exploration 重复/增益统计。",
+      "method": "POST",
+      "path": "/api/agent",
+      "input": {
+        "message": "请进入计划模式，只读分析当前项目架构。",
+        "mode": "plan",
+        "persist": false
+      },
+      "expect": {
+        "status": 200,
+        "bodyPaths": {
+          "executionMeta.location.exploration.duplicateCount": "number",
+          "executionMeta.location.exploration.informationGain": "number"
+        }
+      }
+    },
+    {
       "id": "m1-agent-invalid-mode",
       "title": "非法 mode 返回 400",
       "purpose": "确认运行模式拼写错误时直接返回参数错误，避免被静默当成普通智能体请求执行。",

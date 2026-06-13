@@ -148,6 +148,7 @@ export class Finalizer {
   ): AgentExecutionMeta {
     if (!base.needsMoreBudget) return base;
     const extra = this.buildBudgetExhaustedMeta(input);
+    const suggestedAction = input.location?.needsContinue ? ("continue_locating" as const) : undefined;
     return {
       ...base,
       suggestedBudget: extra.suggestedBudget,
@@ -155,6 +156,7 @@ export class Finalizer {
       complexityTier: extra.complexityTier,
       completedSteps: extra.completedSteps,
       missingSteps: extra.missingSteps,
+      suggestedAction,
     };
   }
 

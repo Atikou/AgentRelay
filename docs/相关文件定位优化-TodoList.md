@@ -36,7 +36,7 @@
 - [x] 预算耗尽 partial answer 不再只说未得到最终答案。
 - [x] 如果已有定位结果，partial answer 会列出已定位文件与候选文件。
 - [x] 如果定位仍不足，会提示需要继续定位或扩大定位预算。
-- [ ] 结构化 `suggestedAction: continue_locating` 尚未作为顶层字段返回。
+- [x] 结构化 `suggestedAction: continue_locating` 作为顶层字段返回（`locate_relevant_files` 与预算耗尽 `executionMeta`）。
 
 **验收**：部分完成核心行为；结构化继续动作待补。
 
@@ -132,11 +132,11 @@
 
 ### P2-3：ExplorationProgressTracker
 
-- [ ] 记录每步 `newInformation`。
-- [ ] 记录 `duplicate`。
-- [ ] 记录 `contributesToGoal`。
-- [ ] 记录 `informationGain`。
-- [ ] 区分有效探索和低收益循环探索。
+- [x] 记录每步 `newInformation`。
+- [x] 记录 `duplicate`。
+- [x] 记录 `contributesToGoal`。
+- [x] 记录 `informationGain`。
+- [x] 区分有效探索和低收益循环探索（`lowYieldLoop`）。
 
 ---
 
@@ -168,8 +168,8 @@
 - [x] 上下文打包：`tests/tools.test.ts` 覆盖 `context_pack` 一次打包多个文件。
 - [x] executionMeta 定位统计：`tests/loop.test.ts` 覆盖 `executionMeta.location`。
 - [x] 测试台执行元信息展示 `executionMeta.location` 的定位步数、已找到文件和是否需要继续。
-- [ ] 定位预算不足返回结构化 `suggestedAction`。
-- [ ] 避免重复探索的 `visitedFiles` 去重与 `duplicate` 标记。
+- [x] 定位预算不足返回结构化 `suggestedAction`。
+- [x] 避免重复探索的 `visitedFiles` 去重与 `duplicate` 标记。
 - [ ] 大项目 ProjectIndex 增量索引。
 
 ---

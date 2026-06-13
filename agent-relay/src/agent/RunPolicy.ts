@@ -26,6 +26,15 @@ export interface RunBudgetUsage {
 
 export type RunBudgetKey = keyof RunBudget;
 
+export type AgentSuggestedAction = "continue_locating";
+
+export interface LocationExplorationMeta {
+  duplicateCount: number;
+  newInformationCount: number;
+  informationGain: number;
+  lowYieldLoop: boolean;
+}
+
 export interface LocationExecutionMeta {
   usedLocateSteps: number;
   usedSearchCalls: number;
@@ -36,6 +45,8 @@ export interface LocationExecutionMeta {
   stopReason?: string;
   needsContinue: boolean;
   confidence?: number;
+  exploration?: LocationExplorationMeta;
+  suggestedAction?: AgentSuggestedAction;
 }
 
 export interface AgentExecutionMeta {
@@ -60,6 +71,8 @@ export interface AgentExecutionMeta {
   completedSteps?: string[];
   /** 推断的待继续步骤（预算耗尽时返回）。 */
   missingSteps?: string[];
+  /** 定位不足或预算耗尽时的结构化继续动作。 */
+  suggestedAction?: AgentSuggestedAction;
 }
 
 export interface RunPolicy {

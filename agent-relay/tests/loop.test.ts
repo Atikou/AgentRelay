@@ -401,6 +401,28 @@ test("相关文件定位工具写入 executionMeta.location", async () => {
   assert.equal(res.executionMeta.location.usedLocateSteps, 1);
 });
 
+test("预算耗尽且定位不足时 executionMeta 返回 suggestedAction continue_locating", async () => {
+  await fs.mkdir(path.join(sandbox, "src", "agent"), { recursive: true });
+  await fs.writeFile(path.join(sandbox, "src", "agent", "AgentLoop.ts"), "export class AgentLoop {}", "utf-8");
+  const chat = scriptedChat([
+    '{"action":"tool","tool":"locate_relevant_files","input":{"goal":"全面分析 AgentLoop 与相关模块","possibleSymbols":["AgentLoop"],"locateBudget":{"maxReadForLocationCalls":0}}}',
+  ]);
+  const loop = new AgentLoop({
+    chat,
+    registry: createDefaultRegistry(),
+    workspaceRoot: sandbox,
+    policy: resolveRunPolicy({
+      requestedMode: "plan",
+      budget: { maxModelTurns: 1, maxToolCalls: 1, maxReadCalls: 0 },
+      message: "分析",
+    }),
+  });
+  const res = await loop.run("定位 AgentLoop 相关文件");
+  assert.equal(res.reachedLimit, true);
+  assert.equal(res.executionMeta.suggestedAction, "continue_locating");
+  assert.ok(res.executionMeta.location?.needsContinue);
+});
+
 test("后台通知含可疑指令时以不可信数据注入", async () => {
   let seen = "";
   const chat: LoopChatFn = async (req) => {

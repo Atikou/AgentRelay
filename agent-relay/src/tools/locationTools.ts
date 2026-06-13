@@ -9,6 +9,10 @@ import {
   projectFileToScanMeta,
 } from "../context/ProjectIndex.js";
 import type { ProjectFileRecord, SymbolSearchMatchMode } from "../context/projectIndexTypes.js";
+import {
+  ExplorationProgressTracker,
+  type ExplorationProgressSnapshot,
+} from "../agent/ExplorationProgressTracker.js";
 import { DEFAULT_IGNORED_DIRS, DEFAULT_READ_MAX_BYTES } from "./constants.js";
 import { resolveInsideWorkspace, shouldIgnoreDir } from "./pathSafe.js";
 import type { Tool, ToolContext } from "./types.js";
@@ -324,6 +328,8 @@ export const locateRelevantFilesTool: Tool<
     confidence: number;
     needsMoreSearch: boolean;
     stopReason: "enough_confidence" | "locate_budget_exhausted" | "no_candidates";
+    suggestedAction?: "continue_locating";
+    explorationProgress: ExplorationProgressSnapshot;
     locateStats: {
       usedLocateSteps: number;
       usedSearchCalls: number;
@@ -377,6 +383,7 @@ export const locateRelevantFilesTool: Tool<
     const visitedDirs = new Set(resumeCtx?.visitedDirs ?? []);
     const resumeCandidates = new Set(resumeCtx?.candidateFiles ?? []);
     const resumePrimary = new Set(resumeCtx?.primaryFiles ?? []);
+    const explorationTracker = new ExplorationProgressTracker(visitedFiles);
     const stats = {
       usedLocateSteps: 1,
       usedSearchCalls: 0,
@@ -416,12 +423,17 @@ export const locateRelevantFilesTool: Tool<
       visitedDirs,
       resumeCandidates,
       resumePrimary,
-    });
+    }, explorationTracker);
     const maxPrimary = Math.min(input.limit, budget.maxPrimaryFiles);
     const primaryFiles = ranked.filter((f) => f.score >= 0.7).slice(0, maxPrimary);
     const candidateFiles = ranked
       .filter((f) => !primaryFiles.some((p) => p.path === f.path))
       .slice(0, Math.min(input.limit, budget.maxCandidateFiles));
+    explorationTracker.markContributors([
+      ...primaryFiles.map((f) => f.path),
+      ...candidateFiles.map((f) => f.path),
+    ]);
+    const explorationProgress = explorationTracker.snapshot();
     const confidence = primaryFiles.length > 0
       ? Math.min(0.98, Math.max(...primaryFiles.map((f) => f.score)))
       : candidateFiles.length > 0
@@ -446,6 +458,8 @@ export const locateRelevantFilesTool: Tool<
       confidence,
       needsMoreSearch,
       stopReason,
+      suggestedAction: needsMoreSearch ? "continue_locating" : undefined,
+      explorationProgress,
       locateStats: stats,
       indexSource,
       locationResume: resumeCtx
@@ -706,8 +720,20 @@ async function rankCandidates(
     resumeCandidates: Set<string>;
     resumePrimary: Set<string>;
   },
+  explorationTracker?: ExplorationProgressTracker,
 ): Promise<LocatedFile[]> {
   const ranked: LocatedFile[] = [];
+  const recordedPaths = new Set<string>();
+  const recordExploration = (input: {
+    path: string;
+    contentRead: boolean;
+    scoreDelta: number;
+    skippedDuplicate?: boolean;
+  }): void => {
+    if (!explorationTracker || recordedPaths.has(input.path)) return;
+    recordedPaths.add(input.path);
+    explorationTracker.record(input);
+  };
   const loweredKeywords = plan.keywords.map((k) => k.toLowerCase());
   const symbolSet = new Set(plan.possibleSymbols.map((s) => s.toLowerCase()));
   if (projectIndex && plan.possibleSymbols.length) {
@@ -786,7 +812,14 @@ async function rankCandidates(
       if (alreadyVisited && score > 0) {
         matchTypes.add("recent");
         reasons.push("续跑已访问（跳过重复读内容）");
+        recordExploration({ path: file.path, contentRead: false, scoreDelta: score });
       } else if (alreadyVisited) {
+        recordExploration({
+          path: file.path,
+          contentRead: false,
+          scoreDelta: 0,
+          skippedDuplicate: true,
+        });
         continue;
       }
       const contentScore = allowContentRead && !alreadyVisited
@@ -799,9 +832,17 @@ async function rankCandidates(
         score += contentScore.score;
         for (const t of contentScore.matchTypes) matchTypes.add(t);
         reasons.push(...contentScore.reasons);
+        recordExploration({
+          path: file.path,
+          contentRead: true,
+          scoreDelta: contentScore.score,
+        });
       }
     }
     if (score > 0) {
+      if (!recordedPaths.has(file.path)) {
+        recordExploration({ path: file.path, contentRead: false, scoreDelta: score });
+      }
       ranked.push({
         path: file.path,
         score: Number(Math.min(0.99, score).toFixed(2)),

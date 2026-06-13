@@ -337,6 +337,52 @@
       }
     },
     {
+      "id": "m1-tools-locate-exploration-progress",
+      "title": "locate_relevant_files 返回 explorationProgress",
+      "purpose": "确认定位工具记录 duplicate/newInformation/informationGain，便于识别低收益重复探索。",
+      "method": "POST",
+      "path": "/api/tools/run",
+      "input": {
+        "name": "locate_relevant_files",
+        "input": {
+          "goal": "分析 AgentLoop 文件定位",
+          "possibleSymbols": ["AgentLoop"],
+          "limit": 5
+        }
+      },
+      "expect": {
+        "status": 200,
+        "bodyPaths": {
+          "ok": true,
+          "output.explorationProgress.duplicateCount": "number",
+          "output.explorationProgress.newInformationCount": "number",
+          "output.explorationProgress.informationGain": "number"
+        }
+      }
+    },
+    {
+      "id": "m1-tools-locate-suggested-action",
+      "title": "locate_relevant_files 定位不足返回 continue_locating",
+      "purpose": "确认 needsMoreSearch 时工具输出顶层 suggestedAction，供续跑与前端结构化展示。",
+      "method": "POST",
+      "path": "/api/tools/run",
+      "input": {
+        "name": "locate_relevant_files",
+        "input": {
+          "goal": "全面分析整个项目所有模块边界",
+          "locateBudget": { "maxReadForLocationCalls": 0 }
+        }
+      },
+      "expect": {
+        "status": 200,
+        "bodyPaths": {
+          "ok": true,
+          "output.suggestedAction": "continue_locating",
+          "output.needsMoreSearch": true
+        }
+      }
+    },
+    {
       "id": "m1-tools-git-status",
       "title": "git_status 返回 isRepo",
       "purpose": "确认 git 状态工具可用，Agent 可检查工作区改动。",
