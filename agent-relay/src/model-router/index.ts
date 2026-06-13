@@ -14,6 +14,15 @@ export {
 export { FallbackManager, MAX_FALLBACKS_PER_REQUEST } from "./fallback-manager.js";
 export { RouterModelEvaluator } from "./router-model-evaluator.js";
 export { AnswerEvaluator } from "./answer-evaluator.js";
+export { RuntimeStatsCollector } from "./runtime-stats.js";
+export type {
+  RuntimeStatsSnapshot,
+  RuntimeStatsSuggestion,
+  ModelRuntimeMetric,
+  TaskTypeRuntimeMetric,
+} from "./runtime-stats.js";
+export { EvalSetRunner } from "./eval-set-runner.js";
+export type { EvalSetCase, EvalSetCaseResult, EvalSetRunSummary } from "./eval-set-runner.js";
 export { buildRouterInputFromChat } from "./router-input.js";
 export { createModelChatFn } from "./create-model-chat.js";
 export {

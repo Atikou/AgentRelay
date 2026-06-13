@@ -1,5 +1,6 @@
 import type { AppContext } from "../../app/createAppContext.js";
 import type { ApiResult } from "../../orchestrator/Orchestrator.js";
+import { RuntimeStatsCollector } from "../../model-router/runtime-stats.js";
 
 export function handleRoutingLogs(app: AppContext, url: URL): ApiResult {
   const routeLogId = url.searchParams.get("routeLogId") ?? undefined;
@@ -27,5 +28,17 @@ export function handleRoutingLogs(app: AppContext, url: URL): ApiResult {
     body: {
       routes: app.routeLogStore.listRecent(limit, sessionId),
     },
+  };
+}
+
+export function handleRoutingStats(app: AppContext, url: URL): ApiResult {
+  const limit = Math.min(1000, Math.max(1, Number(url.searchParams.get("limit") ?? "200") || 200));
+  const collector = new RuntimeStatsCollector(
+    app.contextManager.db.connection,
+    app.metrics,
+  );
+  return {
+    status: 200,
+    body: collector.snapshot({ routeLimit: limit }),
   };
 }

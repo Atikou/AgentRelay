@@ -34,6 +34,7 @@ const REQUIRED_PATHS = [
   "/api/tasks/{taskId}",
   "/api/tasks/{taskId}/resume",
   "/api/routing/logs",
+  "/api/routing/stats",
   "/api/tools",
   "/api/tools/run",
   "/api/background",

@@ -87,11 +87,11 @@ npm run serve          # 启动后端与测试台 http://localhost:18787
 - **SQLite 迁移（2026-06-13）**：`schema_migrations` + `PRAGMA user_version`；`memory.db` v7、`tools.db` v1；`GET /api/config.schemaVersions`。
 - 自检：`npm test`（全量，含 `tests/plan.test.ts` 计划存储/执行边界 6 项）。
 
-**未实现**（按里程碑推进）：V6+ RuntimeStats、EvalSetRunner、并行投票、子 Agent 写权限/递归、多模态附件/OCR。
+**未实现**（按里程碑推进）：V7 EvalSetRunner 运行时、并行投票、子 Agent 写权限/递归、多模态附件/OCR。
 
 **路由覆盖面（2026-06-13）**：`/api/chat`、`Planner`、`/api/agent`、子 Agent 默认经 `SmartModelRouter`；显式 `clientName` 仍走 `ModelRouter`。
 
-**V3 已落地**：`RouterModelEvaluator` 启发式接入 `DecisionEngine`（`source=evaluator`，高风险不覆盖）；**V4 已落地**：`AnswerEvaluator` 接入 `ModelOrchestrator` 答案质量 fallback。
+**V3 已落地**：`RouterModelEvaluator` 启发式接入 `DecisionEngine`（`source=evaluator`，高风险不覆盖）；**V4 已落地**：`AnswerEvaluator` 接入 `ModelOrchestrator` 答案质量 fallback；**V6 已落地**：`RuntimeStatsCollector` + `GET /api/routing/stats` 只读调优建议。
 
 **V2 已落地**：`FallbackManager` + `fallback_logs` + `strong_model_direct` 升级路径；`POST /api/chat` 可回传 `fallbackCount` / `fallbackLogIds`。
 

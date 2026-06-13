@@ -219,6 +219,7 @@ export class AppContext {
         modelTokenStreaming: true,
         routerEvaluatorV3: true,
         answerEvaluatorV4: true,
+        runtimeStatsV6: true,
         costBudgetPerRun: true,
         ruleOnlyRouting: true,
         sqliteSchemaMigrations: true,

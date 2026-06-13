@@ -430,10 +430,20 @@ async function handleRoutingLogs() {
   refreshBtn.className = "action-btn";
   refreshBtn.textContent = "刷新";
 
+  const statsBtn = document.createElement("button");
+  statsBtn.className = "action-btn secondary";
+  statsBtn.textContent = "运行统计";
+
   row.appendChild(limitInput);
   row.appendChild(sessionInput);
   row.appendChild(refreshBtn);
+  row.appendChild(statsBtn);
   panel.appendChild(row);
+
+  const statsBox = document.createElement("div");
+  statsBox.className = "tool-result routing-stats-box";
+  statsBox.style.display = "none";
+  panel.appendChild(statsBox);
 
   const list = document.createElement("div");
   list.className = "tool-result routing-log-list";
@@ -480,8 +490,182 @@ async function handleRoutingLogs() {
   });
 
   refreshBtn.addEventListener("click", loadList);
+  statsBtn.addEventListener("click", async () => {
+    statsBox.style.display = "block";
+    statsBox.classList.remove("err");
+    statsBox.textContent = "加载运行统计中…";
+    try {
+      const data = await api("/api/routing/stats?limit=200");
+      const suggestions = (data.suggestions || [])
+        .map(
+          (s) =>
+            `<li class="routing-suggestion routing-suggestion-${s.severity}"><strong>[${s.severity}]</strong> ${escapeHtml(s.message)}</li>`,
+        )
+        .join("");
+      const models = (data.models || [])
+        .map(
+          (m) =>
+            `<tr><td>${escapeHtml(m.modelId)}</td><td>${m.calls}</td><td>${(m.errorRate * 100).toFixed(1)}%</td><td>${m.fallbackFromCount}</td><td>${m.fallbackToCount}</td></tr>`,
+        )
+        .join("");
+      statsBox.innerHTML = `
+        <div class="routing-stats-summary">
+          <span>路由 ${data.summary?.routeCount ?? 0}</span>
+          <span>fallback ${((data.summary?.fallbackRate ?? 0) * 100).toFixed(1)}%</span>
+          <span>evaluator ${data.summary?.evaluatorOverrides ?? 0}</span>
+        </div>
+        ${suggestions ? `<ul class="routing-suggestion-list">${suggestions}</ul>` : "<p>暂无调优建议。</p>"}
+        ${models ? `<table class="model-table routing-stats-table"><thead><tr><th>模型</th><th>调用</th><th>错误率</th><th>fallback 源</th><th>fallback 目标</th></tr></thead><tbody>${models}</tbody></table>` : ""}
+        <details class="routing-stats-raw"><summary>原始 JSON</summary><pre>${escapeHtml(JSON.stringify(data, null, 2))}</pre></details>`;
+    } catch (err) {
+      statsBox.classList.add("err");
+      statsBox.textContent = String(err.message || err);
+    }
+  });
   addMessage("system", panel);
   await loadList();
+}
+
+const RUN_TIMELINE_CATEGORY_LABEL = {
+  run: "Run",
+  model: "模型",
+  tool: "工具",
+  agent: "Agent",
+  task: "任务",
+  routing: "路由",
+  fallback: "Fallback",
+  notification: "通知",
+  background: "后台",
+  subagent: "子Agent",
+  other: "其他",
+};
+
+function renderRunTimelineRows(timeline, usageEl) {
+  if (!timeline.length) {
+    usageEl.textContent = "该 Run 暂无时间线事件。";
+    return `<div class="history-empty">暂无时间线条目。先执行一次智能体/对话/任务 Run 后再查看。</div>`;
+  }
+  const rows = timeline
+    .map((entry) => {
+      const cat = RUN_TIMELINE_CATEGORY_LABEL[entry.category] ?? entry.category;
+      const time = formatDateTime(entry.time);
+      const status = entry.status ? `<span class="pill">${escapeHtml(entry.status)}</span>` : "";
+      const detail = entry.detail ? `<div class="run-timeline-detail">${escapeHtml(entry.detail)}</div>` : "";
+      return `
+        <div class="run-timeline-item" data-category="${escapeHtml(entry.category)}">
+          <div class="run-timeline-head">
+            <span class="run-timeline-time">${escapeHtml(time)}</span>
+            <span class="run-timeline-cat">${escapeHtml(cat)}</span>
+            ${status}
+          </div>
+          <div class="run-timeline-title">${escapeHtml(entry.title)}</div>
+          ${detail}
+        </div>`;
+    })
+    .join("");
+  return `<div class="run-timeline">${rows}</div>`;
+}
+
+async function handleRunReports() {
+  clearWelcome();
+  const panel = document.createElement("div");
+  panel.className = "tool-panel run-report-panel";
+
+  const title = document.createElement("div");
+  title.className = "tool-desc";
+  title.textContent = "按时间线查看 Run 的模型调用、工具审计、任务状态、路由决策与 fallback。";
+  panel.appendChild(title);
+
+  const row = document.createElement("div");
+  row.className = "tool-row";
+
+  const runInput = document.createElement("input");
+  runInput.className = "system-input";
+  runInput.placeholder = "Run ID（可留空，从列表选择）";
+  row.appendChild(runInput);
+
+  const refreshBtn = document.createElement("button");
+  refreshBtn.className = "action-btn";
+  refreshBtn.textContent = "刷新 Run 列表";
+  row.appendChild(refreshBtn);
+
+  const loadBtn = document.createElement("button");
+  loadBtn.className = "action-btn secondary";
+  loadBtn.textContent = "加载报告";
+  loadBtn.style.marginLeft = "8px";
+  row.appendChild(loadBtn);
+
+  panel.appendChild(row);
+
+  const list = document.createElement("div");
+  list.className = "run-report-list";
+  panel.appendChild(list);
+
+  const usage = document.createElement("div");
+  usage.className = "run-report-usage";
+  panel.appendChild(usage);
+
+  const timelineBox = document.createElement("div");
+  timelineBox.className = "run-report-timeline";
+  panel.appendChild(timelineBox);
+
+  const loadRuns = async () => {
+    list.textContent = "加载中…";
+    try {
+      const data = await api("/api/runs?limit=15");
+      const runs = data.runs || [];
+      if (!runs.length) {
+        list.innerHTML = `<div class="history-empty">暂无 Run 记录。</div>`;
+        return;
+      }
+      list.innerHTML = runs
+        .map(
+          (r) => `
+          <button class="run-report-pick action-btn secondary" data-run-id="${escapeHtml(r.id)}">
+            <span>${escapeHtml(r.kind)} · ${escapeHtml(r.status)}</span>
+            <small>${escapeHtml(formatDateTime(r.createdAt))} · ${escapeHtml(r.id.slice(0, 8))}…</small>
+          </button>`,
+        )
+        .join("");
+    } catch (err) {
+      list.textContent = String(err.message || err);
+    }
+  };
+
+  const loadReport = async (runId) => {
+    const id = (runId || runInput.value || "").trim();
+    if (!id) {
+      usage.textContent = "请输入或选择 Run ID。";
+      return;
+    }
+    runInput.value = id;
+    usage.textContent = "加载报告中…";
+    timelineBox.innerHTML = "";
+    try {
+      const data = await api(`/api/runs/${encodeURIComponent(id)}/report`);
+      const report = data.report || {};
+      const u = report.usage || {};
+      usage.innerHTML = `
+        <strong>用量摘要</strong> · 事件 ${report.eventCount ?? 0} 条 ·
+        模型 ${u.modelTurns ?? 0} 轮 · 工具 ${u.toolCalls ?? 0} 次（失败 ${u.toolFailures ?? 0}） ·
+        tokens ${u.totalInputTokens ?? 0}/${u.totalOutputTokens ?? 0} · $${u.totalCostUsd ?? 0}`;
+      timelineBox.innerHTML = renderRunTimelineRows(report.timeline || [], usage);
+    } catch (err) {
+      usage.textContent = String(err.message || err);
+      timelineBox.innerHTML = "";
+    }
+  };
+
+  list.addEventListener("click", (e) => {
+    const btn = e.target.closest(".run-report-pick");
+    if (!btn) return;
+    void loadReport(btn.dataset.runId);
+  });
+
+  refreshBtn.addEventListener("click", () => loadRuns());
+  loadBtn.addEventListener("click", () => loadReport());
+  addMessage("system", panel);
+  await loadRuns();
 }
 
 const STATUS_LABEL = {
@@ -780,8 +964,11 @@ async function handleTools() {
         body: JSON.stringify({ name: select.value, input: parsedInput, confirm }),
       });
       if (res.needsConfirmation) {
+        const riskText = res.risk
+          ? `\n\n风险等级：${res.risk.tier}\n摘要：${res.risk.summary}\n原因：${(res.risk.reasons || []).join("；")}`
+          : "";
         const ok = window.confirm(
-          `工具「${res.tool}」属于高风险权限「${res.permission}」，确认执行？`,
+          `工具「${res.tool}」属于高风险权限「${res.permission}」，确认执行？${riskText}`,
         );
         if (ok) {
           await runTool(true);
@@ -793,7 +980,10 @@ async function handleTools() {
       if (res.ok) {
         showResult(`耗时 ${res.durationMs}ms\n\n${JSON.stringify(res.output, null, 2)}`, false);
       } else {
-        showResult(`[${res.code}] ${res.error}`, true);
+        const riskText = res.risk
+          ? `\n风险：${res.risk.tier} / ${res.risk.summary}`
+          : "";
+        showResult(`[${res.code}] ${res.error}${riskText}`, true);
       }
     } catch (err) {
       showResult(String(err.message || err), true);
@@ -829,11 +1019,15 @@ function renderAgentRun(result) {
       const out = s.ok
         ? `结果 ${escapeHtml(truncate(JSON.stringify(s.output), 400))}`
         : escapeHtml(s.error || "");
+      const riskTag = s.risk
+        ? `<span class="tag-warn">${escapeHtml(s.risk.tier)}</span> <span class="plan-perms">${escapeHtml(s.risk.summary)}</span>`
+        : "";
       row.innerHTML = `
         <div class="plan-step-head">
           ${state}
           <span class="plan-step-title">#${s.iteration} ${escapeHtml(s.tool)}</span>
           ${dur}
+          ${riskTag}
         </div>
         ${thought}
         <div class="plan-step-desc">${io}</div>
@@ -1147,67 +1341,174 @@ async function handleScheduler() {
   await load();
 }
 
+function downloadJson(filename, data) {
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 async function handleSecurity() {
   clearWelcome();
   const panel = document.createElement("div");
-  panel.className = "tool-panel";
-  panel.innerHTML = "<h3>安全与审计 (M7)</h3><p>查看脱敏后的 trace 审计事件。</p>";
+  panel.className = "tool-panel trace-replay-panel";
 
-  const recentBtn = document.createElement("button");
-  recentBtn.className = "action-btn";
-  recentBtn.textContent = "最近 trace (10)";
-  panel.appendChild(recentBtn);
+  const title = document.createElement("div");
+  title.className = "tool-desc";
+  title.textContent = "审计回放：按 runId / toolCallId / 类别过滤 trace，时间线复盘或导出 JSON。";
+  panel.appendChild(title);
 
-  const exportBtn = document.createElement("button");
-  exportBtn.className = "action-btn";
-  exportBtn.style.marginLeft = "8px";
-  exportBtn.textContent = "导出 trace (50)";
-  panel.appendChild(exportBtn);
+  const row = document.createElement("div");
+  row.className = "tool-row";
+
+  const runInput = document.createElement("input");
+  runInput.className = "system-input";
+  runInput.placeholder = "runId（可选）";
+  row.appendChild(runInput);
+
+  const toolCallInput = document.createElement("input");
+  toolCallInput.className = "system-input";
+  toolCallInput.placeholder = "toolCallId（可选）";
+  row.appendChild(toolCallInput);
+
+  const categorySelect = document.createElement("select");
+  categorySelect.innerHTML = `
+    <option value="">全部类别</option>
+    <option value="run">Run</option>
+    <option value="model">模型</option>
+    <option value="tool">工具</option>
+    <option value="agent">Agent</option>
+    <option value="task">任务</option>
+    <option value="background">后台</option>
+    <option value="subagent">子Agent</option>
+  `;
+  row.appendChild(categorySelect);
+
+  const limitInput = document.createElement("input");
+  limitInput.className = "system-input routing-limit-input";
+  limitInput.type = "number";
+  limitInput.min = "1";
+  limitInput.max = "500";
+  limitInput.value = "50";
+  row.appendChild(limitInput);
+
+  panel.appendChild(row);
+
+  const btnRow = document.createElement("div");
+  btnRow.className = "tool-row";
 
   const replayBtn = document.createElement("button");
   replayBtn.className = "action-btn";
-  replayBtn.style.marginLeft = "8px";
-  replayBtn.textContent = "审计回放 (50)";
-  panel.appendChild(replayBtn);
+  replayBtn.textContent = "加载回放";
+  btnRow.appendChild(replayBtn);
 
-  const result = document.createElement("div");
-  result.className = "tool-result";
-  result.style.display = "none";
-  panel.appendChild(result);
+  const exportBtn = document.createElement("button");
+  exportBtn.className = "action-btn secondary";
+  exportBtn.textContent = "导出 JSON";
+  exportBtn.style.marginLeft = "8px";
+  btnRow.appendChild(exportBtn);
 
-  recentBtn.addEventListener("click", async () => {
-    result.style.display = "block";
-    result.classList.remove("err");
+  const runReportBtn = document.createElement("button");
+  runReportBtn.className = "action-btn secondary";
+  runReportBtn.textContent = "打开 Run 报告";
+  runReportBtn.style.marginLeft = "8px";
+  btnRow.appendChild(runReportBtn);
+
+  const recentBtn = document.createElement("button");
+  recentBtn.className = "action-btn secondary";
+  recentBtn.textContent = "最近 trace";
+  recentBtn.style.marginLeft = "8px";
+  btnRow.appendChild(recentBtn);
+
+  panel.appendChild(btnRow);
+
+  const summary = document.createElement("div");
+  summary.className = "run-report-usage";
+  panel.appendChild(summary);
+
+  const timelineBox = document.createElement("div");
+  timelineBox.className = "run-report-timeline";
+  panel.appendChild(timelineBox);
+
+  const rawBox = document.createElement("pre");
+  rawBox.className = "tool-result trace-replay-raw";
+  rawBox.style.display = "none";
+  panel.appendChild(rawBox);
+
+  const buildQuery = () => {
+    const q = new URLSearchParams();
+    const limit = Math.min(500, Math.max(1, Number(limitInput.value) || 50));
+    q.set("limit", String(limit));
+    const runId = runInput.value.trim();
+    const toolCallId = toolCallInput.value.trim();
+    const category = categorySelect.value;
+    if (runId) q.set("runId", runId);
+    if (toolCallId) q.set("toolCallId", toolCallId);
+    if (category) q.set("category", category);
+    return q;
+  };
+
+  const loadReplay = async () => {
+    summary.textContent = "加载回放中…";
+    timelineBox.innerHTML = "";
+    rawBox.style.display = "none";
     try {
-      const data = await api("/api/trace/recent?limit=10");
-      result.textContent = JSON.stringify(data, null, 2);
+      const data = await api(`/api/trace/replay?${buildQuery().toString()}`);
+      const s = data.summary || {};
+      const typeText = Object.entries(s.types || {})
+        .map(([k, v]) => `${k}:${v}`)
+        .join(" · ");
+      summary.innerHTML = `
+        <strong>回放</strong> · ${data.count ?? 0} 条
+        ${data.filters?.runId ? ` · runId=${escapeHtml(String(data.filters.runId))}` : ""}
+        ${data.filters?.toolCallId ? ` · toolCallId=${escapeHtml(String(data.filters.toolCallId))}` : ""}
+        <br>${escapeHtml(typeText || "无事件")}`;
+      timelineBox.innerHTML = renderRunTimelineRows(data.timeline || [], summary);
+      rawBox.textContent = JSON.stringify(data, null, 2);
     } catch (err) {
-      result.classList.add("err");
-      result.textContent = String(err.message || err);
+      summary.textContent = String(err.message || err);
+      timelineBox.innerHTML = "";
     }
-  });
+  };
 
+  replayBtn.addEventListener("click", () => loadReplay());
   exportBtn.addEventListener("click", async () => {
-    result.style.display = "block";
-    result.classList.remove("err");
     try {
-      const data = await api("/api/trace/export?limit=50");
-      result.textContent = JSON.stringify(data, null, 2);
+      const data = await api(`/api/trace/export?${buildQuery().toString()}`);
+      const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+      downloadJson(`trace-export-${stamp}.json`, data);
+      summary.textContent = `已导出 ${data.count ?? 0} 条事件到本地 JSON 文件。`;
     } catch (err) {
-      result.classList.add("err");
-      result.textContent = String(err.message || err);
+      summary.textContent = String(err.message || err);
     }
   });
-
-  replayBtn.addEventListener("click", async () => {
-    result.style.display = "block";
-    result.classList.remove("err");
+  runReportBtn.addEventListener("click", async () => {
+    const runId = runInput.value.trim();
+    if (!runId) {
+      summary.textContent = "请先填写 runId，再打开 Run 报告。";
+      return;
+    }
+    document.querySelector('.sidebar [data-action="run-reports"]')?.click();
+    setTimeout(() => {
+      const input = document.querySelector(".run-report-panel input.system-input");
+      const loadBtn = document.querySelector(".run-report-panel .action-btn.secondary");
+      if (input) input.value = runId;
+      loadBtn?.click();
+    }, 200);
+  });
+  recentBtn.addEventListener("click", async () => {
+    rawBox.style.display = "block";
+    rawBox.classList.remove("err");
     try {
-      const data = await api("/api/trace/replay?limit=50");
-      result.textContent = JSON.stringify(data, null, 2);
+      const data = await api("/api/trace/recent?limit=20");
+      rawBox.textContent = JSON.stringify(data, null, 2);
+      summary.textContent = `最近 trace：${data.count ?? 0} 条（原始 JSON 见下方）。`;
     } catch (err) {
-      result.classList.add("err");
-      result.textContent = String(err.message || err);
+      rawBox.classList.add("err");
+      rawBox.textContent = String(err.message || err);
     }
   });
 
@@ -1690,6 +1991,8 @@ document.querySelector(".sidebar").addEventListener("click", async (e) => {
     await handleMetrics();
   } else if (action === "routing-logs") {
     await handleRoutingLogs();
+  } else if (action === "run-reports") {
+    await handleRunReports();
   } else if (action === "tools") {
     await handleTools();
   } else if (action === "background") {

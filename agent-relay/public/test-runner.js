@@ -77,6 +77,7 @@ const MANUAL_APIS_BY_FEATURE = {
   "m2-routing": [
     { label: "GET /api/models/check", method: "GET", path: "/api/models/check", sample: null },
     { label: "GET /api/metrics", method: "GET", path: "/api/metrics", sample: null },
+    { label: "GET /api/routing/stats", method: "GET", path: "/api/routing/stats?limit=100", sample: null },
     {
       label: "POST /api/chat · 指定客户端",
       method: "POST",
@@ -219,6 +220,12 @@ const MANUAL_APIS_BY_FEATURE = {
     { label: "GET /api/trace/recent", method: "GET", path: "/api/trace/recent?limit=10", sample: null },
     { label: "GET /api/trace/export", method: "GET", path: "/api/trace/export?limit=20", sample: null },
     { label: "GET /api/trace/replay", method: "GET", path: "/api/trace/replay?limit=30", sample: null },
+    {
+      label: "GET /api/trace/replay · runId 过滤",
+      method: "GET",
+      path: "/api/trace/replay?runId=00000000-0000-0000-0000-000000000000&category=tool&limit=20",
+      sample: null,
+    },
     {
       label: "POST /api/tools/run · shell_run 危险命令",
       method: "POST",

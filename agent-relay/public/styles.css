@@ -767,6 +767,127 @@ textarea#message-input::placeholder {
   max-height: 420px;
 }
 
+.routing-log-details {
+  max-height: 420px;
+}
+
+.run-report-panel .tool-row {
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.run-report-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 12px 0;
+}
+
+.run-report-pick {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  min-width: 180px;
+}
+
+.run-report-pick small {
+  opacity: 0.75;
+  font-size: 11px;
+}
+
+.run-report-usage {
+  margin: 8px 0 12px;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.run-timeline {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 520px;
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.run-timeline-item {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: var(--surface-elevated, var(--surface));
+}
+
+.run-timeline-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.run-timeline-cat {
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.run-timeline-title {
+  font-size: 13.5px;
+}
+
+.run-timeline-detail {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--text-muted);
+  word-break: break-word;
+}
+
+.routing-log-panel .tool-row {
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.routing-stats-box {
+  margin-top: 10px;
+}
+
+.routing-stats-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 8px;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.routing-suggestion-list {
+  margin: 8px 0 12px;
+  padding-left: 18px;
+  font-size: 13px;
+}
+
+.routing-suggestion-warn {
+  color: #c45c26;
+}
+
+.routing-stats-raw pre {
+  max-height: 240px;
+  overflow: auto;
+  font-size: 12px;
+}
+
+.trace-replay-panel .tool-row {
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.trace-replay-raw {
+  max-height: 360px;
+  margin-top: 12px;
+}
+
 /* 测试用例面板 */
 .test-panel {
   width: 100%;

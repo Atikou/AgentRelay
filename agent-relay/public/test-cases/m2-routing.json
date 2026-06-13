@@ -239,6 +239,36 @@
       }
     },
     {
+      "id": "m2-routing-stats-api",
+      "title": "GET /api/routing/stats 返回运行统计",
+      "purpose": "确认 V6 RuntimeStats 聚合 model_call_logs / fallback_logs / route_logs 并返回 suggestions 数组。",
+      "method": "GET",
+      "path": "/api/routing/stats?limit=50",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyHasKeys": ["summary", "models", "taskTypes", "suggestions", "generatedAt"],
+        "bodyPaths": {
+          "suggestions": "array",
+          "models": "array"
+        }
+      }
+    },
+    {
+      "id": "m2-config-runtime-stats-v6",
+      "title": "配置暴露 runtimeStatsV6 能力",
+      "purpose": "确认服务端声明 V6 运行统计与只读建议 API 已落地。",
+      "method": "GET",
+      "path": "/api/config",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyPaths": {
+          "capabilities.runtimeStatsV6": true
+        }
+      }
+    },
+    {
       "id": "m2-config-answer-evaluator-v4",
       "title": "配置暴露 answerEvaluatorV4 能力",
       "purpose": "确认 V4 AnswerEvaluator 已接入 ModelOrchestrator，服务端声明 answerEvaluatorV4 能力。",

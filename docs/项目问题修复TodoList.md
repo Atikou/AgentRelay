@@ -43,7 +43,8 @@
 - [x] `RouterModelEvaluator` / `AnswerEvaluator` 类型与 stub 预留。
 - [x] V3：规则不确定时接入 `RouterModelEvaluator`，只作为建议，不直接覆盖高风险策略。
 - [x] V4：将 `AnswerEvaluator` 接入答案质量 fallback。
-- [ ] V6/V7：设计 `RuntimeStats` 与 EvalSetRunner，先采集、再评估、最后才考虑配置调优。
+- [x] V6：RuntimeStats 采集与只读建议 API（`GET /api/routing/stats`）。
+- [ ] V7：EvalSetRunner 运行时（类型已预留，全量评测未启用）。
 
 ## 当前推进顺序
 
@@ -53,7 +54,8 @@
 4. ~~P2 运行报告时间线~~ → **已完成**
 5. ~~P2 trace replay 过滤/导出~~ → **已完成**
 6. ~~V3 RouterModelEvaluator + V4 AnswerEvaluator 运行时接入~~ → **已完成**
-7. 下一小块建议：V6/V7 RuntimeStats 与 EvalSetRunner 设计
+7. ~~V6 RuntimeStats~~ → **已完成**
+8. 下一小块建议：V7 EvalSetRunner 离线评测，或其它里程碑项
 
 ## 本轮状态
 
@@ -62,4 +64,5 @@
 - P2 运行报告时间线 **已完成**。
 - P2 trace replay 过滤/导出 **已完成**。
 - P2 V3/V4 评估路由运行时接入 **已完成**。
-- 下一小块建议：V6/V7 RuntimeStats 与 EvalSetRunner 设计。
+- P2 V6 RuntimeStats **已完成**；V7 EvalSetRunner 类型已预留。
+- 下一小块建议：V7 EvalSetRunner 离线评测。
