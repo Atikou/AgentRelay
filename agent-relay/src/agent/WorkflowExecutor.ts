@@ -1,0 +1,120 @@
+import type { ContextManager } from "../context/ContextManager.js";
+import type { RunState } from "../orchestrator/runStateTypes.js";
+import type { TraceLogger } from "../trace/TraceLogger.js";
+import type { ToolRegistry } from "../tools/ToolRegistry.js";
+import type { BudgetManager } from "./BudgetManager.js";
+import type { ToolPermission } from "./permissions.js";
+import { PlanWorkflow, type PlanWorkflowResumeContext } from "./PlanWorkflow.js";
+import type { RunPolicy, RunBudget } from "./RunPolicyTypes.js";
+import { RunVerifyWorkflow } from "./RunVerifyWorkflow.js";
+import type { AgentToolStep } from "./toolStep.js";
+import { defaultWorkflowPlanner } from "./WorkflowPlanner.js";
+
+export interface WorkflowExecutorOptions {
+  registry: ToolRegistry;
+  workspaceRoot: string;
+  allowedPermissions: ToolPermission[];
+  budget: RunBudget;
+  budgetManager: BudgetManager;
+  policy: RunPolicy;
+  trace?: TraceLogger;
+  contextManager?: ContextManager;
+  sessionId?: string;
+  taskId?: string;
+  requestId?: string;
+}
+
+export interface WorkflowExecutionInput {
+  goal: string;
+  isResume?: boolean;
+  resumeState?: RunState;
+}
+
+export interface WorkflowExecutionResult {
+  steps: AgentToolStep[];
+  modelContexts: string[];
+}
+
+export class WorkflowExecutor {
+  constructor(private readonly options: WorkflowExecutorOptions) {}
+
+  async executeBeforeModel(input: WorkflowExecutionInput): Promise<WorkflowExecutionResult> {
+    const steps: AgentToolStep[] = [];
+    const modelContexts: string[] = [];
+
+    const planResult = await this.runPlanWorkflow(input);
+    if (planResult) {
+      steps.push(...planResult.steps);
+      modelContexts.push(planResult.modelContext);
+    }
+
+    const runVerifyResult = await this.runRunVerifyWorkflow(input.goal);
+    if (runVerifyResult) {
+      steps.push(...runVerifyResult.steps);
+      modelContexts.push(runVerifyResult.modelContext);
+    }
+
+    return { steps, modelContexts };
+  }
+
+  private async runPlanWorkflow(
+    input: WorkflowExecutionInput,
+  ): Promise<{ steps: AgentToolStep[]; modelContext: string } | undefined> {
+    const workflowPlan =
+      input.isResume && input.resumeState
+        ? defaultWorkflowPlanner.plan(input.resumeState.goal, this.options.policy.mode) ?? undefined
+        : undefined;
+    const resume: PlanWorkflowResumeContext | undefined =
+      input.isResume && input.resumeState
+        ? {
+            completedStepIds: input.resumeState.completedSteps,
+            priorSteps: input.resumeState.completedToolSteps,
+            location: input.resumeState.location,
+            workflowPlan,
+          }
+        : undefined;
+
+    const workflow = await new PlanWorkflow({
+      registry: this.options.registry,
+      workspaceRoot: this.options.workspaceRoot,
+      allowedPermissions: this.options.allowedPermissions,
+      budget: this.options.budget,
+      budgetManager: this.options.budgetManager,
+      trace: this.options.trace,
+      contextManager: this.options.contextManager,
+      sessionId: this.options.sessionId,
+      taskId: this.options.taskId,
+      requestId: this.options.requestId,
+    }).run(input.goal, this.options.policy.mode, resume);
+    if (!workflow) return undefined;
+
+    const priorCount = input.isResume && input.resumeState
+      ? input.resumeState.completedToolSteps.length
+      : 0;
+    const newSteps = workflow.steps.slice(priorCount);
+    if (newSteps.length > 0) {
+      return { steps: newSteps, modelContext: workflow.modelContext };
+    }
+    if (input.isResume && workflow.modelContext) {
+      return {
+        steps: [],
+        modelContext: `${workflow.modelContext}\n\n(resume: completed workflow steps were preserved; continue analysis or return final.)`,
+      };
+    }
+    return undefined;
+  }
+
+  private runRunVerifyWorkflow(goal: string) {
+    return new RunVerifyWorkflow({
+      registry: this.options.registry,
+      workspaceRoot: this.options.workspaceRoot,
+      allowedPermissions: this.options.allowedPermissions,
+      budget: this.options.budget,
+      trace: this.options.trace,
+      contextManager: this.options.contextManager,
+      sessionId: this.options.sessionId,
+      taskId: this.options.taskId,
+      requestId: this.options.requestId,
+    }).run(goal, this.options.policy.intent);
+  }
+}

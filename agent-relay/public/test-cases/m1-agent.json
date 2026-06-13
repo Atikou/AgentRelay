@@ -821,6 +821,47 @@
       }
     },
     {
+      "id": "m1-agent-workflow-executor-plan-prescan",
+      "title": "WorkflowExecutor 调度计划预扫描",
+      "purpose": "确认计划模式的模型首轮前只读预扫描仍由统一工作流入口执行，并把定位统计写入 executionMeta.location。",
+      "method": "POST",
+      "path": "/api/agent",
+      "input": {
+        "message": "请进入计划模式，只读分析当前项目架构并生成下一步计划。",
+        "mode": "plan",
+        "persist": false,
+        "budget": {
+          "maxModelTurns": 1,
+          "maxToolCalls": 4,
+          "maxReadCalls": 4,
+          "maxWriteCalls": 0,
+          "maxShellCalls": 0,
+          "maxRuntimeMs": 60000
+        }
+      },
+      "expect": {
+        "status": 200,
+        "bodyPaths": {
+          "executionMeta.intent": "plan",
+          "executionMeta.workflowType": "planWorkflow",
+          "executionMeta.usedReadCalls": 3
+        },
+        "bodyHasKeys": ["steps", "executionMeta"]
+      }
+    },
+    {
+      "id": "m1-agent-workflow-executor-api-spec",
+      "title": "API 规范登记 WorkflowExecutor",
+      "purpose": "确认 OpenAPI 说明模型首轮前确定性工作流由 WorkflowExecutor 统一调度，便于客户端理解预扫描和验证命令来源。",
+      "method": "GET",
+      "path": "/api/api-spec.json",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyContains": ["WorkflowExecutor", "PlanWorkflow", "runWorkflow/verifyWorkflow"]
+      }
+    },
+    {
       "id": "m1-agent-run-verify-safe-command",
       "title": "verifyWorkflow 执行白名单安全命令",
       "purpose": "确认统一 Agent 入口在验证意图中识别 node --version，并在 autoRun 与 shell 预算允许时先执行 shell_run 收集输出。",

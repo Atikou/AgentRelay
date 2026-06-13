@@ -11,9 +11,7 @@ import type { AgentStepPlan } from "../plan/types.js";
 import { assertWithinCostBudget, sumModelTurnCost } from "../util/costBudget.js";
 import { wrapUntrustedToolOutput } from "../util/injection.js";
 import { redactPreview } from "../util/redact.js";
-import { PlanWorkflow, type PlanWorkflowResumeContext } from "./PlanWorkflow.js";
-import { RunVerifyWorkflow } from "./RunVerifyWorkflow.js";
-import { defaultWorkflowPlanner } from "./WorkflowPlanner.js";
+import { WorkflowExecutor } from "./WorkflowExecutor.js";
 import {
   buildToolResultLayers,
   clipModelToolJson,
@@ -236,31 +234,13 @@ export class AgentLoop {
 
     injectNotifications();
 
-    const workflow = await this.runPlanWorkflow(effectiveGoal, isResume);
-    if (workflow) {
-      const priorCount = isResume ? this.options.resumeState!.completedToolSteps.length : 0;
-      const newSteps = workflow.steps.slice(priorCount);
-      for (const step of newSteps) {
-        steps.push(step);
-        this.options.onStep?.(step);
-      }
-      if (newSteps.length > 0) {
-        messages.push({ role: "user", content: workflow.modelContext });
-      } else if (isResume && workflow.modelContext) {
-        messages.push({
-          role: "user",
-          content: `${workflow.modelContext}\n\n（续跑：已完成步骤已保留，请继续分析或输出 final。）`,
-        });
-      }
+    const workflowResult = await this.runWorkflowExecutor(effectiveGoal, isResume, sessionId);
+    for (const step of workflowResult.steps) {
+      steps.push(step);
+      this.options.onStep?.(step);
     }
-
-    const runVerifyWorkflow = await this.runRunVerifyWorkflow(effectiveGoal);
-    if (runVerifyWorkflow) {
-      for (const step of runVerifyWorkflow.steps) {
-        steps.push(step);
-        this.options.onStep?.(step);
-      }
-      messages.push({ role: "user", content: runVerifyWorkflow.modelContext });
+    for (const modelContext of workflowResult.modelContexts) {
+      messages.push({ role: "user", content: modelContext });
     }
 
     let modelTurns = 0;
@@ -497,46 +477,24 @@ export class AgentLoop {
     return this.options.notificationQueue?.drain() ?? [];
   }
 
-  private runPlanWorkflow(userMessage: string, isResume: boolean) {
-    const workflowPlan =
-      isResume && this.options.resumeState
-        ? defaultWorkflowPlanner.plan(this.options.resumeState.goal, this.policy.mode) ?? undefined
-        : undefined;
-    const resume: PlanWorkflowResumeContext | undefined =
-      isResume && this.options.resumeState
-        ? {
-            completedStepIds: this.options.resumeState.completedSteps,
-            priorSteps: this.options.resumeState.completedToolSteps,
-            location: this.options.resumeState.location,
-            workflowPlan,
-          }
-        : undefined;
-    return new PlanWorkflow({
+  private runWorkflowExecutor(userMessage: string, isResume: boolean, sessionId?: string) {
+    return new WorkflowExecutor({
       registry: this.options.registry,
       workspaceRoot: this.options.workspaceRoot,
       allowedPermissions: this.allowed,
       budget: this.budget,
       budgetManager: this.budgetManager,
+      policy: this.policy,
       trace: this.options.trace,
       contextManager: this.options.contextManager,
-      sessionId: this.options.sessionId,
+      sessionId,
       taskId: this.options.taskId,
       requestId: this.options.requestId ?? this.options.runId,
-    }).run(userMessage, this.policy.mode, resume);
-  }
-
-  private runRunVerifyWorkflow(userMessage: string) {
-    return new RunVerifyWorkflow({
-      registry: this.options.registry,
-      workspaceRoot: this.options.workspaceRoot,
-      allowedPermissions: this.allowed,
-      budget: this.budget,
-      trace: this.options.trace,
-      contextManager: this.options.contextManager,
-      sessionId: this.options.sessionId,
-      taskId: this.options.taskId,
-      requestId: this.options.requestId ?? this.options.runId,
-    }).run(userMessage, this.policy.intent);
+    }).executeBeforeModel({
+      goal: userMessage,
+      isResume,
+      resumeState: this.options.resumeState,
+    });
   }
 
   private async runToolAction(
