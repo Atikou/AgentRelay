@@ -420,6 +420,42 @@
       }
     },
     {
+      "id": "m1-tools-config-history-recall",
+      "title": "GET /api/config 暴露 historyFileRecall",
+      "purpose": "确认服务端声明已接入历史任务/项目记忆相关文件召回。",
+      "method": "GET",
+      "path": "/api/config",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyPaths": {
+          "capabilities.historyFileRecall": true
+        }
+      }
+    },
+    {
+      "id": "m1-tools-locate-history-hits",
+      "title": "locate_relevant_files 可返回 historyFileHits",
+      "purpose": "确认定位工具在存在会话摘要/记忆时输出 historyFileHits 结构化字段。",
+      "method": "POST",
+      "path": "/api/tools/run",
+      "input": {
+        "name": "locate_relevant_files",
+        "input": {
+          "goal": "分析 AgentLoop 主循环",
+          "possibleSymbols": ["AgentLoop"],
+          "limit": 8
+        }
+      },
+      "expect": {
+        "status": 200,
+        "bodyPaths": {
+          "ok": true,
+          "output.primaryFiles": "array"
+        }
+      }
+    },
+    {
       "id": "m1-tools-git-status",
       "title": "git_status 返回 isRepo",
       "purpose": "确认 git 状态工具可用，Agent 可检查工作区改动。",

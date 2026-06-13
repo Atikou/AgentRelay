@@ -1,6 +1,9 @@
 export { ProjectIndex, projectFileToScanMeta, extractSymbolsFromContent } from "./ProjectIndex.js";
 export { ModuleDependencyGraph } from "./ModuleDependencyGraph.js";
 export { ProjectSemanticIndexer } from "./ProjectSemanticIndexer.js";
+export { HistoryFileRecaller } from "./HistoryFileRecaller.js";
+export type { HistoryFileHit, HistoryFileSource } from "./HistoryFileRecaller.js";
+export { extractFilePathsFromText, isLikelyWorkspaceFile } from "./filePathExtract.js";
 export {
   extractImportsFromContent,
   extractExportsFromContent,

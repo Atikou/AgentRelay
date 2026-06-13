@@ -24,6 +24,7 @@ import { RunStateStore } from "../orchestrator/RunStateStore.js";
 import { ProjectIndex } from "../context/ProjectIndex.js";
 import { ModuleDependencyGraph } from "../context/ModuleDependencyGraph.js";
 import { ProjectSemanticIndexer } from "../context/ProjectSemanticIndexer.js";
+import { HistoryFileRecaller } from "../context/HistoryFileRecaller.js";
 import { Scheduler } from "../scheduler/index.js";
 import { SubAgentCoordinator } from "../subagent/index.js";
 import { createDefaultRegistry } from "../tools/index.js";
@@ -82,6 +83,7 @@ export class AppContext {
   readonly projectIndex: ProjectIndex;
   readonly projectSemanticIndexer: ProjectSemanticIndexer;
   readonly moduleDependencyGraph: ModuleDependencyGraph;
+  readonly historyFileRecaller: HistoryFileRecaller;
   readonly orchestrator: Orchestrator;
   readonly subAgentCoordinator: SubAgentCoordinator;
   readonly smartModelRouter: SmartModelRouter;
@@ -120,6 +122,7 @@ export class AppContext {
     projectIndex: ProjectIndex;
     projectSemanticIndexer: ProjectSemanticIndexer;
     moduleDependencyGraph: ModuleDependencyGraph;
+    historyFileRecaller: HistoryFileRecaller;
     orchestrator: Orchestrator;
     subAgentCoordinator: SubAgentCoordinator;
     smartModelRouter: SmartModelRouter;
@@ -157,6 +160,7 @@ export class AppContext {
     this.projectIndex = opts.projectIndex;
     this.projectSemanticIndexer = opts.projectSemanticIndexer;
     this.moduleDependencyGraph = opts.moduleDependencyGraph;
+    this.historyFileRecaller = opts.historyFileRecaller;
     this.orchestrator = opts.orchestrator;
     this.subAgentCoordinator = opts.subAgentCoordinator;
     this.smartModelRouter = opts.smartModelRouter;
@@ -259,6 +263,7 @@ export class AppContext {
         symbolSearch: true,
         projectSemanticLocate: true,
         moduleDependencyGraph: true,
+        historyFileRecall: true,
         costBudgetPerRun: true,
         ruleOnlyRouting: true,
         sqliteSchemaMigrations: true,
@@ -399,7 +404,12 @@ export function createAppContext(): AppContext {
     contextManager.vectors,
   );
   const moduleDependencyGraph = new ModuleDependencyGraph(projectIndex);
-  registry.setDefaultContext({ projectIndex, projectSemanticIndexer });
+  const historyFileRecaller = new HistoryFileRecaller(
+    contextManager.db,
+    contextManager.memories,
+    contextManager.retriever,
+  );
+  registry.setDefaultContext({ projectIndex, projectSemanticIndexer, historyFileRecaller });
 
   const modelProfiles = buildModelProfiles(config.models.clients);
   for (const msg of validateModelProfiles(modelProfiles)) {
@@ -531,6 +541,7 @@ export function createAppContext(): AppContext {
     projectIndex,
     projectSemanticIndexer,
     moduleDependencyGraph,
+    historyFileRecaller,
     orchestrator,
     subAgentCoordinator,
     smartModelRouter,

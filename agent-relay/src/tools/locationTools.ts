@@ -334,6 +334,7 @@ export const locateRelevantFilesTool: Tool<
     explorationProgress: ExplorationProgressSnapshot;
     semanticHits?: Array<{ path: string; score: number }>;
     dependencyRelated?: Array<{ path: string; relation: "imports" | "imported_by"; depth: number }>;
+    historyFileHits?: Array<{ path: string; score: number; source: string; reason: string }>;
     locateStats: {
       usedLocateSteps: number;
       usedSearchCalls: number;
@@ -469,6 +470,7 @@ export const locateRelevantFilesTool: Tool<
       explorationProgress,
       semanticHits: rankResult.semanticHits.length ? rankResult.semanticHits : undefined,
       dependencyRelated: rankResult.dependencyRelated.length ? rankResult.dependencyRelated : undefined,
+      historyFileHits: rankResult.historyFileHits.length ? rankResult.historyFileHits : undefined,
       locateStats: stats,
       indexSource,
       locationResume: resumeCtx
@@ -734,10 +736,13 @@ async function rankCandidates(
   ranked: LocatedFile[];
   semanticHits: Array<{ path: string; score: number }>;
   dependencyRelated: Array<{ path: string; relation: "imports" | "imported_by"; depth: number }>;
+  historyFileHits: Array<{ path: string; score: number; source: string; reason: string }>;
 }> {
   const ranked: LocatedFile[] = [];
   const semanticHits: Array<{ path: string; score: number }> = [];
+  const historyFileHits: Array<{ path: string; score: number; source: string; reason: string }> = [];
   const semanticBoost = new Map<string, number>();
+  const historyBoost = new Map<string, number>();
   const recordedPaths = new Set<string>();
   const recordExploration = (input: {
     path: string;
@@ -778,6 +783,43 @@ async function rankCandidates(
     }
   }
 
+  if (ctx.historyFileRecaller) {
+    const query = [plan.goal, ...plan.keywords.slice(0, 8)].join(" ").trim();
+    if (query) {
+      const recalled = await ctx.historyFileRecaller.recall({
+        projectId,
+        query,
+        sessionId: ctx.sessionId,
+        taskId: ctx.taskId,
+        limit: 12,
+      });
+      for (const hit of recalled.hits) {
+        historyFileHits.push({
+          path: hit.path,
+          score: hit.score,
+          source: hit.source,
+          reason: hit.reason,
+        });
+        historyBoost.set(hit.path, hit.score * 0.38);
+        if (!files.some((f) => f.path === hit.path)) {
+          files.push({
+            path: hit.path,
+            fileName: path.posix.basename(hit.path),
+            extension: path.posix.extname(hit.path),
+            sizeBytes: 0,
+            modifiedAt: new Date(0).toISOString(),
+            language: languageFromExt(path.posix.extname(hit.path)),
+            symbols: [],
+            imports: [],
+            exports: [],
+            tags: [...tagsForPath(hit.path), "memory"],
+            hash: `history:${hit.path}`,
+          });
+        }
+      }
+    }
+  }
+
   if (projectIndex && plan.possibleSymbols.length) {
     const indexedHits = projectIndex.searchSymbols(projectId, ctx.workspaceRoot, plan.possibleSymbols);
     for (const hit of indexedHits) {
@@ -806,12 +848,16 @@ async function rankCandidates(
   for (const file of files) {
     const p = file.path.toLowerCase();
     const name = file.fileName.toLowerCase();
-    let score = semanticBoost.get(file.path) ?? 0;
+    let score = (semanticBoost.get(file.path) ?? 0) + (historyBoost.get(file.path) ?? 0);
     const matchTypes = new Set<LocatedFile["matchTypes"][number]>();
     const reasons: string[] = [];
     if (semanticBoost.has(file.path)) {
       matchTypes.add("memory");
       reasons.push("LanceDB 语义召回");
+    }
+    if (historyBoost.has(file.path)) {
+      matchTypes.add("memory");
+      reasons.push("历史任务/项目记忆召回");
     }
     const alreadyVisited = resume?.visitedFiles.has(file.path) ?? false;
     if (resume?.resumePrimary.has(file.path)) {
@@ -935,6 +981,7 @@ async function rankCandidates(
       .slice(0, budget.maxCandidateFiles),
     semanticHits,
     dependencyRelated,
+    historyFileHits,
   };
 }
 

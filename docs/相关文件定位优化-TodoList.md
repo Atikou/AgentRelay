@@ -85,7 +85,7 @@
 - [x] 按符号命中评分。
 - [x] 重要配置/入口文件加权。
 - [x] 输出可解释 `reason` 与 `matchTypes`。
-- [ ] 尚未纳入 recentUse / projectMemory。
+- [x] 纳入 recentUse / projectMemory（`HistoryFileRecaller` + `historyFileHits`）。
 - [ ] 尚未纳入文件依赖图中心性。
 
 **验收**：规则评分已落地，可解释排序已返回。
@@ -146,7 +146,7 @@
 - [x] 模块依赖图。
 - [x] import/export 关系分析。
 - [x] 基于 LanceDB 的语义文件定位。
-- [ ] 结合历史任务/项目记忆的相关文件召回。
+- [x] 结合历史任务/项目记忆的相关文件召回。
 
 ---
 

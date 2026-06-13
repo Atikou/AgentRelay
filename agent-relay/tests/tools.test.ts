@@ -300,6 +300,58 @@ test("locate_relevant_files 低预算返回 explorationProgress 与 suggestedAct
   assert.ok(Array.isArray(out.explorationProgress.steps));
 });
 
+test("locate_relevant_files 结合历史记忆召回相关文件", async () => {
+  const { DatabaseManager } = await import("../src/context/DatabaseManager.js");
+  const { HistoryFileRecaller } = await import("../src/context/HistoryFileRecaller.js");
+  const { MemoryStore, SummaryStore } = await import("../src/context/stores.js");
+  const { SessionStore } = await import("../src/context/SessionStore.js");
+  const dbm = new DatabaseManager(dataDir);
+  const recaller = new HistoryFileRecaller(dbm, new MemoryStore(dbm));
+  const sessions = new SessionStore(dbm);
+  const summaries = new SummaryStore(dbm);
+  const session = sessions.create("locate-memory", "default");
+  summaries.save({
+    sessionId: session.id,
+    projectId: "default",
+    summaryType: "session_summary",
+    content: { important_files: ["src/plan/PlanCompiler.ts"] },
+  });
+  const r = reg();
+  r.setDefaultContext({ historyFileRecaller: recaller });
+  try {
+    await r.run(
+      "write_file",
+      { path: "src/plan/PlanCompiler.ts", content: "export class PlanCompiler {}\n", backup: false },
+      await ctx(),
+    );
+    const res = await r.run(
+      "locate_relevant_files",
+      {
+        goal: "继续修复 PlanCompiler",
+        possibleSymbols: ["PlanCompiler"],
+        limit: 6,
+      },
+      { ...(await ctx()), sessionId: session.id },
+    );
+    assert.equal(res.ok, true);
+    const out = (res as {
+      output: {
+        historyFileHits?: Array<{ path: string }>;
+        primaryFiles: Array<{ path: string }>;
+        candidateFiles: Array<{ path: string }>;
+      };
+    }).output;
+    const paths = [...out.primaryFiles, ...out.candidateFiles].map((f) => f.path);
+    assert.ok(
+      out.historyFileHits?.some((h) => h.path === "src/plan/PlanCompiler.ts") ||
+        paths.includes("src/plan/PlanCompiler.ts"),
+    );
+  } finally {
+    dbm.close();
+    r.setDefaultContext({ historyFileRecaller: undefined });
+  }
+});
+
 test("locate_relevant_files 利用模块依赖图扩展相关文件", async () => {
   const { DatabaseManager } = await import("../src/context/DatabaseManager.js");
   const { ProjectIndex } = await import("../src/context/ProjectIndex.js");

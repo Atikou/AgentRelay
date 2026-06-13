@@ -31,6 +31,8 @@ export interface ToolContext {
   projectIndex?: import("../context/ProjectIndex.js").ProjectIndex;
   /** LanceDB 项目文件语义索引（locate 语义召回）。 */
   projectSemanticIndexer?: import("../context/ProjectSemanticIndexer.js").ProjectSemanticIndexer;
+  /** 历史任务/项目记忆相关文件召回。 */
+  historyFileRecaller?: import("../context/HistoryFileRecaller.js").HistoryFileRecaller;
 }
 
 /**
