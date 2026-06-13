@@ -168,7 +168,7 @@
 - [x] 仅 finalAnswer 写入会话（chat 路径）
 - [x] 不把 draft/review 写入 messages
 - [~] debug preview draft/review — 部分字段在 routerDecision
-- [ ] **端到端**断言 messages 表无 draft 行（无 DB 集成测试）
+- [x] **端到端**断言 messages 表无 draft 行（`tests/collaboration-messages.integration.test.ts`）
 
 ---
 
@@ -189,9 +189,9 @@
 | approve 用 draft | ✅ draft-review |
 | revise 用 revisedAnswer | ✅ |
 | reject 不用低质量 draft | ✅ |
-| draft/review 不在 messages | [ ] 无 DB 测试 |
-| model_call_logs 两次调用 | [~] pipeline 返回 call ids，无 DB 断言 |
-| collaboration_runs 记录 verdict | [~] mock store 测试 |
+| draft/review 不在 messages | [x] `collaboration-messages.integration.test.ts` |
+| model_call_logs 两次调用 | [x] collaboration-messages 集成测试 + draft-review mock |
+| collaboration_runs 记录 verdict | [x] collaboration-messages 集成测试 |
 
 ---
 
@@ -204,7 +204,7 @@
 - [x] 5. 聊天/记忆不走协作
 - [x] 6. 图片不用非 vision 模型
 - [x] 7. 高风险不静默降级
-- [x] 8. draft/review 不污染 messages（设计层 ✅，DB 测试 ❌）
+- [x] 8. draft/review 不污染 messages（`collaboration-messages.integration.test.ts`）
 - [x] 9. 路由与调用有日志
 - [x] 10. Chat 只存 final assistant
 - [x] 11. 不依赖模型自评
@@ -226,7 +226,7 @@
 
 - [x] `rule_only` 短问候 Level 0 — 记忆类仍走 Level 1 单模型（后续可扩展）
 - [ ] `validateModelProfiles()` 启动校验
-- [ ] `tests/collaboration-integration.test.ts`：messages 表仅 1 条 assistant
+- [x] `tests/collaboration-messages.integration.test.ts`：messages 表仅 1 条 assistant
 - [ ] FallbackManager 统一 DraftReview 内零散 catch
 - [ ] `m2-routing.json` + 测试台协作场景用例
 

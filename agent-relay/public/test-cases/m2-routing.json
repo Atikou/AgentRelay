@@ -325,6 +325,30 @@
       }
     },
     {
+      "id": "m2-collab-messages-doc",
+      "title": "协作文档登记 messages DB 集成测试",
+      "purpose": "确认模型路由协作文档/TodoList 已指向 collaboration-messages 集成测试，断言 draft/review 不进 messages 表。",
+      "method": "GET",
+      "path": "/api/docs/content?slug=模型路由协作-TodoList",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyIncludes": ["collaboration-messages.integration.test.ts", "messages 表", "draft/review 不在 messages"]
+      }
+    },
+    {
+      "id": "m2-collab-messages-script",
+      "title": "package.json 登记 test:collaboration-messages",
+      "purpose": "确认 npm 脚本可单独运行协作 messages SQLite 集成测试。",
+      "method": "GET",
+      "path": "/api/docs/content?slug=模型路由与协作",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyIncludes": ["test:collaboration-messages", "collaboration-messages"]
+      }
+    },
+    {
       "id": "m2-routing-stats-api",
       "title": "GET /api/routing/stats 返回运行统计",
       "purpose": "确认 V6 RuntimeStats 聚合 model_call_logs / fallback_logs / route_logs 并返回 suggestions 数组。",
