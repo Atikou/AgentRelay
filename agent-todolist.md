@@ -71,6 +71,7 @@
 - [x] 支持任务状态流转：pending、in_progress、blocked、completed、failed、cancelled、skipped。（`aggregateTaskStatus` + `TaskStore` 持久化 + `GET /api/tasks/:id`）
 - [x] 支持任务失败后的重试、跳过、降级和人工接管。（`TaskRunner.retryFrom/skipStep/confirmStep` + `POST /api/tasks/:id/resume`；降级仍走 `fallbackToPlanOnUncertainty`）
 - [x] AgentStepPlan / UserVisiblePlan / InternalTaskPlan 三类计划分离；Executor 仅接受 approved planId + version（`AgentLoop` trace + `PlanStore` + `PlanCompiler` + `PlanValidator`）。
+- [x] `planWorkflow` 用户可见计划报告进入工作流层：`PlanReportWorkflow` 调用只读 Agent 生成 Markdown 并通过 `PlanService.saveUserVisiblePlan` 保存，HTTP handler 只做参数校验与模型选择。
 
 ## 5. 子 Agent 派生
 

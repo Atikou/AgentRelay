@@ -1,9 +1,9 @@
 import type { AppContext } from "../../app/createAppContext.js";
 import type { ApiResult } from "../../orchestrator/Orchestrator.js";
 import { Planner } from "../../agent/Planner.js";
+import { PlanReportWorkflow } from "../../agent/PlanReportWorkflow.js";
 import { PlanValidationError } from "../../plan/index.js";
 import { detectPlanReportRequest } from "../../plan/planIntent.js";
-import { buildPlanAnalysisPrompt, renderUserVisiblePlan } from "../../plan/UserPlanRenderer.js";
 import type { PlanMode } from "../../plan/types.js";
 import type { RunBudget } from "../../agent/RunPolicyTypes.js";
 
@@ -61,43 +61,17 @@ export async function handlePlanAnalyze(app: AppContext, body: unknown): Promise
   const { forceClient, error } = app.resolveForceClient(payload.clientName);
   if (error) return { status: 404, body: { error } };
   const makeChat = forceClient ? app.makeChatFn(forceClient) : undefined;
-  const result = await app.orchestrator.runAgent(
-    {
-      message: buildPlanAnalysisPrompt({ goal, context: payload.context }),
-      mode: "plan",
-      sessionId: payload.sessionId,
-      clientName: payload.clientName,
-      autoConfirm: false,
-      sensitive: true,
-      budget: payload.budget,
-    },
+  return new PlanReportWorkflow({
+    planService: app.planService,
+    runAgent: (agentBody, agentMakeChat) => app.orchestrator.runAgent(agentBody, agentMakeChat),
+  }).run({
+    goal,
+    context: payload.context,
+    sessionId: payload.sessionId,
+    clientName: payload.clientName,
+    budget: payload.budget,
     makeChat,
-  );
-  if (result.status !== 200) return result;
-
-  const body200 = result.body as {
-    runId?: string;
-    sessionId?: string;
-    answer?: string;
-    executionMeta?: unknown;
-  };
-  const userVisiblePlan = app.planService.saveUserVisiblePlan(
-    renderUserVisiblePlan({
-      sourceRunId: body200.runId ?? "unknown-run",
-      sessionId: body200.sessionId ?? payload.sessionId,
-      goal,
-      markdown: body200.answer ?? "",
-    }),
-  );
-  return {
-    status: 200,
-    body: {
-      userVisiblePlan,
-      executionMeta: body200.executionMeta,
-      runId: body200.runId,
-      warning: "UserVisiblePlan 仅供用户审阅，不能直接执行；执行前请 compile → approve → execute。",
-    },
-  };
+  });
 }
 
 export async function handlePlanPreview(app: AppContext, planId: string, url: URL): Promise<ApiResult> {

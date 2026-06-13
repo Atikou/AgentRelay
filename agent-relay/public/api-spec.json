@@ -266,7 +266,7 @@
       "post": {
         "tags": ["计划与任务"],
         "summary": "生成用户可见计划报告（UserVisiblePlan）",
-        "description": "走 /api/agent mode=plan 的只读链路，输出并持久化 UserVisiblePlan Markdown；该文档不可直接执行。",
+        "description": "通过 PlanReportWorkflow 走 /api/agent mode=plan 的只读链路，输出并持久化 UserVisiblePlan Markdown；该文档不可直接执行，HTTP handler 仅负责参数校验与模型选择。",
         "operationId": "analyzePlan",
         "requestBody": {
           "required": true,

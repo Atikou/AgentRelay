@@ -862,6 +862,30 @@
       }
     },
     {
+      "id": "m1-agent-plan-report-workflow-api-spec",
+      "title": "API 规范登记 PlanReportWorkflow",
+      "purpose": "确认 /api/plans/analyze 已声明由 PlanReportWorkflow 负责生成并保存 UserVisiblePlan，HTTP handler 仅保留参数校验与模型选择。",
+      "method": "GET",
+      "path": "/api/api-spec.json",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyContains": ["PlanReportWorkflow", "UserVisiblePlan Markdown", "HTTP handler"]
+      }
+    },
+    {
+      "id": "m1-agent-plan-report-workflow-empty-goal",
+      "title": "计划报告空 goal 仍由入口校验",
+      "purpose": "确认 /api/plans/analyze 在进入 PlanReportWorkflow 前仍拒绝空 goal，保持原有 400 边界不变。",
+      "method": "POST",
+      "path": "/api/plans/analyze",
+      "input": { "goal": "" },
+      "expect": {
+        "status": 400,
+        "bodyHasKeys": ["error"]
+      }
+    },
+    {
       "id": "m1-agent-run-verify-safe-command",
       "title": "verifyWorkflow 执行白名单安全命令",
       "purpose": "确认统一 Agent 入口在验证意图中识别 node --version，并在 autoRun 与 shell 预算允许时先执行 shell_run 收集输出。",

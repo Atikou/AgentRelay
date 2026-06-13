@@ -26,8 +26,11 @@
 - [x] 新增 `WorkflowRouter`：从 `intent` 映射到具体工作流执行器。
 - [ ] 将现有内部预扫描、PlanService、TaskRunner、验证命令组织到工作流层，而不是散落在 AgentLoop。
   - [x] 预模型确定性工作流统一进入 `WorkflowExecutor`：`PlanWorkflow` 预扫描与 `RunVerifyWorkflow` 安全命令不再由 `AgentLoop` 直接调度。
-  - [ ] `PlanService` / `TaskRunner` 继续收敛到工作流层入口。
+  - [x] `PlanService.saveUserVisiblePlan` 进入 `PlanReportWorkflow`：`/api/plans/analyze` 仅负责参数校验与模型选择。
+  - [ ] `TaskRunner` 继续收敛到工作流层入口。
 - [ ] `planWorkflow`：生成内部计划 JSON 与用户可读 Markdown 计划，不直接执行。
+  - [x] 用户可读 Markdown 计划通过 `PlanReportWorkflow` 生成并保存为 `UserVisiblePlan`，不可直接执行。
+  - [ ] 内部计划 JSON 仍需通过 compile 阶段从已确认 Todo 生成，后续继续收敛到 `planWorkflow`。
 - [ ] `editWorkflow` / `generateFileWorkflow`：定位文件、生成修改方案、检查权限、执行修改、记录 diff。
 - [ ] `debugWorkflow`：报错分析、定位文件、最小修复、验证失败后继续迭代。
 - [ ] `refactorWorkflow`：强制先计划，分阶段修改，每阶段尽量可验证。

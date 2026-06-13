@@ -29,6 +29,11 @@ export {
   type WorkflowExecutionResult,
   type WorkflowExecutorOptions,
 } from "./WorkflowExecutor.js";
+export {
+  PlanReportWorkflow,
+  type PlanReportWorkflowInput,
+  type PlanReportWorkflowOptions,
+} from "./PlanReportWorkflow.js";
 export { IntentRouter, defaultIntentRouter, type IntentRouteResult } from "./IntentRouter.js";
 export { finalizePlan, sortSubtasksByPriority } from "./taskGraph.js";
 export {
