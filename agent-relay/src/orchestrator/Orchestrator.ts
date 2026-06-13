@@ -49,6 +49,8 @@ import type { ToolRegistry } from "../tools/ToolRegistry.js";
 import type { TraceLogger } from "../trace/TraceLogger.js";
 
 import { RunStore } from "./RunStore.js";
+import { RunStateStore } from "./RunStateStore.js";
+import type { RunState } from "./runStateTypes.js";
 import { rollbackFileChangesForRun, type TaskRollbackResult } from "./TaskRollback.js";
 import {
   buildPlanFallbackContext,
@@ -73,6 +75,8 @@ export interface OrchestratorDeps {
   tasks: TaskStore;
 
   runs: RunStore;
+
+  runStateStore: RunStateStore;
 
   notificationQueue: NotificationQueue;
 
@@ -835,6 +839,106 @@ export class Orchestrator {
     }
   }
 
+  /** 从 RunStateStore 恢复预算耗尽的可续跑 Agent Run（PlanWorkflow pendingSteps）。 */
+  async resumeAgent(body: unknown, makeChat?: LoopChatFn): Promise<ApiResult> {
+    const payload = (body ?? {}) as {
+      runId?: string;
+      budget?: Partial<RunBudget>;
+      message?: string;
+      autoConfirm?: boolean;
+      sensitive?: boolean;
+      taskType?: string;
+      clientName?: string;
+    };
+    const runId = (payload.runId ?? "").trim();
+    if (!runId) return { status: 400, body: { error: "runId 不能为空" } };
+
+    const run = this.deps.runs.get(runId);
+    if (!run) return { status: 404, body: { error: "运行记录不存在", runId } };
+    if (run.kind !== "agent") {
+      return { status: 400, body: { error: "仅 agent 类型 Run 支持续跑", runId, kind: run.kind } };
+    }
+
+    const state = this.deps.runStateStore.get(runId);
+    if (!state || state.status !== "resumable") {
+      return {
+        status: 400,
+        body: {
+          error: "该 Run 不可续跑（无 resumable 状态或已完成）",
+          runId,
+          pendingSteps: state?.pendingSteps,
+        },
+      };
+    }
+
+    const taskTypeParsed = parseModelTaskTypeOrError(payload.taskType);
+    if (!taskTypeParsed.ok) {
+      return { status: 400, body: { error: taskTypeParsed.error } };
+    }
+
+    const policy = resolveRunPolicy({
+      requestedMode: state.mode,
+      budget: payload.budget,
+      taskType: taskTypeParsed.taskType,
+      message: state.goal,
+    });
+
+    const message = (payload.message ?? "").trim() || state.goal;
+    const sessionId = state.sessionId;
+    const task = state.taskId
+      ? this.deps.tasks.get(state.taskId)
+      : this.resolveOrCreateTask(sessionId, state.goal.slice(0, 500));
+    if (!task) {
+      return { status: 404, body: { error: "关联 task 不存在", taskId: state.taskId } };
+    }
+
+    this.deps.runs.update(runId, { status: "running", error: undefined });
+    this.deps.tasks.update(task.id, { status: "running" });
+
+    const loop = new AgentLoop({
+      chat: makeChat ?? this.deps.makeChatFn(),
+      registry: this.deps.registry,
+      workspaceRoot: this.deps.workspaceRoot,
+      autoConfirm: payload.autoConfirm ?? false,
+      sensitive: payload.sensitive,
+      taskType: taskTypeParsed.taskType,
+      policy,
+      projectAllowedPermissions: this.deps.projectAllowedPermissions,
+      trace: this.deps.trace,
+      notificationQueue: this.deps.notificationQueue,
+      contextManager: sessionId ? this.deps.contextManager : undefined,
+      sessionId,
+      runId,
+      taskId: task.id,
+      requestId: runId,
+      runStateStore: this.deps.runStateStore,
+      resumeState: state,
+      maxCostUsdPerRun: this.deps.maxCostUsdPerRun,
+    });
+
+    const ctx = { message, sessionId, task, run: { id: runId }, loop };
+
+    try {
+      this.deps.trace?.write({
+        type: "run_resume",
+        runId,
+        kind: "agent",
+        sessionId,
+        taskId: task.id,
+        pendingSteps: state.pendingSteps,
+        completedSteps: state.completedSteps,
+      });
+      const result = await loop.run(message);
+      return { status: 200, body: this.finalizeAgentRunSuccess(ctx, result, { resumed: true }) };
+    } catch (error) {
+      return { status: 502, body: this.finalizeAgentRunFailure(ctx, error) };
+    }
+  }
+
+  getRunState(runId: string): RunState | null {
+    return this.deps.runStateStore.get(runId);
+  }
+
   /** SSE：推送 run_start / step / done | error（校验错误由 handler 在开启流前返回 JSON）。 */
   async runAgentStream(
     body: unknown,
@@ -1354,6 +1458,7 @@ export class Orchestrator {
       runId: run.id,
       taskId: task.id,
       requestId: run.id,
+      runStateStore: this.deps.runStateStore,
       onStep: callbacks?.onStep,
       onToken: callbacks?.onToken,
       maxCostUsdPerRun: this.deps.maxCostUsdPerRun,
@@ -1388,18 +1493,26 @@ export class Orchestrator {
   private finalizeAgentRunSuccess(
     ctx: { sessionId?: string; task: TaskRecord; run: { id: string } },
     result: AgentRunResult,
-  ): AgentRunResult & { runId: string; taskId: string } {
+    extra?: { resumed?: boolean },
+  ): AgentRunResult & { runId: string; taskId: string; runState?: RunState | null; resumed?: boolean } {
     this.deps.tasks.update(ctx.task.id, {
       status: result.reachedLimit ? "failed" : "done",
       summary: result.answer.slice(0, 500),
     });
     if (!result.reachedLimit) this.releaseTaskFromSession(ctx.sessionId, ctx.task.id);
+    const runState = result.reachedLimit
+      ? this.deps.runStateStore.get(ctx.run.id)
+      : null;
     this.deps.runs.update(ctx.run.id, {
       status: result.reachedLimit ? "failed" : "completed",
       resultJson: JSON.stringify({
         answer: result.answer,
         iterations: result.iterations,
         executionMeta: result.executionMeta,
+        runState: runState
+          ? { status: runState.status, pendingSteps: runState.pendingSteps, completedSteps: runState.completedSteps }
+          : undefined,
+        resumed: extra?.resumed,
       }),
     });
     this.deps.trace?.write({
@@ -1407,8 +1520,16 @@ export class Orchestrator {
       runId: ctx.run.id,
       kind: "agent",
       status: result.reachedLimit ? "failed" : "completed",
+      resumed: extra?.resumed,
+      resumable: runState?.status === "resumable",
     });
-    return { ...result, runId: ctx.run.id, taskId: ctx.task.id };
+    return {
+      ...result,
+      runId: ctx.run.id,
+      taskId: ctx.task.id,
+      runState: runState ?? undefined,
+      resumed: extra?.resumed,
+    };
   }
 
   private finalizeAgentRunFailure(

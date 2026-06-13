@@ -65,6 +65,7 @@ AppContext         →  依赖容器（单例装配）
 | kind | 来源 API | 说明 |
 | --- | --- | --- |
 | `agent` | `POST /api/agent` | AgentLoop 自主循环 |
+| `agent`（续跑） | `POST /api/agent/resume` | 从 `RunStateStore` 恢复 PlanWorkflow `pendingSteps` |
 | `task` | `POST /api/plans/:id/execute`、`POST /api/task/run`（planId+version） | TaskRunner 真实执行 |
 | `task_dry_run` | `POST /api/task/dry-run` | 干跑（可 legacy ingest plan） |
 | `chat` | `POST /api/chat` | 单次对话 |
@@ -99,7 +100,8 @@ sequenceDiagram
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
 | GET | `/api/runs` | 最近 Run 列表 |
-| GET | `/api/runs/{id}` | 单个 Run 详情 |
+| GET | `/api/runs/{id}` | 单个 Run 详情（含 `runState` 若可续跑） |
+| POST | `/api/agent/resume` | 续跑预算耗尽的 agent Run（传 `runId` + 可选更高 `budget`） |
 | GET | `/api/runs/{id}/report` | Run + trace 聚合报告（含 `timeline` 时间线） |
 
 `report.timeline` 按时间排序，将 trace 事件与同源 session 的路由/fallback 记录统一为以下类别：
@@ -126,6 +128,8 @@ src/
   orchestrator/
     Orchestrator.ts          # 编排入口
     RunStore.ts              # runs 表
+    RunStateStore.ts         # run_states 续跑状态
+    runStateTypes.ts         # RunState 类型与构建
   policy/                    # Workspace / Shell / Permission 策略
   server/
     createHttpServer.ts      # 路由表

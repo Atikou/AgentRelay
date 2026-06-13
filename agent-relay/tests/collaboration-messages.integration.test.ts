@@ -25,6 +25,7 @@ import type { ModelChatFn } from "../src/model-orchestrator/types.js";
 import type { ModelResponse } from "../src/model/types.js";
 import { Orchestrator } from "../src/orchestrator/Orchestrator.js";
 import { RunStore } from "../src/orchestrator/RunStore.js";
+import { RunStateStore } from "../src/orchestrator/RunStateStore.js";
 import { createDefaultRegistry } from "../src/tools/index.js";
 import { createTestPlanService } from "./planTestHelper.js";
 
@@ -141,6 +142,7 @@ async function createHarness(chatFn: ModelChatFn): Promise<Harness> {
   const workspaceRoot = path.join(dataDir, "workspace");
   const ctx = new ContextManager({ dataDir, useLanceDb: false });
   const runs = new RunStore(ctx.db);
+  const runStateStore = new RunStateStore(ctx.db);
   ensureRoutingTables(ctx.db.connection);
 
   const routeLogStore = new RouteLogStore(ctx.db.connection);
@@ -181,6 +183,7 @@ async function createHarness(chatFn: ModelChatFn): Promise<Harness> {
     contextManager: ctx,
     tasks: ctx.tasks,
     runs,
+    runStateStore,
     notificationQueue: { list: () => [], consumeAll: () => [] } as never,
     makeChatFn: () => async () => {
       throw new Error("本测试仅覆盖 runChat");

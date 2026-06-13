@@ -20,6 +20,7 @@ import {
 } from "../plan/index.js";
 import { Orchestrator } from "../orchestrator/Orchestrator.js";
 import { RunStore } from "../orchestrator/RunStore.js";
+import { RunStateStore } from "../orchestrator/RunStateStore.js";
 import { Scheduler } from "../scheduler/index.js";
 import { SubAgentCoordinator } from "../subagent/index.js";
 import { createDefaultRegistry } from "../tools/index.js";
@@ -74,6 +75,7 @@ export class AppContext {
   readonly registry: ReturnType<typeof createDefaultRegistry>;
   readonly contextManager: ContextManager;
   readonly runs: RunStore;
+  readonly runStateStore: RunStateStore;
   readonly orchestrator: Orchestrator;
   readonly subAgentCoordinator: SubAgentCoordinator;
   readonly smartModelRouter: SmartModelRouter;
@@ -108,6 +110,7 @@ export class AppContext {
     registry: ReturnType<typeof createDefaultRegistry>;
     contextManager: ContextManager;
     runs: RunStore;
+    runStateStore: RunStateStore;
     orchestrator: Orchestrator;
     subAgentCoordinator: SubAgentCoordinator;
     smartModelRouter: SmartModelRouter;
@@ -141,6 +144,7 @@ export class AppContext {
     this.registry = opts.registry;
     this.contextManager = opts.contextManager;
     this.runs = opts.runs;
+    this.runStateStore = opts.runStateStore;
     this.orchestrator = opts.orchestrator;
     this.subAgentCoordinator = opts.subAgentCoordinator;
     this.smartModelRouter = opts.smartModelRouter;
@@ -234,6 +238,7 @@ export class AppContext {
         runtimeStatsV6: true,
         evalSetRunnerV7: true,
         modelCapabilitiesV5: true,
+        runStateStore: true,
         costBudgetPerRun: true,
         ruleOnlyRouting: true,
         sqliteSchemaMigrations: true,
@@ -367,6 +372,7 @@ export function createAppContext(): AppContext {
   const registry = createDefaultRegistry({ trace, dataDir, shellPolicy, networkPolicy });
   const contextManager = new ContextManager({ dataDir, useLanceDb: true });
   const runs = new RunStore(contextManager.db);
+  const runStateStore = new RunStateStore(contextManager.db);
 
   const modelProfiles = buildModelProfiles(config.models.clients);
   for (const msg of validateModelProfiles(modelProfiles)) {
@@ -437,6 +443,7 @@ export function createAppContext(): AppContext {
     contextManager,
     tasks: contextManager.tasks,
     runs,
+    runStateStore,
     notificationQueue,
     trace,
     makeChatFn,
@@ -492,6 +499,7 @@ export function createAppContext(): AppContext {
     registry,
     contextManager,
     runs,
+    runStateStore,
     orchestrator,
     subAgentCoordinator,
     smartModelRouter,

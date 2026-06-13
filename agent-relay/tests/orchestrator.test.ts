@@ -12,6 +12,7 @@ import type { LoopChatFn } from "../src/agent/AgentLoop.js";
 import type { AgentStreamEvent } from "../src/orchestrator/AgentStream.js";
 import { Orchestrator } from "../src/orchestrator/Orchestrator.js";
 import { RunStore } from "../src/orchestrator/RunStore.js";
+import { RunStateStore } from "../src/orchestrator/RunStateStore.js";
 import { ALL_PERMISSIONS } from "../src/agent/permissions.js";
 import { DryRunExecutor, TaskRunner } from "../src/agent/TaskRunner.js";
 import { PlanSchema } from "../src/agent/types.js";
@@ -27,6 +28,7 @@ let sandbox = "";
 let dataDir = "";
 let ctx: ContextManager;
 let runs: RunStore;
+let runStateStore: RunStateStore;
 
 function baseOrchestrator(
   registry: ReturnType<typeof createDefaultRegistry>,
@@ -41,6 +43,7 @@ function baseOrchestrator(
     contextManager: ctx,
     tasks: ctx.tasks,
     runs,
+    runStateStore,
     notificationQueue: {} as never,
     makeChatFn: () => async () => {
       throw new Error("no chat in test");
@@ -350,6 +353,7 @@ async function main() {
   await fs.mkdir(dataDir, { recursive: true });
   ctx = new ContextManager({ dataDir, useLanceDb: false });
   runs = new RunStore(ctx.db);
+  runStateStore = new RunStateStore(ctx.db);
 
   let passed = 0;
   let failed = 0;

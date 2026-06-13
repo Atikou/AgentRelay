@@ -5,7 +5,7 @@ import { ensureRoutingTables } from "../model-router/route-stores.js";
 import { ensureEvalTables } from "../model-router/eval-set-store.js";
 import { addColumnIfMissing, type SqliteMigration } from "./sqliteMigration.js";
 
-export const MEMORY_DB_SCHEMA_VERSION = 8;
+export const MEMORY_DB_SCHEMA_VERSION = 9;
 
 function ensureFts(
   db: DatabaseSync,
@@ -330,6 +330,28 @@ export const MEMORY_DB_MIGRATIONS: readonly SqliteMigration[] = [
     name: "model_eval_tables",
     up(db) {
       ensureEvalTables(db);
+    },
+  },
+  {
+    version: 9,
+    name: "run_states",
+    up(db) {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS run_states (
+          run_id TEXT PRIMARY KEY,
+          mode TEXT NOT NULL,
+          goal TEXT NOT NULL,
+          session_id TEXT,
+          task_id TEXT,
+          status TEXT NOT NULL,
+          state_json TEXT NOT NULL,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          FOREIGN KEY (run_id) REFERENCES runs(id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_run_states_status ON run_states(status, updated_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_run_states_session ON run_states(session_id, updated_at DESC);
+      `);
     },
   },
 ];

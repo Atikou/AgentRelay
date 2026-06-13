@@ -17,6 +17,7 @@ const REQUIRED_PATHS = [
   "/api/models/catalog",
   "/api/chat",
   "/api/agent",
+  "/api/agent/resume",
   "/api/agent/stream",
   "/api/plan",
   "/api/plans/draft",

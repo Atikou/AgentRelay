@@ -10,7 +10,7 @@ import type { AgentStepPlan } from "../plan/types.js";
 import { assertWithinCostBudget, sumModelTurnCost } from "../util/costBudget.js";
 import { wrapUntrustedToolOutput } from "../util/injection.js";
 import { redactPreview } from "../util/redact.js";
-import { PlanWorkflow, type PlanWorkflowResult } from "./PlanWorkflow.js";
+import { PlanWorkflow, type PlanWorkflowResumeContext } from "./PlanWorkflow.js";
 import { CONFIRMATION_REQUIRED, MODE_PERMISSIONS, type ToolPermission } from "./permissions.js";
 import {
   resolveEffectivePermissions,
@@ -28,6 +28,11 @@ import {
   type RunBudgetUsage,
   type RunPolicy,
 } from "./RunPolicy.js";
+import type { RunStateStore } from "../orchestrator/RunStateStore.js";
+import {
+  buildRunStateFromAgentRun,
+  type RunState,
+} from "../orchestrator/runStateTypes.js";
 
 export type LoopChatFn = (
   req: ChatRequest,
@@ -99,6 +104,10 @@ export interface AgentLoopOptions {
   runId?: string;
   taskId?: string;
   requestId?: string;
+  /** 预算耗尽时持久化续跑状态。 */
+  runStateStore?: RunStateStore;
+  /** 从 RunStateStore 恢复的续跑上下文。 */
+  resumeState?: RunState;
 }
 
 interface ToolAction {
@@ -152,26 +161,30 @@ export class AgentLoop {
   async run(userMessage: string, system?: string): Promise<AgentRunResult> {
     this.runStartedAt = Date.now();
     this.modelTurnMetrics = [];
+    const isResume = Boolean(this.options.resumeState);
+    const effectiveGoal = isResume ? this.options.resumeState!.goal : userMessage;
     const ctx = this.options.contextManager;
-    let sessionId = this.options.sessionId;
+    let sessionId = this.options.resumeState?.sessionId ?? this.options.sessionId;
     if (ctx && !sessionId) {
       sessionId = ctx.createSession().id;
     }
-    if (ctx && sessionId) {
+    if (ctx && sessionId && !isResume) {
       ctx.saveUserMessage(sessionId, userMessage);
     }
 
     const messages: ChatMessage[] = ctx && sessionId
       ? ctx.buildChatMessages(
-          await ctx.restoreContextPackage(sessionId, userMessage),
+          await ctx.restoreContextPackage(sessionId, effectiveGoal),
           this.buildSystemPrompt(system),
-          { phase: "pre_call", currentUser: userMessage },
+          { phase: "pre_call", currentUser: isResume ? "继续上次计划扫描" : effectiveGoal },
         )
       : [
           { role: "system", content: this.buildSystemPrompt(system) },
-          { role: "user", content: userMessage },
+          { role: "user", content: effectiveGoal },
         ];
-    const steps: AgentToolStep[] = [];
+    const steps: AgentToolStep[] = isResume
+      ? [...(this.options.resumeState?.completedToolSteps ?? [])]
+      : [];
     const consumedNotifications: AgentNotification[] = [];
 
     const injectNotifications = () => {
@@ -188,11 +201,22 @@ export class AgentLoop {
 
     injectNotifications();
 
-    const workflow = await this.runPlanWorkflow(userMessage);
+    const workflow = await this.runPlanWorkflow(effectiveGoal, isResume);
     if (workflow) {
-      steps.push(...workflow.steps);
-      for (const step of workflow.steps) this.options.onStep?.(step);
-      messages.push({ role: "user", content: workflow.modelContext });
+      const priorCount = isResume ? this.options.resumeState!.completedToolSteps.length : 0;
+      const newSteps = workflow.steps.slice(priorCount);
+      for (const step of newSteps) {
+        steps.push(step);
+        this.options.onStep?.(step);
+      }
+      if (newSteps.length > 0) {
+        messages.push({ role: "user", content: workflow.modelContext });
+      } else if (isResume && workflow.modelContext) {
+        messages.push({
+          role: "user",
+          content: `${workflow.modelContext}\n\n（续跑：已完成步骤已保留，请继续分析或输出 final。）`,
+        });
+      }
     }
 
     let modelTurns = 0;
@@ -207,7 +231,7 @@ export class AgentLoop {
           budgetExhausted: runtimeExhausted,
           consumedNotifications,
           sessionId,
-          userMessage,
+          userMessage: effectiveGoal,
         });
       }
 
@@ -280,7 +304,7 @@ export class AgentLoop {
           reachedLimit: false,
           consumedNotifications,
           sessionId,
-          userMessage,
+          userMessage: effectiveGoal,
         });
       }
 
@@ -307,7 +331,7 @@ export class AgentLoop {
           budgetExhausted: toolBudgetExhausted,
           consumedNotifications,
           sessionId,
-          userMessage,
+          userMessage: effectiveGoal,
         });
       }
       const step = await this.runToolAction(action, iteration, toolCallId);
@@ -330,7 +354,7 @@ export class AgentLoop {
           budgetExhausted: postToolRuntimeExhausted,
           consumedNotifications,
           sessionId,
-          userMessage,
+          userMessage: effectiveGoal,
         });
       }
     }
@@ -343,7 +367,7 @@ export class AgentLoop {
       budgetExhausted: "maxModelTurns",
       consumedNotifications,
       sessionId,
-      userMessage,
+      userMessage: effectiveGoal,
     });
   }
 
@@ -371,6 +395,24 @@ export class AgentLoop {
       budgetExhausted: input.budgetExhausted,
     });
     this.writeRunUsageSummary(input.steps, executionMeta);
+
+    if (this.options.runStateStore && this.options.runId) {
+      if (input.reachedLimit) {
+        const state = buildRunStateFromAgentRun({
+          runId: this.options.runId,
+          goal: input.userMessage,
+          mode: this.policy.mode,
+          sessionId: input.sessionId,
+          taskId: this.options.taskId,
+          steps: input.steps,
+          executionMeta,
+        });
+        if (state) this.options.runStateStore.save(state);
+      } else {
+        this.options.runStateStore.markCompleted(this.options.runId);
+      }
+    }
+
     return {
       answer: input.answer,
       steps: input.steps,
@@ -389,7 +431,14 @@ export class AgentLoop {
     return this.options.notificationQueue?.drain() ?? [];
   }
 
-  private runPlanWorkflow(userMessage: string): Promise<PlanWorkflowResult | undefined> {
+  private runPlanWorkflow(userMessage: string, isResume: boolean) {
+    const resume: PlanWorkflowResumeContext | undefined =
+      isResume && this.options.resumeState
+        ? {
+            completedStepIds: this.options.resumeState.completedSteps,
+            priorSteps: this.options.resumeState.completedToolSteps,
+          }
+        : undefined;
     return new PlanWorkflow({
       registry: this.options.registry,
       workspaceRoot: this.options.workspaceRoot,
@@ -400,7 +449,7 @@ export class AgentLoop {
       sessionId: this.options.sessionId,
       taskId: this.options.taskId,
       requestId: this.options.requestId ?? this.options.runId,
-    }).run(userMessage, this.policy.mode);
+    }).run(userMessage, this.policy.mode, resume);
   }
 
   private async runToolAction(

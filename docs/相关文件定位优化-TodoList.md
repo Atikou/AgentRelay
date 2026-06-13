@@ -124,11 +124,11 @@
 
 ### P2-2：RunStateStore
 
-- [ ] 保存 `runId`、`mode`、`goal`、`searchPlan`。
-- [ ] 保存 `visitedFiles`、`visitedDirs`。
-- [ ] 保存 `candidateFiles`、`primaryFiles`。
-- [ ] 保存 `completedSteps` / `pendingSteps`。
-- [ ] 支持预算耗尽后 continue run。
+- [x] 保存 `runId`、`mode`、`goal`（`run_states` 表 + `state_json`）。
+- [x] 保存 `scannedPaths`、`readFiles`（从 PlanWorkflow 步骤提取）。
+- [x] 保存 `completedSteps` / `pendingSteps`（PlanWorkflow 三步）。
+- [x] 支持预算耗尽后 continue run（`POST /api/agent/resume`）。
+- [ ] 保存 `searchPlan`、`visitedFiles`、`visitedDirs`、`candidateFiles`（完整定位状态，待 ProjectIndex 联动）。
 
 ### P2-3：ExplorationProgressTracker
 

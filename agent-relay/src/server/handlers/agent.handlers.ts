@@ -41,6 +41,14 @@ export async function handleAgent(app: AppContext, body: unknown): Promise<ApiRe
   return app.orchestrator.runAgent(body, makeChat);
 }
 
+export async function handleAgentResume(app: AppContext, body: unknown): Promise<ApiResult> {
+  const payload = (body ?? {}) as { clientName?: string };
+  const { forceClient, error } = app.resolveForceClient(payload.clientName);
+  if (error) return { status: 404, body: { error } };
+  const makeChat = forceClient ? app.makeChatFn(forceClient) : undefined;
+  return app.orchestrator.resumeAgent(body, makeChat);
+}
+
 export async function handleAgentStream(
   app: AppContext,
   body: unknown,

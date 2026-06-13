@@ -203,6 +203,44 @@
       }
     },
     {
+      "id": "m1-agent-resume-missing-runid",
+      "title": "续跑缺少 runId 返回 400",
+      "purpose": "确认 /api/agent/resume 在缺少 runId 时立即拒绝，避免误创建新 Run。",
+      "method": "POST",
+      "path": "/api/agent/resume",
+      "input": {},
+      "expect": {
+        "status": 400,
+        "bodyHasKeys": ["error"]
+      }
+    },
+    {
+      "id": "m1-agent-resume-unknown-run",
+      "title": "续跑未知 runId 返回 400",
+      "purpose": "确认无 resumable 状态的 runId 不能续跑，返回明确错误而非进入 AgentLoop。",
+      "method": "POST",
+      "path": "/api/agent/resume",
+      "input": { "runId": "00000000-0000-4000-8000-000000000000" },
+      "expect": {
+        "status": 400,
+        "bodyHasKeys": ["error"]
+      }
+    },
+    {
+      "id": "m1-agent-config-run-state-store",
+      "title": "GET /api/config 暴露 runStateStore",
+      "purpose": "确认 capabilities 声明 RunStateStore 已落地，便于测试台与客户端探测续跑能力。",
+      "method": "GET",
+      "path": "/api/config",
+      "input": {},
+      "expect": {
+        "status": 200,
+        "bodyPaths": {
+          "capabilities.runStateStore": true
+        }
+      }
+    },
+    {
       "id": "m1-agent-unknown-client-still-force",
       "title": "未知 clientName 仍立即 404",
       "purpose": "确认 Smart 路由接入后，显式 clientName 校验行为不变，不会静默回退默认路由。",

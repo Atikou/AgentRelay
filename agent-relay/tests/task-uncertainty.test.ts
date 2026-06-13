@@ -13,6 +13,7 @@ import { PlanSchema } from "../src/agent/types.js";
 import { ContextManager } from "../src/context/ContextManager.js";
 import { Orchestrator } from "../src/orchestrator/Orchestrator.js";
 import { RunStore } from "../src/orchestrator/RunStore.js";
+import { RunStateStore } from "../src/orchestrator/RunStateStore.js";
 import {
   buildPlanFallbackContext,
   detectTaskUncertainty,
@@ -64,6 +65,7 @@ let sandbox = "";
 let dataDir = "";
 let ctx: ContextManager;
 let runs: RunStore;
+let runStateStore: RunStateStore;
 
 test("Orchestrator fallbackToPlanOnUncertainty 返回 revisedPlan", async () => {
   const registry = createDefaultRegistry({ dataDir });
@@ -87,6 +89,7 @@ test("Orchestrator fallbackToPlanOnUncertainty 返回 revisedPlan", async () => 
     contextManager: ctx,
     tasks: ctx.tasks,
     runs,
+    runStateStore,
     notificationQueue: { drain: () => [] } as never,
     makeChatFn: () => async () => {
       throw new Error("不应调用 chat");
@@ -134,6 +137,7 @@ test("Orchestrator 未开启 fallback 时不生成 modeFallback", async () => {
     contextManager: ctx,
     tasks: ctx.tasks,
     runs,
+    runStateStore,
     notificationQueue: {} as never,
     makeChatFn: () => async () => {
       throw new Error("no chat");
@@ -164,6 +168,7 @@ async function main() {
   await fs.mkdir(dataDir, { recursive: true });
   ctx = new ContextManager({ dataDir, useLanceDb: false });
   runs = new RunStore(ctx.db);
+  runStateStore = new RunStateStore(ctx.db);
 
   let passed = 0;
   let failed = 0;

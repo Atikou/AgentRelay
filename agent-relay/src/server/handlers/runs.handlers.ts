@@ -12,7 +12,8 @@ export function handleRunsList(app: AppContext, url: URL): ApiResult {
 export function handleRunGet(app: AppContext, id: string): ApiResult {
   const run = app.orchestrator.getRun(id);
   if (!run) return { status: 404, body: { error: "运行记录不存在" } };
-  return { status: 200, body: { run } };
+  const runState = app.orchestrator.getRunState(id);
+  return { status: 200, body: { run, runState: runState ?? undefined } };
 }
 
 export async function handleRunReport(app: AppContext, id: string): Promise<ApiResult> {

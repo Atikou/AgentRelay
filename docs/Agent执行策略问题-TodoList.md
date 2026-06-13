@@ -21,7 +21,7 @@
 ## 0b. 根因（§2）
 
 - [x] 非单纯单一循环次数问题，缺 Mode→Policy→Budget→Finalization 完整链路
-- [ ] BudgetManager / RunStateStore 仍缺；PlanWorkflow 第一版已落地
+- [ ] BudgetManager 仍缺；RunStateStore 已落地；PlanWorkflow 第一版已落地
 
 ## 完成度概览
 
@@ -34,7 +34,7 @@
 | 验收测试 §7 | 3 | 0 | 2 | 5 |
 | **合计** | **10** | **3** | **4** | **17** |
 
-**结论**：报告 P0（executionMeta、部分收尾、计划模式写拦截）已落地；`project_scan` 已作为相关文件定位工具落地；PlanWorkflow 第一版已接入 AgentLoop；仍缺独立 BudgetManager 类、RunStateStore 与工具结果三层 trace。
+**结论**：报告 P0（executionMeta、部分收尾、计划模式写拦截）已落地；`project_scan` 已作为相关文件定位工具落地；PlanWorkflow 第一版已接入 AgentLoop；RunStateStore 续跑已落地；仍缺独立 BudgetManager 类与工具结果三层 trace。
 
 ---
 
@@ -50,7 +50,7 @@
 | 3.6 list_files 参数不合理 | [~] | 默认 `limit=500`、忽略目录已优化；无计划模式分步扫描策略 |
 | 3.7 缺少 Project Scan Strategy | [x] | `PlanWorkflow` 固定执行 `project_scan` → `locate_relevant_files` → `context_pack` |
 | 3.8 缺少 project_scan 工具 | [x] | 已实现 `project_scan`，并补 `locate_relevant_files` / `context_pack` |
-| 3.9 缺少继续执行 RunStateStore | [ ] | 无 runId 续跑状态持久化 |
+| 3.9 缺少继续执行 RunStateStore | [x] | `run_states` 表 + `POST /api/agent/resume` |
 | 3.10 工具结果 trace 分层 | [~] | `compactToolOutput` + 4k 截断；非 raw/model/user 三层 |
 | 3.11 HTTP 单一循环次数为主调度 | [x] | HTTP 改为 `budget` 对象；省略时由 `RunPolicy` 按模式分配 |
 
@@ -86,7 +86,7 @@
 | Finalizer | [~] | `buildPartialFinalAnswer` 内联，非独立 `Finalizer` 类 |
 | PlanWorkflow | [x] | `src/agent/PlanWorkflow.ts` |
 | ProjectScanTool | [x] | `project_scan` / `locate_relevant_files` / `context_pack` |
-| RunStateStore | [ ] | 未实现 |
+| RunStateStore | [x] | `RunStateStore.ts` + `run_states` 表 + `POST /api/agent/resume` |
 | IntentRouter | [~] | `inferRunMode()` + Orchestrator `parseRunMode` |
 | WorkflowPlanner | [ ] | 未实现 |
 | ToolPermissionManager | [x] | `AgentLoop` + `ToolRegistry` `allowedPermissions` |
@@ -191,11 +191,11 @@
 
 #### P2-2：实现 RunStateStore
 
-- [ ] `RunState`：runId、completedSteps、pendingSteps、scannedPaths、readFiles、toolResultRefs
-- [ ] 用户「继续上次计划扫描」从 pendingSteps 续跑
-- [ ] HTTP/API 传 runId 恢复
+- [x] `RunState`：runId、completedSteps、pendingSteps、scannedPaths、readFiles、toolResultRefs
+- [x] 用户「继续上次计划扫描」从 pendingSteps 续跑
+- [x] HTTP/API 传 runId 恢复（`POST /api/agent/resume`）
 
-**验收**：❌
+**验收**：✅（`npm run test:run-state-store`）
 
 ---
 
@@ -237,7 +237,7 @@
 - [x] **测试 2** 计划模式禁止写入（`loop.test.ts`）
 - [x] **测试 3** 不传 budget → plan 默认 `budget.maxModelTurns=16` 且写/shell 预算为 0（`orchestrator.test.ts`）
 - [ ] **测试 4** list_files 大量结果 → raw trace 完整 + model summary + truncated 标记
-- [ ] **测试 5** runId 续跑 pendingSteps
+- [x] **测试 5** runId 续跑 pendingSteps（`run-state-store.test.ts`）
 
 ---
 
@@ -279,7 +279,7 @@
   → AgentLoop ✅
   → TraceRecorder ✅
   → Finalizer(内联 partial) ✅
-  → RunStateStore ❌
+  → RunStateStore ✅
 ```
 
 ---

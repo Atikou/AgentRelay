@@ -176,6 +176,28 @@
         }
       }
     },
+    "/api/agent/resume": {
+      "post": {
+        "tags": ["对话与智能体"],
+        "summary": "续跑预算耗尽的 Agent Run（RunStateStore）",
+        "description": "从 `run_states` 恢复 `pendingSteps`（主要为 PlanWorkflow 的 locate/context_pack），可传更高 `budget` 继续只读预扫描。",
+        "operationId": "resumeAgent",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/AgentResumeRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "续跑结果（含 resumed=true）", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AgentResponse" } } } },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "502": { "$ref": "#/components/responses/UpstreamError" }
+        }
+      }
+    },
     "/api/agent": {
       "post": {
         "tags": ["对话与智能体"],
@@ -646,7 +668,10 @@
               "application/json": {
                 "schema": {
                   "type": "object",
-                  "properties": { "run": { "$ref": "#/components/schemas/RunRecord" } }
+                  "properties": {
+                    "run": { "$ref": "#/components/schemas/RunRecord" },
+                    "runState": { "$ref": "#/components/schemas/RunState" }
+                  }
                 }
               }
             }
@@ -1628,7 +1653,48 @@
           "reachedLimit": { "type": "boolean" },
           "executionMeta": { "$ref": "#/components/schemas/AgentExecutionMeta" },
           "sessionId": { "type": "string" },
-          "notifications": { "type": "array", "items": { "$ref": "#/components/schemas/Notification" } }
+          "notifications": { "type": "array", "items": { "$ref": "#/components/schemas/Notification" } },
+          "runState": { "$ref": "#/components/schemas/RunState" },
+          "resumed": { "type": "boolean", "description": "是否为续跑请求" }
+        }
+      },
+      "AgentResumeRequest": {
+        "type": "object",
+        "required": ["runId"],
+        "properties": {
+          "runId": { "type": "string", "format": "uuid", "description": "可续跑的 agent Run id" },
+          "budget": { "$ref": "#/components/schemas/RunBudget", "description": "续跑时覆盖的运行预算（通常高于首次）" },
+          "message": { "type": "string", "description": "可选覆盖用户消息；默认使用原 goal" },
+          "autoConfirm": { "type": "boolean" },
+          "sensitive": { "type": "boolean" },
+          "taskType": { "type": "string", "enum": ["simple", "reasoning", "codegen", "long_context"] },
+          "clientName": { "type": "string" }
+        }
+      },
+      "RunState": {
+        "type": "object",
+        "properties": {
+          "runId": { "type": "string", "format": "uuid" },
+          "mode": { "type": "string", "enum": ["chat", "plan", "implement", "debug", "review"] },
+          "goal": { "type": "string" },
+          "sessionId": { "type": "string" },
+          "taskId": { "type": "string" },
+          "status": { "type": "string", "enum": ["resumable", "completed"] },
+          "completedSteps": {
+            "type": "array",
+            "items": { "type": "string", "enum": ["project_scan", "locate_relevant_files", "context_pack"] }
+          },
+          "pendingSteps": {
+            "type": "array",
+            "items": { "type": "string", "enum": ["project_scan", "locate_relevant_files", "context_pack"] }
+          },
+          "scannedPaths": { "type": "array", "items": { "type": "string" } },
+          "readFiles": { "type": "array", "items": { "type": "string" } },
+          "toolResultRefs": { "type": "array", "items": { "type": "object", "additionalProperties": true } },
+          "budgetUsage": { "$ref": "#/components/schemas/RunBudgetUsage" },
+          "stopReason": { "type": "string" },
+          "budgetExhausted": { "type": "string" },
+          "updatedAt": { "type": "string", "format": "date-time" }
         }
       },
       "PlanRequest": {

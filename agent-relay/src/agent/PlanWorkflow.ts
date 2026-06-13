@@ -4,6 +4,10 @@ import type { ToolRegistry } from "../tools/ToolRegistry.js";
 import type { ToolPermission } from "./permissions.js";
 import type { AgentToolStep } from "./toolStep.js";
 import type { AgentRunMode, RunBudget } from "./RunPolicy.js";
+import {
+  PLAN_WORKFLOW_STEP_IDS,
+  type PlanWorkflowStepId,
+} from "../orchestrator/runStateTypes.js";
 
 export interface PlanWorkflowOptions {
   registry: ToolRegistry;
@@ -22,7 +26,12 @@ export interface PlanWorkflowResult {
   modelContext: string;
 }
 
-const WORKFLOW_TOOLS = ["project_scan", "locate_relevant_files", "context_pack"] as const;
+export interface PlanWorkflowResumeContext {
+  completedStepIds: readonly PlanWorkflowStepId[];
+  priorSteps: AgentToolStep[];
+}
+
+const WORKFLOW_TOOLS = PLAN_WORKFLOW_STEP_IDS;
 
 /**
  * Plan/review mode deterministic read-only pre-scan.
@@ -32,62 +41,93 @@ const WORKFLOW_TOOLS = ["project_scan", "locate_relevant_files", "context_pack"]
 export class PlanWorkflow {
   constructor(private readonly options: PlanWorkflowOptions) {}
 
-  async run(goal: string, mode: AgentRunMode): Promise<PlanWorkflowResult | undefined> {
+  async run(
+    goal: string,
+    mode: AgentRunMode,
+    resume?: PlanWorkflowResumeContext,
+  ): Promise<PlanWorkflowResult | undefined> {
     if (!shouldRunPlanWorkflow(goal, mode)) return undefined;
     if (!this.options.allowedPermissions.includes("read")) return undefined;
 
-    const maxSteps = Math.min(
-      WORKFLOW_TOOLS.length,
+    const priorSteps = resume?.priorSteps ?? [];
+    const completed = new Set(resume?.completedStepIds ?? []);
+    const steps: AgentToolStep[] = [...priorSteps];
+
+    const maxNewSteps = Math.min(
+      WORKFLOW_TOOLS.length - completed.size,
       this.options.budget.maxToolCalls,
       this.options.budget.maxReadCalls,
     );
-    if (maxSteps <= 0) return undefined;
+    if (maxNewSteps <= 0 && steps.length === 0) return undefined;
+    if (maxNewSteps <= 0 && steps.length > 0) return buildResult(steps);
 
-    const steps: AgentToolStep[] = [];
-    const projectScan = await this.runTool(
-      "project_scan",
-      { root: ".", maxDepth: 3 },
-      "计划/审阅模式固定预扫描：先识别项目结构、配置和重要入口。",
-    );
-    steps.push(projectScan);
-    if (steps.length >= maxSteps) return buildResult(steps);
+    let scanOutput = steps.find((s) => s.tool === "project_scan" && s.ok)?.output as
+      | Record<string, unknown>
+      | undefined;
+    let locateOutput = steps.find((s) => s.tool === "locate_relevant_files" && s.ok)?.output;
 
-    const scanOutput = projectScan.ok ? asRecord(projectScan.output) : undefined;
-    const possiblePaths = readStringArray(scanOutput?.sourceRoots).slice(0, 8);
-    const locate = await this.runTool(
-      "locate_relevant_files",
-      {
-        goal,
-        mode,
-        limit: 12,
-        possiblePaths,
-        locateBudget: {
-          maxSearchCalls: 3,
-          maxListCalls: 1,
-          maxReadForLocationCalls: 2,
-          maxCandidateFiles: 16,
-          maxPrimaryFiles: 8,
-        },
-      },
-      "计划/审阅模式固定预扫描：根据目标定位 primaryFiles 和 candidateFiles。",
-    );
-    steps.push(locate);
-    if (steps.length >= maxSteps) return buildResult(steps);
+    let newSteps = 0;
+    for (const stepId of WORKFLOW_TOOLS) {
+      if (completed.has(stepId)) continue;
+      if (newSteps >= maxNewSteps) break;
 
-    const files = filesFromLocateOutput(locate.output);
-    if (files.length > 0) {
-      const pack = await this.runTool(
-        "context_pack",
-        {
-          files,
-          maxFiles: 8,
-          maxTokens: 12_000,
-          includeSummaries: true,
-          includeImportantSections: true,
-        },
-        "计划/审阅模式固定预扫描：一次性打包相关文件上下文，避免连续 read_file。",
-      );
-      steps.push(pack);
+      if (stepId === "project_scan") {
+        const projectScan = await this.runTool(
+          "project_scan",
+          { root: ".", maxDepth: 3 },
+          "计划/审阅模式固定预扫描：先识别项目结构、配置和重要入口。",
+        );
+        steps.push(projectScan);
+        newSteps += 1;
+        if (projectScan.ok) scanOutput = asRecord(projectScan.output);
+        if (newSteps >= maxNewSteps) return buildResult(steps);
+        continue;
+      }
+
+      if (stepId === "locate_relevant_files") {
+        const possiblePaths = readStringArray(scanOutput?.sourceRoots).slice(0, 8);
+        const locate = await this.runTool(
+          "locate_relevant_files",
+          {
+            goal,
+            mode,
+            limit: 12,
+            possiblePaths,
+            locateBudget: {
+              maxSearchCalls: 3,
+              maxListCalls: 1,
+              maxReadForLocationCalls: 2,
+              maxCandidateFiles: 16,
+              maxPrimaryFiles: 8,
+            },
+          },
+          "计划/审阅模式固定预扫描：根据目标定位 primaryFiles 和 candidateFiles。",
+        );
+        steps.push(locate);
+        newSteps += 1;
+        if (locate.ok) locateOutput = locate.output;
+        if (newSteps >= maxNewSteps) return buildResult(steps);
+        continue;
+      }
+
+      if (stepId === "context_pack") {
+        const files = filesFromLocateOutput(locateOutput);
+        if (files.length > 0) {
+          const pack = await this.runTool(
+            "context_pack",
+            {
+              files,
+              maxFiles: 8,
+              maxTokens: 12_000,
+              includeSummaries: true,
+              includeImportantSections: true,
+            },
+            "计划/审阅模式固定预扫描：一次性打包相关文件上下文，避免连续 read_file。",
+          );
+          steps.push(pack);
+          newSteps += 1;
+        }
+      }
     }
 
     return buildResult(steps);

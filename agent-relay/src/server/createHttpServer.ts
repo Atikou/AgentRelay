@@ -3,6 +3,7 @@ import { createServer, type Server } from "node:http";
 import type { AppContext } from "../app/createAppContext.js";
 import {
   handleAgent,
+  handleAgentResume,
   handleAgentStream,
   handleChat,
   handlePlan,
@@ -228,6 +229,11 @@ export function createHttpServer(app: AppContext, opts?: HttpServerOptions): Ser
         }
         if (pathname === "/api/agent/stream" && method === "POST") {
           await handleAgentStream(app, await readBody(req, maxBodyBytes), res);
+          return;
+        }
+        if (pathname === "/api/agent/resume" && method === "POST") {
+          const result = await handleAgentResume(app, await readBody(req, maxBodyBytes));
+          sendJson(res, result.status, result.body);
           return;
         }
         if (pathname === "/api/agent" && method === "POST") {
