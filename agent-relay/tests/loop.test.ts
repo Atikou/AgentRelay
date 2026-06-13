@@ -112,6 +112,9 @@ test("显式确认型权限策略进入 executionMeta 且不自动执行", async
   assert.equal(res.executionMeta.permissionPolicy, "confirmBeforeEdit");
   assert.equal(res.executionMeta.permissionPolicySource, "explicit");
   assert.equal(res.steps[0]!.blocked, true);
+  assert.equal(res.steps[0]!.confirmationRequest?.status, "waiting_confirmation");
+  assert.equal(res.steps[0]!.confirmationRequest?.tool, "write_file");
+  assert.deepEqual(res.steps[0]!.confirmationRequest?.affects.files, ["policy.txt"]);
   await assert.rejects(fs.access(path.join(sandbox, "policy.txt")));
 });
 

@@ -559,6 +559,30 @@
       }
     },
     {
+      "id": "m1-agent-confirmation-request-script",
+      "title": "测试台脚本登记结构化确认文案",
+      "purpose": "确认测试台前端会渲染 AgentToolStep.confirmationRequest，展示等待确认/已拒绝、影响文件或命令与风险摘要。",
+      "method": "GET",
+      "path": "/app.js",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyContains": ["renderConfirmationRequest", "confirmationRequest", "等待确认"]
+      }
+    },
+    {
+      "id": "m1-agent-confirmation-request-style",
+      "title": "测试台样式登记结构化确认块",
+      "purpose": "确认测试台包含结构化确认文案样式，避免确认说明与普通工具输出混在一起难以识别。",
+      "method": "GET",
+      "path": "/styles.css",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyContains": [".confirmation-request", "border-left"]
+      }
+    },
+    {
       "id": "m1-agent-config-prompt-strategy-v8",
       "title": "GET /api/config 暴露 agentPromptStrategyV8",
       "purpose": "确认 /api/agent 已支持首轮 promptStrategy 暴露并在 capabilities 声明。",

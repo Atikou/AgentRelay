@@ -550,6 +550,7 @@ export class AgentLoop {
         blocked: true,
         error: permissionDecision.reason ?? permissionDecision.risk.reasons[0],
         risk: permissionDecision.risk,
+        confirmationRequest: permissionDecision.confirmationRequest,
       };
     }
 
@@ -562,6 +563,7 @@ export class AgentLoop {
           permissionDecision.reason ??
           `工具「${tool.name}」需要确认（权限 ${tool.permission}）。未开启自动确认，已跳过。`,
         risk: permissionDecision.risk,
+        confirmationRequest: permissionDecision.confirmationRequest,
       };
     }
     this.options.trace?.write({

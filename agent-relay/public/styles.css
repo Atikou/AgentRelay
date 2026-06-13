@@ -551,6 +551,16 @@ body {
   color: var(--text-soft);
   font-size: 12px;
 }
+.confirmation-request {
+  border-left: 3px solid #b25e00;
+  background: #fff8ed;
+  border-radius: 6px;
+  color: var(--text);
+  font-size: 12px;
+  line-height: 1.55;
+  margin: 6px 0;
+  padding: 8px 10px;
+}
 
 /* 输入区 */
 .composer {

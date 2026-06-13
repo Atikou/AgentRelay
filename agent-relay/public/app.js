@@ -1125,6 +1125,7 @@ function renderAgentRun(result) {
       const riskTag = s.risk
         ? `<span class="tag-warn">${escapeHtml(s.risk.tier)}</span> <span class="plan-perms">${escapeHtml(s.risk.summary)}</span>`
         : "";
+      const confirmation = renderConfirmationRequest(s.confirmationRequest);
       row.innerHTML = `
         <div class="plan-step-head">
           ${state}
@@ -1134,6 +1135,7 @@ function renderAgentRun(result) {
         </div>
         ${thought}
         <div class="plan-step-desc">${io}</div>
+        ${confirmation}
         <div class="plan-step-desc">${out}</div>`;
       stepsWrap.appendChild(row);
     });
@@ -1186,6 +1188,26 @@ function renderAgentRun(result) {
   const workflowLabel = metaInfo ? getWorkflowStatusLabel(metaInfo) : "";
   const meta = `模型轮次 ${result.iterations} · 工具请求 ${result.steps ? result.steps.length : 0} 次${metaInfo ? ` · ${workflowLabel || metaInfo.mode}/${metaInfo.stopReason}` : ""}${result.reachedLimit ? " · 已达预算" : ""}${sessionMeta()}`;
   addMessage("assistant", card, meta);
+}
+
+function renderConfirmationRequest(request) {
+  if (!request) return "";
+  const affects = request.affects || {};
+  const details = [
+    affects.files && affects.files.length ? `文件：${affects.files.join(", ")}` : "",
+    affects.commands && affects.commands.length ? `命令：${affects.commands.join(" && ")}` : "",
+    affects.networkTargets && affects.networkTargets.length ? `网络：${affects.networkTargets.join(", ")}` : "",
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  const status = request.status === "waiting_confirmation" ? "等待确认" : "已拒绝";
+  const risk = request.risk ? `风险：${request.risk.tier} / ${request.risk.summary}` : "";
+  return `<div class="confirmation-request">
+    <div><strong>${escapeHtml(status)}：${escapeHtml(request.title || request.action || request.tool)}</strong></div>
+    <div>${escapeHtml(request.message || "")}</div>
+    ${details ? `<div>${escapeHtml(details)}</div>` : ""}
+    ${risk ? `<div>${escapeHtml(risk)}</div>` : ""}
+  </div>`;
 }
 
 function getWorkflowStatusLabel(meta) {

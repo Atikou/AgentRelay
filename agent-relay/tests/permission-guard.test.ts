@@ -37,6 +37,8 @@ test("confirmBeforeEdit 对写入返回 needsConfirmation", () => {
   });
   assert.equal(decision.decision, "needsConfirmation");
   assert.equal(decision.risk.requiresConfirmation, true);
+  assert.equal(decision.confirmationRequest?.status, "waiting_confirmation");
+  assert.deepEqual(decision.confirmationRequest?.affects.files, ["a.txt"]);
 });
 
 test("autoEdit 允许写入但不允许 shell", () => {
@@ -72,6 +74,7 @@ test("confirmBeforeRun 对 shell 返回 needsConfirmation", () => {
   });
   assert.equal(decision.decision, "needsConfirmation");
   assert.equal(decision.risk.category, "shell_command");
+  assert.deepEqual(decision.confirmationRequest?.affects.commands, ["npm test"]);
 });
 
 test("allowedPermissions 是硬上限", () => {
@@ -85,6 +88,7 @@ test("allowedPermissions 是硬上限", () => {
   });
   assert.equal(decision.decision, "deny");
   assert.match(decision.reason ?? "", /当前模式不允许/);
+  assert.equal(decision.confirmationRequest?.status, "denied");
 });
 
 let passed = 0;

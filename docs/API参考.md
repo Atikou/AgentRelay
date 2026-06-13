@@ -261,6 +261,8 @@ Content-Type: application/json
 
 如果预算耗尽，`stopReason` 为 `budget_exhausted`，`budgetExhausted` 会标明耗尽的是哪一类预算。若本轮使用了 `project_scan` / `locate_relevant_files` / `context_pack`，`executionMeta.location` 会返回已定位文件、候选文件、定位调用统计、置信度和是否需要继续定位。`answer` 会包含已完成步骤、缺失信息、建议继续预算和本轮是否修改文件，不再只返回空泛的“未得到最终答案”。
 
+当工具调用被确认门阻塞或被策略拒绝时，对应 `steps[]` 项会包含 `confirmationRequest`，其中有 `status`、`message`、`affects.files`、`affects.commands`、`affects.networkTargets` 和结构化 `risk`，用于测试台展示“将要做什么、影响什么、为什么等待确认/被拒绝”。
+
 
 
 #### 流式 Agent（SSE）

@@ -54,12 +54,14 @@ test("Agent 结果卡展示自动工作流状态", async () => {
   assert.ok(js.includes("intent=${m.intent"));
   assert.ok(js.includes("workflow=${m.workflowType"));
   assert.ok(js.includes("permissionPolicy=${m.permissionPolicy"));
+  assert.ok(js.includes("renderConfirmationRequest"));
 });
 
 test("Agent 工作流状态样式已登记", async () => {
   const css = await readFile(path.join(publicDir, "styles.css"), "utf-8");
   assert.ok(css.includes(".workflow-status"));
   assert.ok(css.includes(".workflow-status-detail"));
+  assert.ok(css.includes(".confirmation-request"));
 });
 
 let passed = 0;
