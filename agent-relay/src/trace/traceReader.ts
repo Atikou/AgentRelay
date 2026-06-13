@@ -2,6 +2,9 @@ import { closeSync, existsSync, fstatSync, openSync, readSync } from "node:fs";
 
 import { redactValue } from "../util/redact.js";
 import type { TraceEvent } from "./TraceLogger.js";
+import { REPLAY_EVENT_TYPES } from "./traceQuery.js";
+
+export { REPLAY_EVENT_TYPES } from "./traceQuery.js";
 
 export interface TraceReadOptions {
   limit?: number;
@@ -57,22 +60,7 @@ export function readRecentTraceEvents(
   return events;
 }
 
-const REPLAY_EVENT_TYPES = new Set([
-  "agent_decision",
-  "agent_model_turn",
-  "run_usage_summary",
-  "task_status_change",
-  "tool_audit",
-  "agent_tool",
-  "scheduler_fire",
-  "task_step",
-  "background_start",
-  "background_done",
-  "subagent_start",
-  "subagent_end",
-]);
-
-/** 读取可回放审计链路（过滤模型调用等噪声事件）。 */
+/** 读取可回放审计链路（过滤 model_call 等噪声事件）。 */
 export function readReplayTraceEvents(
   traceFile: string,
   options: TraceReadOptions = {},

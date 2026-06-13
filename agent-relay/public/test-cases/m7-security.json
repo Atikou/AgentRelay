@@ -240,7 +240,9 @@
         "bodyPaths": {
           "needsConfirmation": true,
           "preview.kind": "shell_run",
-          "preview.risk.level": "dangerous"
+          "preview.risk.level": "dangerous",
+          "risk.tier": "critical",
+          "risk.commandLevel": "dangerous"
         }
       }
     },
@@ -260,7 +262,9 @@
         "bodyHasKeys": ["ok", "category"],
         "bodyPaths": {
           "ok": false,
-          "category": "permission_error"
+          "category": "permission_error",
+          "risk.tier": "critical",
+          "risk.policyBlocked": true
         }
       }
     },
@@ -281,6 +285,101 @@
         "bodyPaths": {
           "ok": true,
           "output.exitCode": 0
+        }
+      }
+    },
+    {
+      "id": "m7-permission-scope-capability",
+      "title": "配置暴露权限覆盖顺序能力",
+      "purpose": "确认服务端声明已按 project→mode→role→task→user 收敛权限，并返回当前项目级上限。",
+      "method": "GET",
+      "path": "/api/config",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyHasKeys": ["capabilities", "security"],
+        "bodyPaths": {
+          "capabilities.permissionScopeResolution": true,
+          "security.permissions.scopeOrder": "array"
+        }
+      }
+    },
+    {
+      "id": "m7-permission-scope-docs",
+      "title": "安全文档说明权限覆盖顺序",
+      "purpose": "确认安全与审计文档已描述项目/模式/角色/任务/用户五级权限收敛规则，便于审计与接入方理解。",
+      "method": "GET",
+      "path": "/api/docs/content?slug=安全与审计",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyPaths": {
+          "slug": "安全与审计",
+          "markdown": "string"
+        }
+      }
+    },
+    {
+      "id": "m7-network-domain-policy-capability",
+      "title": "配置暴露网络域名策略能力",
+      "purpose": "确认服务端声明已支持 security.network 域名 allow/deny 策略，供未来 network 权限工具与测试台展示。",
+      "method": "GET",
+      "path": "/api/config",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyHasKeys": ["capabilities", "security"],
+        "bodyPaths": {
+          "capabilities.networkDomainPolicy": true,
+          "security.network.denyDomains": "array",
+          "security.network.allowDomains": "array"
+        }
+      }
+    },
+    {
+      "id": "m7-network-domain-policy-docs",
+      "title": "安全文档说明网络域名策略",
+      "purpose": "确认安全与审计文档已描述 NetworkPolicy 的 allow/deny 规则与 ToolRegistry 预检边界。",
+      "method": "GET",
+      "path": "/api/docs/content?slug=安全与审计",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyPaths": {
+          "slug": "安全与审计",
+          "markdown": "string"
+        }
+      }
+    },
+    {
+      "id": "m7-trace-replay-filters-capability",
+      "title": "配置暴露 trace 回放过滤能力",
+      "purpose": "确认服务端声明 /api/trace/replay 与 /api/trace/export 支持 runId/toolCallId/category 等过滤参数。",
+      "method": "GET",
+      "path": "/api/config",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyPaths": {
+          "capabilities.traceReplayFilters": true
+        }
+      }
+    },
+    {
+      "id": "m7-trace-replay-filter-response",
+      "title": "审计回放过滤响应含 timeline 与 filters",
+      "purpose": "确认带 runId 过滤时仍返回 replay=true、filters 对象与 timeline 数组，便于测试台复盘。",
+      "method": "GET",
+      "path": "/api/trace/replay?runId=00000000-0000-0000-0000-000000000000&limit=10",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyHasKeys": ["events", "count", "replay", "filters", "timeline", "summary"],
+        "bodyPaths": {
+          "replay": true,
+          "events": "array",
+          "filters.runId": "00000000-0000-0000-0000-000000000000",
+          "timeline": "array"
         }
       }
     },
