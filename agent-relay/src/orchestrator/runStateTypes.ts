@@ -1,4 +1,4 @@
-import { shouldRunPlanWorkflow } from "../agent/PlanWorkflow.js";
+import { defaultWorkflowPlanner } from "../agent/WorkflowPlanner.js";
 import type {
   AgentExecutionMeta,
   AgentRunMode,
@@ -7,6 +7,8 @@ import type {
   RunBudgetUsage,
 } from "../agent/RunPolicy.js";
 import type { AgentToolStep } from "../agent/toolStep.js";
+import type { AgentWorkflowId } from "../agent/WorkflowPlanner.js";
+import type { WorkflowToolName } from "../agent/WorkflowPlanner.js";
 import {
   PLAN_WORKFLOW_STEP_IDS,
   type PlanWorkflowStepId,
@@ -37,8 +39,9 @@ export interface RunState {
   sessionId?: string;
   taskId?: string;
   status: RunStateStatus;
-  completedSteps: PlanWorkflowStepId[];
-  pendingSteps: PlanWorkflowStepId[];
+  workflowId?: AgentWorkflowId;
+  completedSteps: WorkflowToolName[];
+  pendingSteps: WorkflowToolName[];
   scannedPaths: string[];
   readFiles: string[];
   toolResultRefs: RunStateToolRef[];
@@ -51,19 +54,25 @@ export interface RunState {
   location?: RunStateLocationContext;
 }
 
-export function extractCompletedWorkflowSteps(steps: AgentToolStep[]): PlanWorkflowStepId[] {
-  const done = new Set<PlanWorkflowStepId>();
+export function extractCompletedWorkflowSteps(
+  steps: AgentToolStep[],
+  expectedSteps: readonly WorkflowToolName[] = PLAN_WORKFLOW_STEP_IDS,
+): WorkflowToolName[] {
+  const done = new Set<WorkflowToolName>();
   for (const step of steps) {
     if (!step.ok) continue;
-    if ((PLAN_WORKFLOW_STEP_IDS as readonly string[]).includes(step.tool)) {
-      done.add(step.tool as PlanWorkflowStepId);
+    if ((expectedSteps as readonly string[]).includes(step.tool)) {
+      done.add(step.tool as WorkflowToolName);
     }
   }
-  return PLAN_WORKFLOW_STEP_IDS.filter((id) => done.has(id));
+  return expectedSteps.filter((id) => done.has(id));
 }
 
-export function buildPendingWorkflowSteps(completed: PlanWorkflowStepId[]): PlanWorkflowStepId[] {
-  return PLAN_WORKFLOW_STEP_IDS.filter((id) => !completed.includes(id));
+export function buildPendingWorkflowSteps(
+  completed: WorkflowToolName[],
+  expectedSteps: readonly WorkflowToolName[] = PLAN_WORKFLOW_STEP_IDS,
+): WorkflowToolName[] {
+  return expectedSteps.filter((id) => !completed.includes(id));
 }
 
 function readPathItems(value: unknown): string[] {
@@ -134,10 +143,11 @@ export function buildRunStateFromAgentRun(input: {
   projectIndexStats?: { fileCount: number; symbolCount: number };
 }): RunState | null {
   if (input.executionMeta.stopReason !== "budget_exhausted") return null;
-  if (!shouldRunPlanWorkflow(input.goal, input.mode)) return null;
+  const workflow = defaultWorkflowPlanner.plan(input.goal, input.mode);
+  if (!workflow) return null;
 
-  const completedSteps = extractCompletedWorkflowSteps(input.steps);
-  const pendingSteps = buildPendingWorkflowSteps(completedSteps);
+  const completedSteps = extractCompletedWorkflowSteps(input.steps, workflow.steps);
+  const pendingSteps = buildPendingWorkflowSteps(completedSteps, workflow.steps);
   if (pendingSteps.length === 0) return null;
 
   const now = new Date().toISOString();
@@ -152,6 +162,7 @@ export function buildRunStateFromAgentRun(input: {
     sessionId: input.sessionId,
     taskId: input.taskId,
     status: "resumable",
+    workflowId: workflow.id,
     completedSteps,
     pendingSteps,
     scannedPaths: collectScannedPaths(input.steps),

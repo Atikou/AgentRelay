@@ -316,6 +316,7 @@ export const projectScanTool: Tool<
       files: files.files,
       extractSymbols: true,
       extractDependencies: true,
+      pruneMissing: true,
     });
     if (!indexResult) return baseResult;
     return {
@@ -379,6 +380,7 @@ export const projectIndexUpdateTool: Tool<
       forceResync: input.forceResync,
       extractSymbols: input.extractSymbols,
       extractDependencies: input.extractDependencies,
+      pruneMissing: false,
     });
     if (!indexResult) {
       throw new Error("ProjectIndex 同步失败");
@@ -1230,6 +1232,7 @@ async function syncProjectIndex(
     forceResync?: boolean;
     extractSymbols?: boolean;
     extractDependencies?: boolean;
+    pruneMissing?: boolean;
   },
 ): Promise<
   | {
@@ -1247,6 +1250,7 @@ async function syncProjectIndex(
     extractDependencies: input.extractDependencies ?? true,
     semanticIndexer: ctx.projectSemanticIndexer,
     forceResync: input.forceResync,
+    pruneMissing: input.pruneMissing,
   });
   const stats = ctx.projectIndex.getStats(input.projectId, ctx.workspaceRoot);
   return { stats, sync };

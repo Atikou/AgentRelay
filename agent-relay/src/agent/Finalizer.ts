@@ -1,5 +1,9 @@
+import {
+  buildPendingWorkflowSteps,
+  extractCompletedWorkflowSteps,
+} from "../orchestrator/runStateTypes.js";
 import { BudgetManager, renderBudget } from "./BudgetManager.js";
-import { shouldRunPlanWorkflow } from "./PlanWorkflow.js";
+import { defaultWorkflowPlanner, shouldRunAgentWorkflow } from "./WorkflowPlanner.js";
 import type {
   AgentExecutionMeta,
   AgentRunMode,
@@ -13,29 +17,6 @@ import {
   resolveSuggestedToolCalls,
   type TaskComplexityTier,
 } from "./taskComplexity.js";
-
-const PLAN_WORKFLOW_STEP_IDS = [
-  "project_scan",
-  "locate_relevant_files",
-  "context_pack",
-] as const;
-
-type PlanWorkflowStepId = (typeof PLAN_WORKFLOW_STEP_IDS)[number];
-
-function extractCompletedWorkflowSteps(steps: AgentToolStep[]): PlanWorkflowStepId[] {
-  const done = new Set<PlanWorkflowStepId>();
-  for (const step of steps) {
-    if (!step.ok) continue;
-    if ((PLAN_WORKFLOW_STEP_IDS as readonly string[]).includes(step.tool)) {
-      done.add(step.tool as PlanWorkflowStepId);
-    }
-  }
-  return PLAN_WORKFLOW_STEP_IDS.filter((id) => done.has(id));
-}
-
-function buildPendingWorkflowSteps(completed: PlanWorkflowStepId[]): PlanWorkflowStepId[] {
-  return PLAN_WORKFLOW_STEP_IDS.filter((id) => !completed.includes(id));
-}
 
 export interface FinalizerPartialInput {
   steps: AgentToolStep[];
@@ -192,9 +173,12 @@ export class Finalizer {
 
   private inferMissingSteps(input: FinalizerPartialInput): string[] {
     const missing: string[] = [];
-    if (shouldRunPlanWorkflow(input.goal, input.mode)) {
-      const completed = extractCompletedWorkflowSteps(input.steps);
-      missing.push(...buildPendingWorkflowSteps(completed));
+    if (shouldRunAgentWorkflow(input.goal, input.mode)) {
+      const workflow = defaultWorkflowPlanner.plan(input.goal, input.mode);
+      if (workflow) {
+        const completed = extractCompletedWorkflowSteps(input.steps, workflow.steps);
+        missing.push(...buildPendingWorkflowSteps(completed, workflow.steps));
+      }
     }
     if (input.location?.needsContinue) {
       missing.push("continue_location");

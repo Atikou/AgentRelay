@@ -2,7 +2,7 @@
   "milestone": "M1",
   "feature": "智能体对话循环",
   "featureId": "m1-agent",
-  "summary": "验证 AgentLoop 入口 /api/agent 的参数校验、计划模式预算与只读 PlanWorkflow 预扫描。",
+  "summary": "验证 AgentLoop 入口 /api/agent 的参数校验、计划/实现模式 WorkflowPlanner 预扫描与分项预算。",
   "cases": [
     {
       "id": "m1-agent-empty",
@@ -147,6 +147,28 @@
           "executionMeta.location.needsContinue": "boolean",
           "executionMeta.usedWriteCalls": 0,
           "executionMeta.usedShellCalls": 0
+        }
+      }
+    },
+    {
+      "id": "m1-agent-implement-workflow-locate",
+      "title": "实现模式代码任务先预定位",
+      "purpose": "确认 WorkflowPlanner 为 implement 模式代码变更选择 locate+context_pack 预扫描，并写入 executionMeta.location。",
+      "method": "POST",
+      "path": "/api/agent",
+      "input": {
+        "message": "实现模式：修改 AgentLoop 中的预算耗尽收尾逻辑，先定位相关文件。",
+        "mode": "implement",
+        "persist": false,
+        "budget": { "maxModelTurns": 2, "maxToolCalls": 6, "maxReadCalls": 6, "maxWriteCalls": 2, "maxShellCalls": 0, "maxRuntimeMs": 120000 }
+      },
+      "expect": {
+        "status": 200,
+        "bodyHasKeys": ["answer", "steps", "executionMeta"],
+        "bodyPaths": {
+          "executionMeta.mode": "implement",
+          "executionMeta.location.usedLocateSteps": "number",
+          "executionMeta.usedReadCalls": "number"
         }
       }
     },

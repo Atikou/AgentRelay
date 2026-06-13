@@ -237,12 +237,15 @@ export class ProjectIndex {
     semanticIndexer?: ProjectSemanticIndexer;
     /** 为 true 时即使 content_hash 未变也重算符号/依赖/语义索引。 */
     forceResync?: boolean;
+    /** 为 true 时删除本次 files 未包含的既有索引条目（全量 project_scan）；增量更新应传 false。 */
+    pruneMissing?: boolean;
   }): Promise<ProjectIndexSyncResult> {
     const normalizedRoot = normalizeRoot(input.workspaceRoot);
     const indexedAt = new Date().toISOString();
     const extractSymbols = input.extractSymbols ?? true;
     const extractDependencies = input.extractDependencies ?? true;
     const forceResync = input.forceResync ?? false;
+    const pruneMissing = input.pruneMissing ?? false;
     const incomingPaths = new Set(input.files.map((f) => f.path));
 
     const existingRows = this.db.connection
@@ -404,22 +407,24 @@ export class ProjectIndex {
     }
 
     let removed = 0;
-    for (const row of existingRows) {
-      if (incomingPaths.has(row.path)) continue;
-      this.db.connection
-        .prepare(`DELETE FROM project_files WHERE project_id=? AND workspace_root=? AND path=?`)
-        .run(input.projectId, normalizedRoot, row.path);
-      deleteSymbols.run(input.projectId, normalizedRoot, row.path);
-      deleteImports.run(input.projectId, normalizedRoot, row.path);
-      deleteExports.run(input.projectId, normalizedRoot, row.path);
-      if (input.semanticIndexer) {
-        try {
-          await input.semanticIndexer.removeFile(input.projectId, normalizedRoot, row.path);
-        } catch {
-          // ignore
+    if (pruneMissing) {
+      for (const row of existingRows) {
+        if (incomingPaths.has(row.path)) continue;
+        this.db.connection
+          .prepare(`DELETE FROM project_files WHERE project_id=? AND workspace_root=? AND path=?`)
+          .run(input.projectId, normalizedRoot, row.path);
+        deleteSymbols.run(input.projectId, normalizedRoot, row.path);
+        deleteImports.run(input.projectId, normalizedRoot, row.path);
+        deleteExports.run(input.projectId, normalizedRoot, row.path);
+        if (input.semanticIndexer) {
+          try {
+            await input.semanticIndexer.removeFile(input.projectId, normalizedRoot, row.path);
+          } catch {
+            // ignore
+          }
         }
+        removed += 1;
       }
-      removed += 1;
     }
 
     return { upserted, removed, symbolsUpdated, skipped, dependenciesUpdated, exportsUpdated, semanticIndexed };

@@ -11,6 +11,7 @@ import { assertWithinCostBudget, sumModelTurnCost } from "../util/costBudget.js"
 import { wrapUntrustedToolOutput } from "../util/injection.js";
 import { redactPreview } from "../util/redact.js";
 import { PlanWorkflow, type PlanWorkflowResumeContext } from "./PlanWorkflow.js";
+import { defaultWorkflowPlanner } from "./WorkflowPlanner.js";
 import {
   buildToolResultLayers,
   clipModelToolJson,
@@ -456,12 +457,17 @@ export class AgentLoop {
   }
 
   private runPlanWorkflow(userMessage: string, isResume: boolean) {
+    const workflowPlan =
+      isResume && this.options.resumeState
+        ? defaultWorkflowPlanner.plan(this.options.resumeState.goal, this.policy.mode) ?? undefined
+        : undefined;
     const resume: PlanWorkflowResumeContext | undefined =
       isResume && this.options.resumeState
         ? {
             completedStepIds: this.options.resumeState.completedSteps,
             priorSteps: this.options.resumeState.completedToolSteps,
             location: this.options.resumeState.location,
+            workflowPlan,
           }
         : undefined;
     return new PlanWorkflow({

@@ -6,11 +6,12 @@ import type { AgentToolStep } from "./toolStep.js";
 import type { AgentRunMode, RunBudget } from "./RunPolicy.js";
 import type { BudgetManager } from "./BudgetManager.js";
 import { countSuccessfulPermissionUsage } from "./BudgetManager.js";
-import {
-  PLAN_WORKFLOW_STEP_IDS,
-  type PlanWorkflowStepId,
-} from "../orchestrator/planWorkflowConstants.js";
 import type { RunStateLocationContext } from "../orchestrator/runStateLocation.js";
+import {
+  defaultWorkflowPlanner,
+  type WorkflowPlan,
+  type WorkflowToolName,
+} from "./WorkflowPlanner.js";
 
 export interface PlanWorkflowOptions {
   registry: ToolRegistry;
@@ -31,17 +32,14 @@ export interface PlanWorkflowResult {
 }
 
 export interface PlanWorkflowResumeContext {
-  completedStepIds: readonly PlanWorkflowStepId[];
+  completedStepIds: readonly WorkflowToolName[];
   priorSteps: AgentToolStep[];
   location?: RunStateLocationContext;
+  workflowPlan?: WorkflowPlan;
 }
 
-const WORKFLOW_TOOLS = PLAN_WORKFLOW_STEP_IDS;
-
 /**
- * Plan/review mode deterministic read-only pre-scan.
- *
- * It keeps broad project analysis from spending one model turn per discovery tool.
+ * 确定性只读预扫描执行器（由 WorkflowPlanner 选择步骤序列）。
  */
 export class PlanWorkflow {
   constructor(private readonly options: PlanWorkflowOptions) {}
@@ -51,14 +49,16 @@ export class PlanWorkflow {
     mode: AgentRunMode,
     resume?: PlanWorkflowResumeContext,
   ): Promise<PlanWorkflowResult | undefined> {
-    if (!shouldRunPlanWorkflow(goal, mode)) return undefined;
+    const workflowPlan = resume?.workflowPlan ?? defaultWorkflowPlanner.plan(goal, mode);
+    if (!workflowPlan) return undefined;
     if (!this.options.allowedPermissions.includes("read")) return undefined;
 
     const priorSteps = resume?.priorSteps ?? [];
     const completed = new Set(resume?.completedStepIds ?? []);
     const steps: AgentToolStep[] = [...priorSteps];
+    const workflowTools = workflowPlan.steps;
 
-    const pendingCount = WORKFLOW_TOOLS.length - completed.size;
+    const pendingCount = workflowTools.length - completed.size;
     const maxNewSteps = this.options.budgetManager
       ? this.options.budgetManager.remainingWorkflowSteps(steps, pendingCount)
       : Math.min(
@@ -70,7 +70,7 @@ export class PlanWorkflow {
           ),
         );
     if (maxNewSteps <= 0 && steps.length === 0) return undefined;
-    if (maxNewSteps <= 0 && steps.length > 0) return buildResult(steps);
+    if (maxNewSteps <= 0 && steps.length > 0) return buildResult(steps, workflowPlan);
 
     let scanOutput = steps.find((s) => s.tool === "project_scan" && s.ok)?.output as
       | Record<string, unknown>
@@ -78,7 +78,7 @@ export class PlanWorkflow {
     let locateOutput = steps.find((s) => s.tool === "locate_relevant_files" && s.ok)?.output;
 
     let newSteps = 0;
-    for (const stepId of WORKFLOW_TOOLS) {
+    for (const stepId of workflowTools) {
       if (completed.has(stepId)) continue;
       if (newSteps >= maxNewSteps) break;
 
@@ -86,12 +86,12 @@ export class PlanWorkflow {
         const projectScan = await this.runTool(
           "project_scan",
           { root: ".", maxDepth: 3 },
-          "计划/审阅模式固定预扫描：先识别项目结构、配置和重要入口。",
+          "预扫描：先识别项目结构、配置和重要入口。",
         );
         steps.push(projectScan);
         newSteps += 1;
         if (projectScan.ok) scanOutput = asRecord(projectScan.output);
-        if (newSteps >= maxNewSteps) return buildResult(steps);
+        if (newSteps >= maxNewSteps) return buildResult(steps, workflowPlan);
         continue;
       }
 
@@ -100,6 +100,7 @@ export class PlanWorkflow {
           ...readStringArray(scanOutput?.sourceRoots).slice(0, 8),
           ...(resume?.location?.searchPlan?.possiblePaths ?? []),
         ]).slice(0, 12);
+        const isResume = Boolean(resume?.location);
         const locate = await this.runTool(
           "locate_relevant_files",
           {
@@ -120,21 +121,21 @@ export class PlanWorkflow {
                 }
               : undefined,
             locateBudget: {
-              maxSearchCalls: 3,
+              maxSearchCalls: workflowPlan.id === "implement_locate" ? 4 : 3,
               maxListCalls: 1,
-              maxReadForLocationCalls: 2,
+              maxReadForLocationCalls: workflowPlan.id === "implement_locate" ? 3 : 2,
               maxCandidateFiles: 16,
               maxPrimaryFiles: 8,
             },
           },
-          resume?.location
-            ? "计划/审阅续跑：在已保存 searchPlan/visitedFiles 基础上继续定位。"
-            : "计划/审阅模式固定预扫描：根据目标定位 primaryFiles 和 candidateFiles。",
+          isResume
+            ? "续跑：在已保存 searchPlan/visitedFiles 基础上继续定位。"
+            : "预扫描：根据目标定位 primaryFiles 和 candidateFiles。",
         );
         steps.push(locate);
         newSteps += 1;
         if (locate.ok) locateOutput = locate.output;
-        if (newSteps >= maxNewSteps) return buildResult(steps);
+        if (newSteps >= maxNewSteps) return buildResult(steps, workflowPlan);
         continue;
       }
 
@@ -150,7 +151,7 @@ export class PlanWorkflow {
               includeSummaries: true,
               includeImportantSections: true,
             },
-            "计划/审阅模式固定预扫描：一次性打包相关文件上下文，避免连续 read_file。",
+            "预扫描：一次性打包相关文件上下文，避免连续 read_file。",
           );
           steps.push(pack);
           newSteps += 1;
@@ -158,7 +159,7 @@ export class PlanWorkflow {
       }
     }
 
-    return buildResult(steps);
+    return buildResult(steps, workflowPlan);
   }
 
   private async runTool(
@@ -220,27 +221,16 @@ export class PlanWorkflow {
   }
 }
 
-export function shouldRunPlanWorkflow(goal: string, mode: AgentRunMode): boolean {
-  if (mode !== "plan" && mode !== "review") return false;
-  const text = goal.toLowerCase();
-  const asksForAnalysis =
-    /分析|审阅|检查|扫描|梳理|找出|定位|查看|生成.*计划|升级.*计划|review|scan|analyze/.test(goal) ||
-    text.includes("plan");
-  const projectScope =
-    /当前项目|项目|代码|模块|结构|仓库|路由|上下文|工具|日志|配置|todolist|agent|src|docs|tests/.test(goal) ||
-    text.includes("codebase");
-  const explicitNoWorkflow = /不要使用工具|不允许使用工具|不要扫描|不允许扫描|不要读取文件|不允许读取文件/.test(goal);
-  return asksForAnalysis && projectScope && !explicitNoWorkflow;
-}
+export { shouldRunPlanWorkflow, shouldRunAgentWorkflow } from "./WorkflowPlanner.js";
 
-function buildResult(steps: AgentToolStep[]): PlanWorkflowResult {
+function buildResult(steps: AgentToolStep[], workflowPlan: WorkflowPlan): PlanWorkflowResult {
   return {
     steps,
-    modelContext: renderPlanWorkflowContext(steps),
+    modelContext: renderPlanWorkflowContext(steps, workflowPlan),
   };
 }
 
-function renderPlanWorkflowContext(steps: AgentToolStep[]): string {
+function renderPlanWorkflowContext(steps: AgentToolStep[], workflowPlan: WorkflowPlan): string {
   const blocks = steps.map((step, index) => {
     const payload = step.ok ? step.output : { error: step.error, blocked: step.blocked };
     return [
@@ -251,8 +241,8 @@ function renderPlanWorkflowContext(steps: AgentToolStep[]): string {
     ].join("\n");
   });
   return [
-    "计划/审阅模式预扫描结果（PlanWorkflow，只读、确定性执行）：",
-    "请优先基于这些结果生成最终计划或审阅结论；如果信息足够，请直接输出 final，不要重复执行同类扫描。",
+    workflowPlan.contextHeader,
+    workflowPlan.contextHint,
     ...blocks,
   ].join("\n\n");
 }

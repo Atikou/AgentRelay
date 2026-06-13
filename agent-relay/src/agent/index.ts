@@ -5,6 +5,13 @@ export { Planner, normalizePlan, type ChatFn } from "./Planner.js";
 export type { AgentToolStep } from "./toolStep.js";
 export { inferAvailableTools } from "./subtaskUtils.js";
 export { PlanWorkflow, shouldRunPlanWorkflow, type PlanWorkflowResult } from "./PlanWorkflow.js";
+export {
+  WorkflowPlanner,
+  defaultWorkflowPlanner,
+  shouldRunAgentWorkflow,
+  type WorkflowPlan,
+  type AgentWorkflowId,
+} from "./WorkflowPlanner.js";
 export { finalizePlan, sortSubtasksByPriority } from "./taskGraph.js";
 export {
   TaskRunner,

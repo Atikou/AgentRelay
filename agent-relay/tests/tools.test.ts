@@ -454,6 +454,96 @@ test("project_index_update 无 ProjectIndex 时失败", async () => {
   assert.match((res as { error: string }).error, /ProjectIndex/);
 });
 
+test("大项目分路径增量索引：多批次累加且未变更批次跳过", async () => {
+  const isolatedRoot = await fs.mkdtemp(path.join(os.tmpdir(), "agent-bulk-"));
+  const isolatedDataDir = path.join(isolatedRoot, "data");
+  await fs.mkdir(isolatedDataDir, { recursive: true });
+  const { DatabaseManager } = await import("../src/context/DatabaseManager.js");
+  const { ProjectIndex } = await import("../src/context/ProjectIndex.js");
+  const { createDefaultRegistry } = await import("../src/tools/index.js");
+  const dbm = new DatabaseManager(isolatedDataDir);
+  const projectIndex = new ProjectIndex(dbm);
+  const r = createDefaultRegistry({ dataDir: isolatedDataDir });
+  r.setDefaultContext({ projectIndex });
+  const localCtx = async () => ({
+    workspaceRoot: isolatedRoot,
+    allowedPermissions: ALL_PERMISSIONS,
+  });
+  try {
+    const batchDirs = ["src/bulk0", "src/bulk1", "src/bulk2", "src/bulk3"];
+    for (const dir of batchDirs) {
+      for (let i = 0; i < 20; i += 1) {
+        await r.run(
+          "write_file",
+          {
+            path: `${dir}/Mod${i}.ts`,
+            content: `export class Bulk${dir.replace(/\W/g, "")}${i} {}\n`,
+            backup: false,
+          },
+          await localCtx(),
+        );
+      }
+    }
+
+    const batch1 = await r.run(
+      "project_index_update",
+      { paths: ["src/bulk0", "src/bulk1"], limit: 50 },
+      await localCtx(),
+    );
+    assert.equal(batch1.ok, true);
+    const batch1Out = (batch1 as { output: { sync: { upserted: number }; indexStats: { fileCount: number } } })
+      .output;
+    assert.equal(batch1Out.sync.upserted, 40);
+    assert.equal(batch1Out.indexStats.fileCount, 40);
+
+    const batch2 = await r.run(
+      "project_index_update",
+      { paths: ["src/bulk2", "src/bulk3"], limit: 50 },
+      await localCtx(),
+    );
+    assert.equal(batch2.ok, true);
+    const batch2Out = (batch2 as { output: { indexStats: { fileCount: number } } }).output;
+    assert.equal(batch2Out.indexStats.fileCount, 80);
+
+    const countBefore = batch2Out.indexStats.fileCount;
+    const batch1Again = await r.run(
+      "project_index_update",
+      {
+        paths: ["src/bulk0"],
+        extractSymbols: false,
+        extractDependencies: false,
+      },
+      await localCtx(),
+    );
+    assert.equal(batch1Again.ok, true);
+    const againOut = (
+      batch1Again as {
+        output: {
+          scannedFiles: number;
+          sync: { skipped: number; upserted: number };
+          indexStats: { fileCount: number };
+        };
+      }
+    ).output;
+    assert.equal(againOut.indexStats.fileCount, countBefore);
+    assert.equal(againOut.sync.skipped + againOut.sync.upserted, againOut.scannedFiles);
+    assert.equal(againOut.sync.skipped, 20);
+
+    const hits = projectIndex.searchSymbolsQuery({
+      projectId: "default",
+      workspaceRoot: isolatedRoot,
+      queries: ["Bulksrcbulk3"],
+      match: "prefix",
+      limit: 5,
+    });
+    assert.ok(hits.some((h) => h.filePath.startsWith("src/bulk3/")));
+  } finally {
+    dbm.close();
+    await r.close();
+    await fs.rm(isolatedRoot, { recursive: true, force: true });
+  }
+});
+
 test("context_pack 一次性打包多个相关文件", async () => {
   const r = reg();
   await r.run("write_file", { path: "src/context/A.ts", content: "export function alpha() { return 1; }", backup: false }, await ctx());

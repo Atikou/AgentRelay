@@ -11,7 +11,7 @@
 - [x] 明确问题不是简单调大单一迭代次数，而是定位阶段使用过多低层工具。
 - [x] 引入高级定位工具，减少 `list_files` / `search_text` / `read_file` 连续试探。
 - [x] 定位结果进入 `executionMeta.location`，便于区分普通运行预算耗尽与定位阶段不足。
-- [ ] 支持完整继续定位与恢复，不从头重新扫描。
+- [ ] 支持完整继续定位与恢复，不从头重新扫描。（RunState + resumeContext 已落地；见 `run-state-location` / `tools.test` 续跑用例）
 
 ---
 
@@ -170,7 +170,7 @@
 - [x] 测试台执行元信息展示 `executionMeta.location` 的定位步数、已找到文件和是否需要继续。
 - [x] 定位预算不足返回结构化 `suggestedAction`。
 - [x] 避免重复探索的 `visitedFiles` 去重与 `duplicate` 标记。
-- [ ] 大项目 ProjectIndex 增量索引。
+- [x] 大项目 ProjectIndex 增量索引。（`pruneMissing=false` + 多批次 `project_index_update` 验收）
 
 ---
 

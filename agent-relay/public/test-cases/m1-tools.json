@@ -468,6 +468,30 @@
       }
     },
     {
+      "id": "m1-tools-index-update-bulk-paths",
+      "title": "project_index_update 多路径分批累加",
+      "purpose": "确认大项目可分 paths 批次增量索引，后续批次不会删除先前已索引文件（pruneMissing=false）。",
+      "method": "POST",
+      "path": "/api/tools/run",
+      "input": {
+        "name": "project_index_update",
+        "input": {
+          "paths": ["src", "tests"],
+          "limit": 100,
+          "extractSymbols": false,
+          "extractDependencies": false
+        }
+      },
+      "expect": {
+        "status": 200,
+        "bodyPaths": {
+          "ok": true,
+          "output.indexStats.fileCount": "number",
+          "output.sync.upserted": "number"
+        }
+      }
+    },
+    {
       "id": "m1-tools-config-history-recall",
       "title": "GET /api/config 暴露 historyFileRecall",
       "purpose": "确认服务端声明已接入历史任务/项目记忆相关文件召回。",

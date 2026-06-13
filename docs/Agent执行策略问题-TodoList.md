@@ -88,7 +88,7 @@
 | ProjectScanTool | [x] | `project_scan` / `locate_relevant_files` / `context_pack` |
 | RunStateStore | [x] | `RunStateStore.ts` + `run_states` 表 + `POST /api/agent/resume` |
 | IntentRouter | [~] | `inferRunMode()` + Orchestrator `parseRunMode` |
-| WorkflowPlanner | [ ] | 未实现 |
+| WorkflowPlanner | [x] | `WorkflowPlanner.ts`；`plan_prescan` / `implement_locate` → `PlanWorkflow` 执行 |
 | ToolPermissionManager | [x] | `AgentLoop` + `ToolRegistry` `allowedPermissions` |
 
 ---

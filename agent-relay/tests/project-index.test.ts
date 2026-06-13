@@ -324,6 +324,58 @@ test("syncFiles forceResync 在 hash 未变时仍更新符号", async () => {
   }
 });
 
+test("syncFiles 增量批次不 prune 未包含的既有文件", async () => {
+  const { dataDir, root, cleanup } = tempWorkspace();
+  mkdirSync(path.join(root, "src", "a"), { recursive: true });
+  mkdirSync(path.join(root, "src", "b"), { recursive: true });
+  writeFileSync(path.join(root, "src", "a", "A.ts"), "export class A {}\n", "utf-8");
+  writeFileSync(path.join(root, "src", "b", "B.ts"), "export class B {}\n", "utf-8");
+  const dbm = new DatabaseManager(dataDir);
+  const index = new ProjectIndex(dbm);
+  try {
+    const fileA = {
+      path: "src/a/A.ts",
+      fileName: "A.ts",
+      extension: ".ts",
+      sizeBytes: 32,
+      modifiedAt: new Date().toISOString(),
+      mtimeMs: Date.now(),
+      contentHash: "hash-a",
+      language: "typescript",
+      tags: ["source"],
+    };
+    const fileB = {
+      path: "src/b/B.ts",
+      fileName: "B.ts",
+      extension: ".ts",
+      sizeBytes: 32,
+      modifiedAt: new Date().toISOString(),
+      mtimeMs: Date.now(),
+      contentHash: "hash-b",
+      language: "typescript",
+      tags: ["source"],
+    };
+    await index.syncFiles({
+      projectId: "default",
+      workspaceRoot: root,
+      files: [fileA],
+      extractSymbols: false,
+      pruneMissing: false,
+    });
+    await index.syncFiles({
+      projectId: "default",
+      workspaceRoot: root,
+      files: [fileB],
+      extractSymbols: false,
+      pruneMissing: false,
+    });
+    assert.equal(index.getStats("default", root).fileCount, 2);
+  } finally {
+    dbm.close();
+    cleanup();
+  }
+});
+
 let passed = 0;
 let failed = 0;
 for (const { name, fn } of tests) {
