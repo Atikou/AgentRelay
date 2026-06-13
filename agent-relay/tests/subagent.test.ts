@@ -72,7 +72,7 @@ test("extractFilePaths 从任务描述提取路径", async () => {
 
 test("resolveGrantedPermissions 拒绝超出角色的权限", async () => {
   const role = SUB_AGENT_ROLES.code_review;
-  assert.throws(() => resolveGrantedPermissions(role, ["write"]), /不允许授予/);
+  assert.throws(() => resolveGrantedPermissions(role, ["write"]), /超出允许范围/);
 });
 
 test("SubAgentRunner 预读 ts 文件走单次审查（无需 JSON）", async () => {

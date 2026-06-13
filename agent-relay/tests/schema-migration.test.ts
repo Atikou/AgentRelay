@@ -31,15 +31,28 @@ function tempDataDir(): string {
   return mkdtempSync(path.join(tmpdir(), "ar-schema-"));
 }
 
-test("全新 memory.db 应用 v1–v10 并写入 schema_migrations", () => {
+function removeTempDir(dir: string): void {
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    try {
+      rmSync(dir, { recursive: true, force: true });
+      return;
+    } catch (error) {
+      if (attempt === 4) throw error;
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50);
+    }
+  }
+}
+
+test("全新 memory.db 应用 v1–v11 并写入 schema_migrations", () => {
   const dataDir = tempDataDir();
+  let dbm: DatabaseManager | undefined;
   try {
-    const dbm = new DatabaseManager(dataDir);
+    dbm = new DatabaseManager(dataDir);
     assert.equal(dbm.schemaVersion, MEMORY_DB_SCHEMA_VERSION);
     assert.equal(dbm.schemaInfo.userVersion, MEMORY_DB_SCHEMA_VERSION);
     assert.equal(dbm.schemaInfo.migrations.length, MEMORY_DB_MIGRATIONS.length);
     assert.equal(dbm.schemaInfo.migrations[0]?.name, "core_sessions_messages_memories");
-    assert.equal(dbm.schemaInfo.migrations.at(-1)?.name, "project_index");
+    assert.equal(dbm.schemaInfo.migrations.at(-1)?.name, "project_dependencies");
 
     const runStatesTable = dbm.connection
       .prepare(`SELECT name FROM sqlite_master WHERE type='table' AND name='run_states'`)
@@ -56,32 +69,39 @@ test("全新 memory.db 应用 v1–v10 并写入 schema_migrations", () => {
       .get() as { name: string };
     assert.equal(evalTable.name, "model_eval_runs");
 
+    const importsTable = dbm.connection
+      .prepare(`SELECT name FROM sqlite_master WHERE type='table' AND name='project_imports'`)
+      .get() as { name: string };
+    assert.equal(importsTable.name, "project_imports");
+
     const row = dbm.connection
       .prepare(`SELECT name FROM sqlite_master WHERE type='table' AND name='schema_migrations'`)
       .get() as { name: string };
     assert.equal(row.name, "schema_migrations");
-    dbm.close();
   } finally {
-    rmSync(dataDir, { recursive: true, force: true });
+    dbm?.close();
+    removeTempDir(dataDir);
   }
 });
 
 test("全新 tools.db schema version = 1", () => {
   const dataDir = tempDataDir();
+  let storage: ToolStorage | undefined;
   try {
-    const storage = new ToolStorage(dataDir);
+    storage = new ToolStorage(dataDir);
     assert.equal(storage.schemaVersion, TOOLS_DB_SCHEMA_VERSION);
     assert.equal(storage.schemaInfo.migrations.length, 1);
     assert.equal(storage.schemaInfo.migrations[0]?.name, "tool_logs_file_changes_backups");
-    storage.close();
   } finally {
-    rmSync(dataDir, { recursive: true, force: true });
+    storage?.close();
+    removeTempDir(dataDir);
   }
 });
 
 test("旧库无 schema_migrations 时回填审计记录", () => {
   const dataDir = tempDataDir();
   const dbPath = path.join(dataDir, "agent_data", "memory.db");
+  let dbm: DatabaseManager | undefined;
   try {
     mkdirSync(path.dirname(dbPath), { recursive: true });
     const db = new DatabaseSync(dbPath);
@@ -92,27 +112,31 @@ test("旧库无 schema_migrations 时回填审计记录", () => {
     `);
     db.close();
 
-    const dbm = new DatabaseManager(dataDir);
-    assert.equal(dbm.schemaVersion, 7);
+    dbm = new DatabaseManager(dataDir);
+    assert.equal(dbm.schemaVersion, MEMORY_DB_SCHEMA_VERSION);
     assert.equal(dbm.schemaInfo.migrations.length, MEMORY_DB_MIGRATIONS.length);
-    assert.equal(getUserVersion(dbm.connection), 7);
-    dbm.close();
+    assert.equal(getUserVersion(dbm.connection), MEMORY_DB_SCHEMA_VERSION);
   } finally {
-    rmSync(dataDir, { recursive: true, force: true });
+    dbm?.close();
+    removeTempDir(dataDir);
   }
 });
 
 test("重复打开不重复应用迁移", () => {
   const dataDir = tempDataDir();
+  let first: DatabaseManager | undefined;
+  let second: DatabaseManager | undefined;
   try {
-    const first = new DatabaseManager(dataDir);
+    first = new DatabaseManager(dataDir);
     const count1 = first.schemaInfo.migrations.length;
     first.close();
-    const second = new DatabaseManager(dataDir);
+    first = undefined;
+    second = new DatabaseManager(dataDir);
     assert.equal(second.schemaInfo.migrations.length, count1);
-    second.close();
   } finally {
-    rmSync(dataDir, { recursive: true, force: true });
+    first?.close();
+    second?.close();
+    removeTempDir(dataDir);
   }
 });
 
@@ -129,7 +153,7 @@ test("applySqliteMigrations 版本断层抛错", () => {
     );
   } finally {
     db.close();
-    rmSync(path.dirname(dbPath), { recursive: true, force: true });
+    removeTempDir(path.dirname(dbPath));
   }
 });
 

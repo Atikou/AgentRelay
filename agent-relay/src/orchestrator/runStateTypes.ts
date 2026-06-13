@@ -5,7 +5,7 @@ import type {
   AgentStopReason,
   RunBudgetKey,
   RunBudgetUsage,
-} from "../agent/RunPolicy.js";
+} from "../agent/RunPolicyTypes.js";
 import type { AgentToolStep } from "../agent/toolStep.js";
 import type { AgentWorkflowId } from "../agent/WorkflowPlanner.js";
 import type { WorkflowToolName } from "../agent/WorkflowPlanner.js";

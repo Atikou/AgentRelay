@@ -1,7 +1,7 @@
 import type { AppContext } from "../../app/createAppContext.js";
 import type { ApiResult } from "../../orchestrator/Orchestrator.js";
 import { listSubAgentRoles, type SubAgentRoleId } from "../../subagent/index.js";
-import type { RunBudget } from "../../agent/RunPolicy.js";
+import type { RunBudget } from "../../agent/RunPolicyTypes.js";
 
 export function handleSubAgentRoles() {
   return { roles: listSubAgentRoles() };

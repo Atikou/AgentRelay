@@ -1,4 +1,4 @@
-import type { EvalSetCase } from "./eval-set-runner.js";
+import type { EvalSetCase } from "./eval-set-types.js";
 
 /** 内置 RuleRouter 离线评测集（不调用模型）。 */
 export const DEFAULT_ROUTING_EVAL_SET: EvalSetCase[] = [

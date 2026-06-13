@@ -5,7 +5,7 @@ import { PlanValidationError } from "../../plan/index.js";
 import { detectPlanReportRequest } from "../../plan/planIntent.js";
 import { buildPlanAnalysisPrompt, renderUserVisiblePlan } from "../../plan/UserPlanRenderer.js";
 import type { PlanMode } from "../../plan/types.js";
-import type { RunBudget } from "../../agent/RunPolicy.js";
+import type { RunBudget } from "../../agent/RunPolicyTypes.js";
 
 export async function handlePlanDraft(app: AppContext, body: unknown): Promise<ApiResult> {
   const payload = (body ?? {}) as {

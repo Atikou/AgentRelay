@@ -1,6 +1,6 @@
 import type { AgentToolStep } from "../agent/toolStep.js";
 import type { ToolPermission } from "../agent/permissions.js";
-import type { RunBudget } from "../agent/RunPolicy.js";
+import type { RunBudget } from "../agent/RunPolicyTypes.js";
 
 /** 第一版只读子 Agent 角色。 */
 export type SubAgentRoleId = "code_review" | "test_analyze";

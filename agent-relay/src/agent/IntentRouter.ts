@@ -1,5 +1,5 @@
 import type { ModelTaskType } from "../model/taskType.js";
-import { parseRunMode, type AgentRunMode } from "./RunPolicy.js";
+import { parseRunModeValue, type AgentRunMode } from "./RunPolicyTypes.js";
 import { defaultWorkflowPlanner, type WorkflowPlan } from "./WorkflowPlanner.js";
 
 export type IntentModeSource = "explicit" | "inferred";
@@ -21,7 +21,7 @@ export interface IntentRouteResult {
  */
 export class IntentRouter {
   route(input: IntentRouteInput = {}): IntentRouteResult {
-    const explicit = parseRunMode(input.requestedMode);
+    const explicit = parseRunModeValue(input.requestedMode);
     const mode = explicit ?? this.inferMode(input);
     const goal = input.message ?? "";
     return {

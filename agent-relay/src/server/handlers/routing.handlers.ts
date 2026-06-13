@@ -1,6 +1,6 @@
 import type { AppContext } from "../../app/createAppContext.js";
 import type { ApiResult } from "../../orchestrator/Orchestrator.js";
-import type { EvalSetCase, EvalSetScope } from "../../model-router/eval-set-runner.js";
+import type { EvalSetCase, EvalSetScope } from "../../model-router/eval-set-types.js";
 import { RuntimeStatsCollector } from "../../model-router/runtime-stats.js";
 
 export function handleRoutingProfiles(app: AppContext): ApiResult {

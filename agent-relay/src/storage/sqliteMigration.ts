@@ -76,14 +76,14 @@ function backfillLegacyMigrations(
   if (!legacy) return;
 
   const now = new Date().toISOString();
-  const backfillTo = uv > 0 ? Math.min(uv, targetVersion) : targetVersion;
+  const backfillTo = uv > 0 ? Math.min(uv, targetVersion) : 0;
   for (const m of migrations) {
     if (m.version <= backfillTo) {
       recordMigration(db, m.version, m.name, now);
     }
   }
-  if (getUserVersion(db) < targetVersion) {
-    db.exec(`PRAGMA user_version = ${targetVersion}`);
+  if (getUserVersion(db) < backfillTo) {
+    db.exec(`PRAGMA user_version = ${backfillTo}`);
   }
 }
 

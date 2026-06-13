@@ -10,7 +10,7 @@ import type {
   LocationExecutionMeta,
   RunBudget,
   RunBudgetKey,
-} from "./RunPolicy.js";
+} from "./RunPolicyTypes.js";
 import type { AgentToolStep } from "./toolStep.js";
 import {
   estimateTaskComplexity,

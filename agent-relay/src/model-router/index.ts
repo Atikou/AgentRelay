@@ -59,7 +59,7 @@ export type {
   EvalSetCaseResult,
   EvalSetRunSummary,
   EvalSetScope,
-} from "./eval-set-runner.js";
+} from "./eval-set-types.js";
 export type { ModelEvalRunRow, ModelEvalResultRow } from "./eval-set-store.js";
 export { buildRouterInputFromChat } from "./router-input.js";
 export { estimateRouterContextTokens, estimateTokensFromText } from "./router-context-estimate.js";

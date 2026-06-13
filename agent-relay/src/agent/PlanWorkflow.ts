@@ -3,7 +3,7 @@ import type { TraceLogger } from "../trace/TraceLogger.js";
 import type { ToolRegistry } from "../tools/ToolRegistry.js";
 import type { ToolPermission } from "./permissions.js";
 import type { AgentToolStep } from "./toolStep.js";
-import type { AgentRunMode, RunBudget } from "./RunPolicy.js";
+import type { AgentRunMode, RunBudget } from "./RunPolicyTypes.js";
 import type { BudgetManager } from "./BudgetManager.js";
 import { countSuccessfulPermissionUsage } from "./BudgetManager.js";
 import type { RunStateLocationContext } from "../orchestrator/runStateLocation.js";

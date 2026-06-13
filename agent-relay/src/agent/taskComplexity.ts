@@ -1,5 +1,5 @@
 import type { ModelTaskType } from "../model/taskType.js";
-import type { AgentRunMode, RunBudget, RunBudgetKey } from "./RunPolicy.js";
+import type { AgentRunMode, RunBudget, RunBudgetKey } from "./RunPolicyTypes.js";
 
 export type TaskComplexityTier = "low" | "medium" | "high";
 

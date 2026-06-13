@@ -25,8 +25,8 @@ import { assessPermissionDeniedRisk, assessToolRisk } from "../policy/ToolRiskAs
 import type { AgentToolStep } from "./toolStep.js";
 import { BudgetManager } from "./BudgetManager.js";
 import { defaultFinalizer } from "./Finalizer.js";
+import { defaultRunPolicyManager } from "./RunPolicy.js";
 import {
-  defaultRunPolicyManager,
   type AgentExecutionMeta,
   type AgentRunMode,
   type AgentStopReason,
@@ -34,7 +34,7 @@ import {
   type RunBudget,
   type RunBudgetKey,
   type RunPolicy,
-} from "./RunPolicy.js";
+} from "./RunPolicyTypes.js";
 import type { RunStateStore } from "../orchestrator/RunStateStore.js";
 import type { ProjectIndex } from "../context/ProjectIndex.js";
 import {

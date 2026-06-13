@@ -1,4 +1,4 @@
-import type { AgentRunMode } from "./RunPolicy.js";
+import type { AgentRunMode } from "./RunPolicyTypes.js";
 
 /** 预扫描工作流可执行的定位类工具步骤。 */
 export const WORKFLOW_TOOL_NAMES = [

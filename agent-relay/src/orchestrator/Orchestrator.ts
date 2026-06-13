@@ -16,7 +16,8 @@ import { planFromTask } from "../agent/planFromTask.js";
 import { finalizePlan } from "../agent/taskGraph.js";
 import { aggregateTaskStatus } from "../agent/taskStatus.js";
 import { PlanSchema, type Plan } from "../agent/types.js";
-import { defaultRunPolicyManager, type RunBudget } from "../agent/RunPolicy.js";
+import { defaultRunPolicyManager } from "../agent/RunPolicy.js";
+import type { RunBudget } from "../agent/RunPolicyTypes.js";
 
 import type { NotificationQueue } from "../background/NotificationQueue.js";
 

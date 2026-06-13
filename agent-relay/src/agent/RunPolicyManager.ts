@@ -1,8 +1,13 @@
 import { MODE_PERMISSIONS, type ToolPermission } from "./permissions.js";
-import type { ModelTaskType } from "../model/taskType.js";
-import type { AgentRunMode, ResolveRunPolicyInput, RunBudget, RunPolicy } from "./RunPolicy.js";
 import { BudgetManager } from "./BudgetManager.js";
 import { defaultIntentRouter } from "./IntentRouter.js";
+import {
+  parseRunModeValue,
+  type AgentRunMode,
+  type ResolveRunPolicyInput,
+  type RunBudget,
+  type RunPolicy,
+} from "./RunPolicyTypes.js";
 
 const MODE_DEFAULT_BUDGETS: Record<AgentRunMode, RunBudget> = {
   chat: {
@@ -122,18 +127,7 @@ export class RunPolicyManager {
   }
 
   parseMode(mode: string | undefined): AgentRunMode | undefined {
-    if (!mode) return undefined;
-    const normalized = mode.trim().toLowerCase();
-    if (
-      normalized === "chat" ||
-      normalized === "plan" ||
-      normalized === "implement" ||
-      normalized === "debug" ||
-      normalized === "review"
-    ) {
-      return normalized;
-    }
-    return undefined;
+    return parseRunModeValue(mode);
   }
 
   inferMode(input: ResolveRunPolicyInput): AgentRunMode {

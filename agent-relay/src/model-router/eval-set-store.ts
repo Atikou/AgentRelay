@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 
 import type { DatabaseSync } from "node:sqlite";
 
-import type { EvalSetCaseResult, EvalSetRunSummary, EvalSetScope } from "./eval-set-runner.js";
+import type { EvalSetCaseResult, EvalSetRunSummary, EvalSetScope } from "./eval-set-types.js";
 
 export interface ModelEvalRunRow {
   id: string;
