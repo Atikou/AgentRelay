@@ -535,6 +535,30 @@
       }
     },
     {
+      "id": "m1-agent-permission-guard-api-spec",
+      "title": "API 规范登记 PermissionGuard 所需策略字段",
+      "purpose": "确认 Agent API 规范含 permissionPolicy 枚举，调用方可显式声明只读、修改确认或运行确认策略，供 PermissionGuard 判定。",
+      "method": "GET",
+      "path": "/api/api-spec.json",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyContains": ["permissionPolicy", "readOnly", "confirmBeforeEdit", "autoRun"]
+      }
+    },
+    {
+      "id": "m1-agent-permission-guard-ui-meta",
+      "title": "测试台执行元信息展示权限策略",
+      "purpose": "确认测试台脚本会展示 executionMeta.permissionPolicy，便于排查 PermissionGuard 的 allow / needsConfirmation / deny 判定来源。",
+      "method": "GET",
+      "path": "/app.js",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyContains": ["permissionPolicy=${m.permissionPolicy", "权限：${meta.permissionPolicy}"]
+      }
+    },
+    {
       "id": "m1-agent-config-prompt-strategy-v8",
       "title": "GET /api/config 暴露 agentPromptStrategyV8",
       "purpose": "确认 /api/agent 已支持首轮 promptStrategy 暴露并在 capabilities 声明。",

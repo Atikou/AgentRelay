@@ -53,7 +53,7 @@
   - [x] 发布、部署、推送代码。（npm publish / git push --force 归 dangerous 拦截）
 - [x] 实现只读模式、受限写模式和完全任务模式。（plan 只读 / `allowedPermissions` 受限 / task 全集）
 - [x] 对每次工具调用记录操作日志。（`TraceLogger`）
-- [~] 支持按项目、任务、用户配置权限策略。（已新增用户侧 `permissionPolicy` 枚举与 `executionMeta` 元信息；真正 PermissionGuard 与执行层解耦仍待做）
+- [~] 支持按项目、任务、用户配置权限策略。（已新增用户侧 `permissionPolicy` 枚举、`executionMeta` 元信息与 `PermissionGuard` 工具前置判定；完整执行层解耦与结构化确认文案仍待做）
 
 ## 4. 计划撰写与任务拆分
 

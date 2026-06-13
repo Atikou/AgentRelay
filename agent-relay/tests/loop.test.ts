@@ -96,7 +96,7 @@ test("开启自动确认时写工具可执行", async () => {
   assert.equal(await fs.readFile(path.join(sandbox, "w.txt"), "utf-8"), "hello");
 });
 
-test("显式权限策略进入 executionMeta 但不放宽执行权限", async () => {
+test("显式确认型权限策略进入 executionMeta 且不自动执行", async () => {
   const chat = scriptedChat([
     '{"action":"tool","tool":"write_file","input":{"path":"policy.txt","content":"bad"}}',
     '{"action":"final","answer":"完成"}',
@@ -105,11 +105,11 @@ test("显式权限策略进入 executionMeta 但不放宽执行权限", async ()
     chat,
     registry: createDefaultRegistry(),
     workspaceRoot: sandbox,
-    permissionPolicy: "autoEdit",
+    permissionPolicy: "confirmBeforeEdit",
     autoConfirm: false,
   });
   const res = await loop.run("修改文件");
-  assert.equal(res.executionMeta.permissionPolicy, "autoEdit");
+  assert.equal(res.executionMeta.permissionPolicy, "confirmBeforeEdit");
   assert.equal(res.executionMeta.permissionPolicySource, "explicit");
   assert.equal(res.steps[0]!.blocked, true);
   await assert.rejects(fs.access(path.join(sandbox, "policy.txt")));

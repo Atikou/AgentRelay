@@ -17,11 +17,11 @@ import {
   buildToolResultLayers,
   clipModelToolJson,
 } from "./ToolResultLayers.js";
-import { CONFIRMATION_REQUIRED, MODE_PERMISSIONS, type ToolPermission } from "./permissions.js";
+import { type ToolPermission } from "./permissions.js";
 import {
   resolveEffectivePermissions,
 } from "../policy/PermissionPolicy.js";
-import { assessPermissionDeniedRisk, assessToolRisk } from "../policy/ToolRiskAssessment.js";
+import { evaluatePermissionGuard } from "../policy/PermissionGuard.js";
 import type { AgentToolStep } from "./toolStep.js";
 import { BudgetManager } from "./BudgetManager.js";
 import { defaultFinalizer } from "./Finalizer.js";
@@ -168,7 +168,7 @@ export class AgentLoop {
       options.policy ??
       defaultRunPolicyManager.resolve({
         requestedMode: options.mode,
-        requestedPermissionPolicy: options.permissionPolicy,
+        requestedPermissionPolicy: options.permissionPolicy ?? (options.autoConfirm ? "autoEdit" : undefined),
         autoConfirm: options.autoConfirm,
         budget: options.budget,
         taskType: options.taskType,
@@ -535,29 +535,35 @@ export class AgentLoop {
     }
     const withPermission = { ...base, permission: tool.permission };
 
-    if (!this.allowed.includes(tool.permission)) {
-      const risk = assessPermissionDeniedRisk(tool.permission, `当前模式不允许的权限：${tool.permission}`, {
-        toolName: tool.name,
-        input: action.input ?? {},
-      });
-      return { ...withPermission, blocked: true, error: risk.reasons[0], risk };
-    }
+    const permissionDecision = evaluatePermissionGuard({
+      intent: this.policy.intent,
+      permissionPolicy: this.policy.permissionPolicy,
+      toolName: tool.name,
+      permission: tool.permission,
+      input: action.input ?? {},
+      allowedPermissions: this.allowed,
+    });
 
-    // 副作用/高风险工具：未自动确认则阻塞（在非交互的循环里更安全）。
-    if (CONFIRMATION_REQUIRED.includes(tool.permission) && !this.options.autoConfirm) {
-      const risk = assessToolRisk({
-        toolName: tool.name,
-        permission: tool.permission,
-        input: action.input ?? {},
-      });
+    if (permissionDecision.decision === "deny") {
       return {
         ...withPermission,
         blocked: true,
-        error: `工具「${tool.name}」需要确认（权限 ${tool.permission}）。未开启自动确认，已跳过。`,
-        risk,
+        error: permissionDecision.reason ?? permissionDecision.risk.reasons[0],
+        risk: permissionDecision.risk,
       };
     }
 
+    // 副作用/高风险工具：需要确认时阻塞（在非交互的循环里更安全）。
+    if (permissionDecision.decision === "needsConfirmation") {
+      return {
+        ...withPermission,
+        blocked: true,
+        error:
+          permissionDecision.reason ??
+          `工具「${tool.name}」需要确认（权限 ${tool.permission}）。未开启自动确认，已跳过。`,
+        risk: permissionDecision.risk,
+      };
+    }
     this.options.trace?.write({
       type: "agent_tool",
       tool: action.tool,
