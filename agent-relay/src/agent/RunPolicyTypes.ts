@@ -84,6 +84,17 @@ export interface AgentWorkflowPermissionCheck {
   };
 }
 
+export interface AgentWorkflowDiffRecord {
+  toolCallId?: string;
+  tool: "write_file" | "apply_patch";
+  path?: string;
+  changeId?: string;
+  beforeHash?: string;
+  afterHash?: string;
+  diff?: string;
+  diffTruncated: boolean;
+}
+
 export interface AgentExecutionMeta {
   mode: AgentRunMode;
   modeSource?: "explicit" | "inferred";
@@ -92,6 +103,7 @@ export interface AgentExecutionMeta {
   permissionPolicy?: UserPermissionPolicy;
   permissionPolicySource?: UserPermissionPolicySource;
   workflowProposals?: AgentWorkflowProposal[];
+  workflowDiffs?: AgentWorkflowDiffRecord[];
   budget: RunBudget;
   usage: RunBudgetUsage;
   budgetExhausted?: RunBudgetKey;

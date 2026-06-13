@@ -36,7 +36,8 @@
   - [x] 写入前方案阶段：`EditProposalWorkflow` 注入 `targetFiles` / `changeSummary` / `permissionCheck` / `diffPlan` / `verificationPlan` 约束，要求模型先形成具体修改方案。
   - [x] 方案阶段可审计记录：`executionMeta.workflowProposals` 返回 `workflowType` / `phase` / `permissionPolicy` / `requiredFields` / `writeAllowedByPolicy` / `requiresConfirmationBeforeWrite`。
   - [x] 接入权限检查结果：`EditProposalWorkflow` 复用 `PermissionGuard` 对 `apply_patch` / `write_file` 做写入前预检，并在 prompt 与 `executionMeta.workflowProposals.permissionChecks` 中记录 `allow` / `needsConfirmation` / `deny`。
-  - [ ] 执行修改、记录 diff。
+  - [x] 记录 diff：`write_file` / `apply_patch` 成功执行后，`AgentLoop` 从工具原始输出汇总 `path` / `changeId` / `beforeHash` / `afterHash` / `diff` 到 `executionMeta.workflowDiffs`。
+  - [ ] 将执行修改阶段收敛为 edit/generate-file 工作流闭环（目前真实写入仍由模型通过常规写工具触发，并受 `PermissionGuard`、工具风险和预算约束）。
 - [ ] `debugWorkflow`：报错分析、定位文件、最小修复、验证失败后继续迭代。
 - [ ] `refactorWorkflow`：强制先计划，分阶段修改，每阶段尽量可验证。
 - [x] `runWorkflow` / `verifyWorkflow`：执行安全命令、收集输出、分析结果；无法执行时降级为静态检查并说明。（`RunVerifyWorkflow` 白名单执行 `node --version` / `npm run typecheck` / `npm test` 等安全命令；无匹配命令、无 shell 权限或预算不足时静态降级。）

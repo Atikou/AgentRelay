@@ -29,6 +29,7 @@ import {
   type AgentExecutionMeta,
   type AgentRunMode,
   type AgentStopReason,
+  type AgentWorkflowDiffRecord,
   type AgentWorkflowProposal,
   type LocationExecutionMeta,
   type RunBudget,
@@ -689,6 +690,7 @@ export class AgentLoop {
     const usage = this.budgetManager.buildUsage(input.steps, input.iterations);
     const needsMoreBudget = input.stopReason === "budget_exhausted";
     const location = this.buildLocationMeta(input.steps);
+    const workflowDiffs = this.buildWorkflowDiffs(input.steps);
     const base: AgentExecutionMeta = {
       mode: this.policy.mode,
       modeSource: this.policy.modeSource,
@@ -697,6 +699,7 @@ export class AgentLoop {
       permissionPolicy: this.policy.permissionPolicy,
       permissionPolicySource: this.policy.permissionPolicySource,
       workflowProposals: this.workflowProposals.length ? this.workflowProposals : undefined,
+      workflowDiffs: workflowDiffs.length ? workflowDiffs : undefined,
       budget: this.budget,
       usage,
       budgetExhausted: input.budgetExhausted,
@@ -737,6 +740,25 @@ export class AgentLoop {
       goal,
       location: this.buildLocationMeta(steps),
     });
+  }
+
+  private buildWorkflowDiffs(steps: AgentToolStep[]): AgentWorkflowDiffRecord[] {
+    return steps
+      .filter((step) => step.ok && (step.tool === "write_file" || step.tool === "apply_patch"))
+      .map((step) => {
+        const raw = asRecord(step.resultLayers?.raw) ?? asRecord(step.output) ?? {};
+        const diff = typeof raw.diff === "string" ? truncateWorkflowDiff(raw.diff) : undefined;
+        return {
+          toolCallId: step.toolCallId,
+          tool: step.tool as "write_file" | "apply_patch",
+          path: readString(raw.path),
+          changeId: readString(raw.changeId),
+          beforeHash: readString(raw.beforeHash),
+          afterHash: readString(raw.afterHash),
+          diff: diff?.diff,
+          diffTruncated: diff?.truncated ?? false,
+        };
+      });
   }
 
   private buildLocationMeta(steps: AgentToolStep[]): LocationExecutionMeta | undefined {
@@ -923,6 +945,21 @@ function sumOptional(values: Array<number | undefined>): number | undefined {
 
 function readNumber(value: unknown): number {
   return typeof value === "number" && Number.isFinite(value) ? value : 0;
+}
+
+function readString(value: unknown): string | undefined {
+  return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : undefined;
+}
+
+function truncateWorkflowDiff(diff: string, maxChars = 20_000): { diff: string; truncated: boolean } {
+  if (diff.length <= maxChars) return { diff, truncated: false };
+  return { diff: `${diff.slice(0, maxChars)}\n... (workflow diff truncated)`, truncated: true };
 }
 
 function readPathItems(value: unknown): string[] {

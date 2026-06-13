@@ -202,7 +202,7 @@
       "post": {
         "tags": ["对话与智能体"],
         "summary": "自主 Agent 循环（ReAct JSON）",
-        "description": "统一 Agent 入口。模型首轮前的确定性工作流由 WorkflowExecutor 统一调度：PlanWorkflow 负责只读预扫描；editWorkflow/generateFileWorkflow 会先执行 locate_relevant_files + context_pack 只读预定位，再由 EditProposalWorkflow 注入 proposal phase（targetFiles/changeSummary/permissionCheck/diffPlan/verificationPlan）以约束写入前方案，并在 executionMeta.workflowProposals 返回可审计 proposal 记录和 PermissionGuard 写入前预检结果；runWorkflow/verifyWorkflow 会尝试执行白名单安全命令（node --version、npm --version、npm run typecheck、npm test、npm run build）；无安全命令、无 shell 权限或预算不足时静态降级并说明。",
+        "description": "统一 Agent 入口。模型首轮前的确定性工作流由 WorkflowExecutor 统一调度：PlanWorkflow 负责只读预扫描；editWorkflow/generateFileWorkflow 会先执行 locate_relevant_files + context_pack 只读预定位，再由 EditProposalWorkflow 注入 proposal phase（targetFiles/changeSummary/permissionCheck/diffPlan/verificationPlan）以约束写入前方案，并在 executionMeta.workflowProposals 返回可审计 proposal 记录和 PermissionGuard 写入前预检结果；成功执行 write_file/apply_patch 后会在 executionMeta.workflowDiffs 汇总 path/changeId/hash/diff 审计摘要；runWorkflow/verifyWorkflow 会尝试执行白名单安全命令（node --version、npm --version、npm run typecheck、npm test、npm run build）；无安全命令、无 shell 权限或预算不足时静态降级并说明。",
         "operationId": "runAgent",
         "requestBody": {
           "required": true,
@@ -1708,6 +1708,20 @@
           }
         }
       },
+      "AgentWorkflowDiffRecord": {
+        "type": "object",
+        "description": "write_file/apply_patch 成功执行后的写入审计摘要，来自工具原始输出，用于记录 path/changeId/hash/diff；diff 可能被截断。",
+        "properties": {
+          "toolCallId": { "type": "string" },
+          "tool": { "type": "string", "enum": ["write_file", "apply_patch"] },
+          "path": { "type": "string" },
+          "changeId": { "type": "string" },
+          "beforeHash": { "type": "string" },
+          "afterHash": { "type": "string" },
+          "diff": { "type": "string" },
+          "diffTruncated": { "type": "boolean" }
+        }
+      },
       "AgentExecutionMeta": {
         "type": "object",
         "properties": {
@@ -1731,6 +1745,11 @@
             "type": "array",
             "description": "写入类工作流在模型首轮前生成的 proposal phase 审计记录。",
             "items": { "$ref": "#/components/schemas/AgentWorkflowProposal" }
+          },
+          "workflowDiffs": {
+            "type": "array",
+            "description": "成功执行 write_file/apply_patch 后从工具原始输出汇总的 diff 审计记录。",
+            "items": { "$ref": "#/components/schemas/AgentWorkflowDiffRecord" }
           },
           "budget": { "$ref": "#/components/schemas/RunBudget" },
           "usage": { "$ref": "#/components/schemas/RunBudgetUsage" },

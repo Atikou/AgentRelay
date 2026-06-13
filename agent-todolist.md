@@ -29,6 +29,7 @@
   - [x] 修改/生成文件类请求先执行只读预定位（`edit_locate` / `generate_file_locate`：`locate_relevant_files` → `context_pack`），再进入模型生成方案或补丁。
   - [x] 修改/生成文件类请求在写入前注入方案阶段约束（`EditProposalWorkflow`：`targetFiles` / `changeSummary` / `permissionCheck` / `diffPlan` / `verificationPlan`）。
   - [x] 修改/生成文件类请求会在 `executionMeta.workflowProposals` 返回可审计 proposal 记录（`workflowType` / `permissionPolicy` / `requiredFields` / 写入策略判断 / `PermissionGuard` 写入前预检结果）。
+  - [x] 写入工具成功后会在 `executionMeta.workflowDiffs` 返回 `write_file` / `apply_patch` 的 `path`、`changeId`、hash 与截断后的 diff 审计摘要。
   - [x] 输出目标、范围、风险、依赖和执行步骤。
   - [x] 明确哪些步骤需要用户确认。
 - [x] 实现任务模式。（控制流 + 工具真实执行 ToolStepExecutor 已就绪）

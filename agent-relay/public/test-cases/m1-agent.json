@@ -1171,6 +1171,33 @@
       }
     },
     {
+      "id": "m1-agent-workflow-diffs-api-spec",
+      "title": "API 规范登记 workflowDiffs 写入审计",
+      "purpose": "确认 OpenAPI 已声明 write_file/apply_patch 成功后会在 executionMeta.workflowDiffs 返回 path、changeId、hash 与 diff 摘要。",
+      "method": "GET",
+      "path": "/api/api-spec.json",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyContains": ["AgentWorkflowDiffRecord", "workflowDiffs", "changeId", "diffTruncated"]
+      }
+    },
+    {
+      "id": "m1-agent-workflow-diffs-doc",
+      "title": "对话循环文档记录 workflowDiffs",
+      "purpose": "确认文档站说明 workflowDiffs 是写工具成功后的审计摘要，并区分于写入前 proposal 记录。",
+      "method": "GET",
+      "path": "/api/docs/content?slug=对话循环",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyPaths": {
+          "markdown": "string"
+        },
+        "bodyContains": ["workflowDiffs", "write_file", "apply_patch", "changeId"]
+      }
+    },
+    {
       "id": "m1-agent-unknown-client-still-force",
       "title": "未知 clientName 仍立即 404",
       "purpose": "确认 Smart 路由接入后，显式 clientName 校验行为不变，不会静默回退默认路由。",

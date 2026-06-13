@@ -94,6 +94,12 @@ test("开启自动确认时写工具可执行", async () => {
   const res = await loop.run("新建文件");
   assert.equal(res.steps[0]!.ok, true);
   assert.equal(await fs.readFile(path.join(sandbox, "w.txt"), "utf-8"), "hello");
+  assert.equal(res.executionMeta.workflowDiffs?.length, 1);
+  assert.equal(res.executionMeta.workflowDiffs?.[0]?.tool, "write_file");
+  assert.equal(res.executionMeta.workflowDiffs?.[0]?.path, "w.txt");
+  assert.ok(res.executionMeta.workflowDiffs?.[0]?.changeId);
+  assert.match(res.executionMeta.workflowDiffs?.[0]?.diff ?? "", /hello/);
+  assert.equal(res.executionMeta.workflowDiffs?.[0]?.diffTruncated, false);
 });
 
 test("searchWorkflow 即使显式 autoRun 也保持只读工具上限", async () => {
