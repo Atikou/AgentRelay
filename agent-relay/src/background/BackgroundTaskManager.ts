@@ -95,6 +95,7 @@ export class BackgroundTaskManager {
     }
 
     child.on("error", (err) => {
+      if (record.status !== "running") return;
       this.clearTaskTimer(id);
       record.status = "failed";
       record.error = String(err);
@@ -104,6 +105,7 @@ export class BackgroundTaskManager {
     });
 
     child.on("close", (code, signal) => {
+      if (record.status !== "running") return;
       this.clearTaskTimer(id);
       this.processes.delete(id);
       record.endedAt = new Date().toISOString();
@@ -158,6 +160,8 @@ export class BackgroundTaskManager {
     this.cancelling.add(id);
     this.clearTaskTimer(id);
     killProcessTree(proc);
+    detachProcessHandles(proc);
+    this.scheduleForcedFinalize(id, "cancelled");
     return this.snapshot(task);
   }
 
@@ -169,8 +173,45 @@ export class BackgroundTaskManager {
       if (!task || !proc || task.status !== "running") return;
       this.timingOut.add(id);
       killProcessTree(proc);
+      detachProcessHandles(proc);
+      this.scheduleForcedFinalize(id, "timed_out", `执行超时（${timeoutMs}ms）`);
     }, timeoutMs);
     this.timeouts.set(id, timer);
+  }
+
+  private scheduleForcedFinalize(
+    id: string,
+    status: Extract<BackgroundTaskRecord["status"], "cancelled" | "timed_out">,
+    error?: string,
+  ): void {
+    setTimeout(() => {
+      this.forceFinalizeIfRunning(id, status, error);
+    }, 1_000).unref?.();
+  }
+
+  private forceFinalizeIfRunning(
+    id: string,
+    status: Extract<BackgroundTaskRecord["status"], "cancelled" | "timed_out">,
+    error?: string,
+  ): void {
+    const record = this.tasks.get(id);
+    if (!record || record.status !== "running") return;
+    this.clearTaskTimer(id);
+    this.processes.delete(id);
+    this.timingOut.delete(id);
+    this.cancelling.delete(id);
+    record.status = status;
+    if (error) record.error = error;
+    record.endedAt = new Date().toISOString();
+    this.enqueueDone(record);
+    this.trace?.write({
+      type: "background_done",
+      taskId: id,
+      status: record.status,
+      exitCode: record.exitCode,
+      signal: status === "cancelled" ? "SIGTERM" : "SIGKILL",
+      forcedFinalize: true,
+    });
   }
 
   private clearTaskTimer(id: string): void {
@@ -321,6 +362,12 @@ function killProcessTree(proc: ChildProcess): void {
     return;
   }
   proc.kill("SIGTERM");
+}
+
+function detachProcessHandles(proc: ChildProcess): void {
+  proc.stdout?.destroy();
+  proc.stderr?.destroy();
+  proc.unref();
 }
 
 function statusLabel(status: BackgroundTaskRecord["status"]): string {

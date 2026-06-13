@@ -1,4 +1,5 @@
 import type { RouterInput, RuleRouteResult, TaskType } from "./types.js";
+import { isPureCasualGreeting } from "./rule-only-responses.js";
 
 const HIGH_RISK_PATTERNS = [
   /删除文件/,
@@ -159,6 +160,16 @@ export class RuleRouter {
     }
 
     if (isCasualChat(text)) {
+      if (isPureCasualGreeting(text)) {
+        return {
+          taskType: "casual_chat",
+          requiredLevel: 0,
+          risk: "low",
+          reason: "短问候/致谢，Level 0 规则直答",
+          preferredStrategy: "rule_only",
+          preferCollaboration: false,
+        };
+      }
       return {
         taskType: "casual_chat",
         requiredLevel: 1,

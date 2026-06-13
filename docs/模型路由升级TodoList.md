@@ -2,7 +2,7 @@
 
 > 依据 `Agent_Model_Router_Auto_Upgrade_Roadmap.md` 对当前仓库扫描生成。  
 > **关联索引**：[外部规范-TodoList索引](外部规范-TodoList索引.md)  
-> **当前阶段：V2 FallbackManager 核心已落地 → 下一步 V3（RouterModelEvaluator）或 V2 P1 可观测。**  
+> **当前阶段：V2 FallbackManager 与 P1 可观测核心已落地 → 下一步 V3（RouterModelEvaluator）或 P1 路由覆盖面扩展。**  
 > 推进模型路由相关改动前，请先读 [模型路由与协作](模型路由与协作.md) 了解已实现能力；**不要一次性实现完整自动路由（V8）**。
 
 ---
@@ -11,7 +11,7 @@
 
 ### 阶段判定
 
-**V2 FallbackManager 核心已完成** → 下一目标 **V3：RouterModelEvaluator**（或 V2 P1 路由 HTTP 查询）
+**V2 FallbackManager 核心已完成** → 下一目标 **V4：AnswerEvaluator**（V3 启发式已部分接入）
 
 ### 关键词扫描（`agent-relay/src`）
 
@@ -30,12 +30,12 @@
 | CollaborationRunStore | ✅ | `model_collaboration_runs` |
 | `local_draft_remote_review` | ✅ | 类型 + 流水线 + 测试 |
 | `single_model` | ✅ | 已接入 |
-| `rule_only` | ⚠️ | 类型存在，DecisionEngine 抛 `RULE_ONLY_NOT_IMPLEMENTED` |
+| `rule_only` | ✅ | Level 0 短问候规则直答（`rule-only-responses.ts` + `runRuleOnlyPipeline`） |
 | FallbackManager | ✅ | `model-router/fallback-manager.ts` |
 | FallbackLogStore / `fallback_logs` | ✅ | `route-stores.ts` |
 | `strong_model_direct` | ✅ | V2 fallback 升级策略 |
-| RouterModelEvaluator | ❌ | V3 |
-| AnswerEvaluator | ❌ | V4 |
+| RouterModelEvaluator | ⚠️ | V3 启发式已接入 `DecisionEngine`（`unknown` 等）；非全量自动路由 |
+| AnswerEvaluator | ⚠️ | V4 规则版 stub 已预留；运行时未接入 |
 | ContextAnalyzer | ❌ | 无独立模块 |
 | RuntimeStats / EvalSetRunner | ❌ | V6/V7 |
 | 拖拽编排 (V9) | ❌ | 终局可选 |
@@ -50,20 +50,21 @@
 | 本地草拟 + 远程审查 | ✅ `tests/draft-review.test.ts`（4 项） |
 | draft/review 不污染 messages | ✅ |
 | finalAnswer 正确保存 | ✅ |
-| route/call 日志 | ✅ 写库；❌ 无查询 API / 测试台面板 |
+| route/call 日志 | ✅ 写库；✅ `GET /api/routing/logs`；✅ 测试台「模型路由日志」面板 |
 
 ### V1 已知缺口（V2 前或并行收尾）
 
-1. **双轨路由**：`POST /api/chat` 走 SmartModelRouter；`/api/agent`、`/api/plan`、子 Agent 仍走 `model/ModelRouter`
-2. **`strong_model_direct` 未实现**
-3. **`validateModelProfiles` 未在启动时调用**
+1. ~~**双轨路由覆盖面**~~ → **已统一**（见 [模型路由与协作 · 双轨边界](模型路由与协作.md#双轨路由边界必读)）：`/api/chat`、`Planner`、`/api/agent`、子 Agent 默认 Smart；显式 `clientName` 仍走 `ModelRouter`
+2. **`strong_model_direct` 已作为 V2 fallback 升级策略落地**
+3. **`validateModelProfiles` 已在启动时 warn**
 4. ~~协作内降级分散~~ → **已迁入 FallbackManager + `fallback_logs`**
-5. **无路由审计 HTTP**
-6. 旧 `ModelRouter`「失败降级本地」与 Smart 路由「高风险不静默降级」语义未统一文档化
+5. **路由审计 HTTP 已落地**：`GET /api/routing/logs` 提供只读查询
+6. ~~旧 `ModelRouter` 与 Smart 语义未文档化~~ → **已统一**（同上双轨边界章节）
 
 ### 测试现状
 
-- `tests/smart-router.test.ts` — 10 项
+- `tests/smart-router.test.ts` — 12 项
+- `tests/rule-only.test.ts` — 5 项
 - `tests/draft-review.test.ts` — 4 项
 - `tests/router.test.ts` — 13 项（客户端级 fallback）
 - 全量 `npm test` — 通过（含 plan 6、orchestrator 12、smart-router 10、draft-review 4 等）
@@ -74,7 +75,7 @@
 
 **V2：FallbackManager** ✅ 核心已完成
 
-下一步：**V3 RouterModelEvaluator** 或 V2 P1（`GET /api/routing/logs`、测试台面板）。
+下一步：**V3 RouterModelEvaluator** 或 P1 路由覆盖面扩展。
 
 升级路线图概览：
 
@@ -116,26 +117,26 @@
 ### P1：V2 增强与可观测
 
 - [x] `GET /api/routing/logs`（route/call/collaboration/fallback 只读查询）
-- [ ] 测试台「模型路由」面板（最近决策与 fallback 链）
+- [x] 测试台「模型路由」面板（最近决策与 fallback 链）
 - [x] `public/test-cases/m2-routing.json` 增加 V2 场景用例
 - [x] `tests/fallback-manager.test.ts`（8 条）
 
 ### P1：路由覆盖面扩展（V1.x，不碰 V8 自动路由）
 
-- [ ] 评估 `/api/agent` 未指定 `clientName` 时复用 SmartModelRouter（仅模型选择层）
-- [ ] `Planner` 经 Registry 选模型（替代硬编码 `taskType: reasoning`）
-- [ ] 文档统一：`model/ModelRouter` = 连通性 fallback；`SmartModelRouter` = 任务级策略
+- [x] `Planner` 经 Registry 选模型（替代硬编码 `taskType: reasoning`；`createPlannerChatFn` + `forceSingleModel`）
+- [x] 评估 `/api/agent` 未指定 `clientName` 时复用 SmartModelRouter（`createAgentChatFn` + `forceSingleModel`）
+- [x] 文档统一：`model/ModelRouter` = 连通性 fallback + forceClient；`SmartModelRouter` = 任务级策略（见 `docs/模型路由与协作.md` **双轨路由边界**）
 
 ### P2：为 V3/V4 预留接口（类型 + stub，不调用）
 
-- [ ] `router-model-evaluator.ts` — `RouterModelEvaluation` + stub
-- [ ] `answer-evaluator.ts` — `AnswerEvaluation` + 规则版 stub
-- [ ] `DecisionEngine` / `ModelOrchestrator` 注释扩展点
+- [x] `router-model-evaluator.ts` — `RouterModelEvaluation` + stub
+- [x] `answer-evaluator.ts` — `AnswerEvaluation` + 规则版 stub
+- [x] `DecisionEngine` / `ModelOrchestrator` 注释扩展点
 
 ### P2：后续阶段（本清单阶段不做）
 
-- [ ] V3 RouterModelEvaluator
-- [ ] V4 AnswerEvaluator
+- [ ] V3 RouterModelEvaluator 运行时接入
+- [ ] V4 AnswerEvaluator 运行时接入
 - [ ] V5 ModelCapabilities 能力矩阵
 - [ ] V6 RuntimeStats（只建议，不改配置）
 - [ ] V7 EvalSetRunner
@@ -232,8 +233,8 @@
 | 15.2 有 RuleRouter 无 DecisionEngine | ✅ 两者都有 |
 | 15.3 有 Single 无 DraftReview | ✅ 两者都有 |
 | 15.4 V1 完整无 FallbackManager | ✅ 已完成 → 进 V2 |
-| 15.5 有 Fallback 无 RouterModelEvaluator | ⬅ **当前** → 进 V3 |
-| 15.6 有 RouterModel 无 AnswerEvaluator | 未来 V4 |
+| 15.5 有 Fallback 无 RouterModelEvaluator | ✅ stub 已有；运行时接入仍属 V3 |
+| 15.6 有 RouterModel 无 AnswerEvaluator | ✅ 规则版 stub 已有；运行时接入仍属 V4 |
 
 ---
 
@@ -272,8 +273,8 @@
 
 | 阶段 | 关键交付 | 状态 |
 | --- | --- | --- |
-| V3 | RouterModelEvaluator + router_model_evaluations | [ ] |
-| V4 | AnswerEvaluator 规则版 | [ ] |
+| V3 | RouterModelEvaluator + router_model_evaluations | [~] stub 已有，未运行时接入 |
+| V4 | AnswerEvaluator 规则版 | [~] stub 已有，未运行时接入 |
 | V5 | ModelCapabilities 能力矩阵 | [ ] |
 | V6 | RuntimeStats 指标回流（只建议不改配置） | [ ] |
 | V7 | EvalSetRunner + model_eval_results | [ ] |
@@ -290,7 +291,7 @@
 | RouteLogStore / ModelCallLogStore | [x] |
 | CollaborationLogStore | [~] 合并在 collaboration_runs + call_logs |
 | FallbackManager | [x] |
-| RouterModelEvaluator / AnswerEvaluator | [ ] |
+| RouterModelEvaluator / AnswerEvaluator | [~] stub 已有，未运行时接入 |
 | ContextAnalyzer / RuntimeStats / EvalSetRunner | [ ] |
 | PromptStrategyBuilder / CostBudgetManager / ModelProfileStore | [ ] |
 

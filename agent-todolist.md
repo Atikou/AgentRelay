@@ -19,6 +19,7 @@
   - [x] 远程模型失败或限流时自动降级到本地模型。（fallback）
 - [x] 支持模型路由策略配置，例如 local-first、cloud-first、privacy-first、quality-first。
 - [x] 支持单任务内多模型协作，例如本地模型草拟、远程模型审查。（`local_draft_remote_review` + `DraftReviewPipeline`；仅保存 finalAnswer）
+- [x] 预留 V3/V4 路由/答案评估接口。（`RouterModelEvaluator` / `AnswerEvaluator` stub；当前不接入运行时）
 
 ## 2. Agent 模式
 
@@ -206,10 +207,11 @@
 
 - [x] 记录每轮 Agent 决策。（`agent_decision` trace：tool/final/parse_error，含 tool、thought、inputPreview、answerLength）
 - [x] 记录模型路由原因。（`model_route_logs` + `GET /api/routing/logs`）
+- [x] 提供模型路由调试视图。（测试台「模型路由日志」展示最近决策与 fallback 链详情）
 - [x] 记录 token、耗时、费用和错误。（`agent_model_turn` + `run_usage_summary`：token/latency/cost/error/预算用量摘要）
 - [x] 记录工具调用链路。（`toolCallId` 贯穿 `agent_decision` / `agent_tool` / `task_step` / `tool_audit`）
 - [x] 记录任务状态变化。（`task_status_change` trace：步骤级 from/to + 聚合任务状态计数，附 runId/taskId/sessionId）
-- [ ] 提供调试视图或 trace 文件。
+- [ ] 提供完整 trace 调试视图或 trace 文件浏览。
 - [ ] 支持导出运行报告。
 - [ ] 支持问题复盘：为什么选择某模型、为什么执行某命令、为什么任务失败。
 

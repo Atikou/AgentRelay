@@ -55,16 +55,13 @@ export class Planner {
       ? `目标：${goal}\n\n相关上下文：\n${context}`
       : `目标：${goal}`;
 
-    const response = await this.chat(
-      {
-        messages: [
-          { role: "system", content: PLAN_SYSTEM_PROMPT },
-          { role: "user", content: userContent },
-        ],
-        temperature: 0.2,
-      },
-      { taskType: "reasoning" },
-    );
+    const response = await this.chat({
+      messages: [
+        { role: "system", content: PLAN_SYSTEM_PROMPT },
+        { role: "user", content: userContent },
+      ],
+      temperature: 0.2,
+    });
 
     return normalizePlan(response.content, goal);
   }

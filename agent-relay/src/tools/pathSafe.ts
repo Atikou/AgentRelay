@@ -22,7 +22,7 @@ export function resolveInsideWorkspace(workspaceRoot: string, target: string): s
 /** 规范别名。 */
 export const assertInsideWorkspace = resolveInsideWorkspace;
 
-/** 对已存在路径做 realpath，防止符号链接逃逸。 */
+/** 对已存在路径做 realpath，防止符号链接逃逸（Windows 短路径/junction 需同时解析 root）。 */
 export async function resolveInsideWorkspaceAsync(
   workspaceRoot: string,
   target: string,
@@ -30,14 +30,25 @@ export async function resolveInsideWorkspaceAsync(
   const full = resolveInsideWorkspace(workspaceRoot, target);
   try {
     const { realpath } = await import("node:fs/promises");
-    const resolved = await realpath(full);
     const root = path.resolve(workspaceRoot);
-    const rel = path.relative(root, resolved);
-    const inside = rel === "" || (!rel.startsWith("..") && !path.isAbsolute(rel));
-    if (!inside) {
-      throw new Error(`禁止访问工作区之外的路径（符号链接）：${target}`);
+    let resolvedRoot = root;
+    try {
+      resolvedRoot = await realpath(root);
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
     }
-    return resolved;
+    try {
+      const resolved = await realpath(full);
+      const rel = path.relative(resolvedRoot, resolved);
+      const inside = rel === "" || (!rel.startsWith("..") && !path.isAbsolute(rel));
+      if (!inside) {
+        throw new Error(`禁止访问工作区之外的路径（符号链接）：${target}`);
+      }
+      return resolved;
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === "ENOENT") return full;
+      throw err;
+    }
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === "ENOENT") return full;
     throw err;

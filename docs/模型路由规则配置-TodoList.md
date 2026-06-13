@@ -12,7 +12,7 @@
 
 | Level | 含义 | 状态 |
 | --- | --- | --- |
-| 0 | 规则直处理 | [ ] `rule_only` 未实现 |
+| 0 | 规则直处理 | [x] `rule_only` 短问候/致谢 |
 | 1 | 轻量：闲聊、记忆、摘要 | [x] |
 | 2 | 普通：技术问答、单文件 | [x] |
 | 3 | 强：架构、vision、高风险 | [x] |
@@ -27,7 +27,7 @@
 | §15 验收标准 | 9 | 1 | 0 |
 | **合计** | **60** | **5** | **0** |
 
-**结论**：规范要求的 V1「规则路由 + 手动配置」**已基本完成**；缺口主要在启动配置校验、部分 API 未走 Smart 路由、无路由日志查询 HTTP。
+**结论**：规范要求的 V1「规则路由 + 手动配置」**已基本完成**；双轨边界文档、路由日志查询 HTTP 与测试台面板已补齐。
 
 ---
 
@@ -180,7 +180,7 @@
 - [x] 用 `selectedModelId` / 协作策略调用 ModelOrchestrator
 - [x] debug 响应含 `routerDecision`
 - [x] ModelRouter 不修改 messages/memories
-- [~] `/api/agent`、`/api/plan`、子 Agent 仍走旧 `model/ModelRouter`（连通性 fallback）
+- [~] `/api/agent`、子 Agent 默认 Smart 单模型；显式 `clientName` 仍走 `ModelRouter`（见双轨边界文档）
 
 ---
 
@@ -219,10 +219,10 @@
 ## 4. 已知缺口（规范外但影响 V1 闭环）
 
 - [x] 启动时调用 `validateModelProfiles()` 并 warn
-- [ ] `GET /api/routing/logs` 只读查询
-- [ ] 测试台「模型路由」决策面板
-- [ ] 文档统一：`model/ModelRouter`（客户端 fallback）vs `SmartModelRouter`（任务策略）
-- [ ] `m2-routing.json` 网页用例覆盖 Smart 路由（当前可能仍偏旧 ModelRouter）
+- [x] `GET /api/routing/logs` 只读查询
+- [x] 测试台「模型路由」决策面板（「模型路由日志」）
+- [x] 文档统一：`model/ModelRouter`（客户端 fallback）vs `SmartModelRouter`（任务策略）→ [模型路由与协作 · 双轨边界](模型路由与协作.md#双轨路由边界必读)
+- [x] `m2-routing.json` 网页用例覆盖 Smart 路由与双轨文档探测
 
 ---
 

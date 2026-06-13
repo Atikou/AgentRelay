@@ -98,6 +98,32 @@
         "status": 400,
         "bodyHasKeys": ["error"]
       }
+    },
+    {
+      "id": "m5-config-subagent-smart-routing",
+      "title": "GET /api/config 暴露 subAgentSmartRouting",
+      "purpose": "确认子 Agent 默认 chat 已接入 SmartModelRouter，与 Agent 路由一致。",
+      "method": "GET",
+      "path": "/api/config",
+      "input": {},
+      "expect": {
+        "status": 200,
+        "bodyPaths": {
+          "capabilities.subAgentSmartRouting": true
+        }
+      }
+    },
+    {
+      "id": "m5-run-unknown-client",
+      "title": "未知 clientName 返回 404",
+      "purpose": "确认子 Agent 显式 clientName 校验不受 Smart 路由影响。",
+      "method": "POST",
+      "path": "/api/subagent/run",
+      "input": { "role": "code_review", "task": "review", "clientName": "missing" },
+      "expect": {
+        "status": 404,
+        "bodyHasKeys": ["error"]
+      }
     }
   ]
 }

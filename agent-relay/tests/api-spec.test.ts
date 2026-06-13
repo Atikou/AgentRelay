@@ -29,6 +29,7 @@ const REQUIRED_PATHS = [
   "/api/plans/{planId}/execute",
   "/api/runs",
   "/api/runs/{runId}",
+  "/api/runs/{runId}/report",
   "/api/tasks",
   "/api/tasks/{taskId}",
   "/api/tasks/{taskId}/resume",

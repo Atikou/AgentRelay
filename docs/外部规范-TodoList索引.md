@@ -1,7 +1,7 @@
 # 外部规范 TodoList 索引
 
 > 本页汇总仓库外设计/报告 Markdown 对应的**完成度 TodoList**（仅扫描勾选，不代替实现）。  
-> 原始规范文件位于用户 Downloads；项目内以 `docs/*-TodoList.md` 维护进度。
+> 原始规范文件位于用户 Downloads；项目内以 `docs/*-TodoList.md` 维护进度；**已全部结案**的清单归档至 [`completed/`](completed/README.md)（规范见 `AGENTS.md` · TodoList 归档）。
 
 ## 规范章节覆盖清单
 
@@ -24,8 +24,9 @@
 | `Agent_Execution_Policy_Issues_Report.md` | [Agent执行策略问题-TodoList](Agent执行策略问题-TodoList.md) | P0 ✅ / P1 主体 ✅ | executionMeta、partial 收尾、plan 写拦截、PlanWorkflow 第一版已完成；BudgetManager、RunStateStore、三层 trace 待补 |
 | `Agent_Model_Router_Rule_Config_Spec.md` | [模型路由规则配置-TodoList](模型路由规则配置-TodoList.md) | V1 ✅ | 规则路由 + 手动配置 + 启动 `validateModelProfiles` 已完成；路由 HTTP 查询待补 |
 | `Agent_Model_Router_Collaboration_Spec.md` | [模型路由协作-TodoList](模型路由协作-TodoList.md) | V1 ✅ | single_model + draft_review 已闭环；rule_only、DB 集成测试待补 |
-| `Agent_Model_Router_Auto_Upgrade_Roadmap.md` | [模型路由升级TodoList](模型路由升级TodoList.md) | **V3 下一步** | V2 FallbackManager 核心已完成；§15 判定=15.5 → V3 RouterModelEvaluator |
+| `Agent_Model_Router_Auto_Upgrade_Roadmap.md` | [模型路由升级TodoList](模型路由升级TodoList.md) | **V4 下一步** | V2 FallbackManager 已完成；V3 启发式部分接入 |
 | `Agent_Relevant_File_Location_Optimization_Spec.md` | [相关文件定位优化-TodoList](相关文件定位优化-TodoList.md) | P0/P1 主体 ✅ / P2 未开始 | project_scan、locate_relevant_files、context_pack、executionMeta.location 已落地；ProjectIndex、RunStateStore、symbol_search 待补 |
+| （架构审阅修复，非外部规范） | [修复TodoList（归档）](completed/修复TodoList.md) | ✅ 已结案 | P0–P3 已全部落地；原路径 [修复TodoList.md](修复TodoList.md) 为 stub |
 
 ## 规范章节 ↔ TodoList 节速查
 

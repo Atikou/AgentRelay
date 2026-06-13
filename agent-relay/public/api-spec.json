@@ -568,6 +568,33 @@
         }
       }
     },
+    "/api/runs/{runId}/report": {
+      "get": {
+        "tags": ["编排与 Run"],
+        "summary": "导出 Run 运行报告（trace 聚合）",
+        "operationId": "getRunReport",
+        "parameters": [
+          { "name": "runId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }
+        ],
+        "responses": {
+          "200": {
+            "description": "Run 记录 + trace 聚合报告",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "run": { "$ref": "#/components/schemas/RunRecord" },
+                    "report": { "type": "object", "additionalProperties": true }
+                  }
+                }
+              }
+            }
+          },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
     "/api/tools": {
       "get": {
         "tags": ["工具"],
@@ -1224,7 +1251,15 @@
             "toolErrorCategory": { "type": "boolean" },
             "toolStorageRedaction": { "type": "boolean" },
             "highRiskConfirmation": { "type": "boolean" },
-            "localFirstPrivacyMode": { "type": "boolean" }
+            "localFirstPrivacyMode": { "type": "boolean" },
+            "plannerSmartRouting": { "type": "boolean" },
+            "agentSmartRouting": { "type": "boolean" },
+            "subAgentSmartRouting": { "type": "boolean" },
+            "startupRecovery": { "type": "boolean" },
+            "runReportExport": { "type": "boolean" },
+            "modelTokenStreaming": { "type": "boolean" },
+            "routerEvaluatorV3": { "type": "boolean" },
+            "costBudgetPerRun": { "type": "boolean" }
           }
         },
       "RunRecord": {
@@ -1355,6 +1390,8 @@
             "description": "任务类型路由提示：simple 优先本地；reasoning/codegen/long_context 优先远程"
           },
           "autoConfirm": { "type": "boolean", "description": "允许写/命令等副作用工具" },
+          "streamTokens": { "type": "boolean", "description": "SSE 流式推送模型 token 增量（/api/agent/stream）" },
+          "persist": { "type": "boolean", "description": "是否持久化会话上下文，默认 true" },
           "budget": { "$ref": "#/components/schemas/RunBudget" },
           "sessionId": { "type": "string" }
         }

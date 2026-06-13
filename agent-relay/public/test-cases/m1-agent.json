@@ -187,6 +187,32 @@
         "status": 400,
         "bodyHasKeys": ["error"]
       }
+    },
+    {
+      "id": "m1-agent-config-smart-routing",
+      "title": "GET /api/config 暴露 agentSmartRouting",
+      "purpose": "确认默认 /api/agent 已接入 SmartModelRouter + ModelRegistry，不再仅依赖旧 ModelRouter.taskType。",
+      "method": "GET",
+      "path": "/api/config",
+      "input": {},
+      "expect": {
+        "status": 200,
+        "bodyPaths": {
+          "capabilities.agentSmartRouting": true
+        }
+      }
+    },
+    {
+      "id": "m1-agent-unknown-client-still-force",
+      "title": "未知 clientName 仍立即 404",
+      "purpose": "确认 Smart 路由接入后，显式 clientName 校验行为不变，不会静默回退默认路由。",
+      "method": "POST",
+      "path": "/api/agent",
+      "input": { "message": "ping", "clientName": "no-such-model" },
+      "expect": {
+        "status": 404,
+        "bodyHasKeys": ["error"]
+      }
     }
   ]
 }

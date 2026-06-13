@@ -32,7 +32,7 @@ import {
   handleContextSessionsList,
 } from "./handlers/context.handlers.js";
 import { handleDocContent, handleDocsList } from "./handlers/docs.handlers.js";
-import { handleRunGet, handleRunsList } from "./handlers/runs.handlers.js";
+import { handleRunGet, handleRunReport, handleRunsList } from "./handlers/runs.handlers.js";
 import {
   handleSchedulerCancel,
   handleSchedulerCreate,
@@ -221,8 +221,14 @@ export function createHttpServer(app: AppContext, opts?: HttpServerOptions): Ser
           return;
         }
         if (pathname.startsWith("/api/runs/") && method === "GET") {
-          const id = decodeURIComponent(pathname.slice("/api/runs/".length));
-          const result = handleRunGet(app, id);
+          const rest = decodeURIComponent(pathname.slice("/api/runs/".length));
+          if (rest.endsWith("/report")) {
+            const id = rest.slice(0, -"/report".length);
+            const result = await handleRunReport(app, id);
+            sendJson(res, result.status, result.body);
+            return;
+          }
+          const result = handleRunGet(app, rest);
           sendJson(res, result.status, result.body);
           return;
         }

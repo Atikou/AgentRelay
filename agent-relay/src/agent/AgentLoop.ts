@@ -7,6 +7,7 @@ import type { ChatMessage, ChatRequest, ModelResponse } from "../model/types.js"
 import type { ToolRegistry } from "../tools/ToolRegistry.js";
 import type { TraceLogger } from "../trace/TraceLogger.js";
 import type { AgentStepPlan } from "../plan/types.js";
+import { assertWithinCostBudget, sumModelTurnCost } from "../util/costBudget.js";
 import { wrapUntrustedToolOutput } from "../util/injection.js";
 import { redactPreview } from "../util/redact.js";
 import { PlanWorkflow, type PlanWorkflowResult } from "./PlanWorkflow.js";
@@ -90,6 +91,10 @@ export interface AgentLoopOptions {
   trace?: TraceLogger;
   /** 每发生一步工具调用时回调（便于流式回显）。 */
   onStep?: (step: AgentToolStep) => void;
+  /** 模型 token 流式增量（需 ModelClient 支持且 request 传入 onToken）。 */
+  onToken?: (delta: string) => void;
+  /** 单次 Run 费用上限（USD）。 */
+  maxCostUsdPerRun?: number;
   /** 通知队列：仅在安全点 drain 后注入上下文。 */
   notificationQueue?: NotificationQueue;
   /** M6：上下文压缩与持久化（可选）。 */
@@ -207,8 +212,12 @@ export class AgentLoop {
       const modelStart = Date.now();
       let response: ModelResponse;
       try {
+        assertWithinCostBudget(
+          sumModelTurnCost(this.modelTurnMetrics.map((m) => m.costUsd)),
+          this.options.maxCostUsdPerRun,
+        );
         response = await this.options.chat(
-          { messages, temperature: 0.2 },
+          { messages, temperature: 0.2, onToken: this.options.onToken },
           { sensitive: this.options.sensitive, taskType: this.options.taskType },
         );
         this.recordModelTurn({
@@ -222,6 +231,10 @@ export class AgentLoop {
           outputTokens: response.usage?.outputTokens,
           costUsd: response.costUsd,
         });
+        assertWithinCostBudget(
+          sumModelTurnCost(this.modelTurnMetrics.map((m) => m.costUsd)),
+          this.options.maxCostUsdPerRun,
+        );
       } catch (error) {
         this.recordModelTurn({
           iteration,

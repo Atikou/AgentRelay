@@ -77,6 +77,39 @@ export class OpenAICompatibleClient implements ModelClient {
     const start = performance.now();
 
     try {
+      if (request.onToken) {
+        const stream = await this.client.chat.completions.create(
+          {
+            model: this.model,
+            messages: toOpenAIMessages(request.messages),
+            tools: toOpenAITools(request.tools),
+            temperature: request.temperature,
+            max_tokens: request.maxTokens,
+            stream: true,
+          },
+          { signal },
+        );
+
+        let content = "";
+        for await (const chunk of stream) {
+          const delta = chunk.choices[0]?.delta?.content ?? "";
+          if (delta) {
+            content += delta;
+            request.onToken(delta);
+          }
+        }
+
+        const latencyMs = performance.now() - start;
+        return {
+          content,
+          toolCalls: [],
+          clientName: this.name,
+          modelName: this.model,
+          location: this.location,
+          latencyMs,
+        };
+      }
+
       const response = await this.client.chat.completions.create(
         {
           model: this.model,

@@ -6,6 +6,7 @@ import {
 import type { CollaborationRunStore } from "../model-router/route-stores.js";
 import type { RouterDecision } from "../model-router/types.js";
 import { runDraftReviewPipeline } from "./pipelines/draft-review-pipeline.js";
+import { runRuleOnlyPipeline } from "./pipelines/rule-only-pipeline.js";
 import { runSingleModelPipeline } from "./pipelines/single-model-pipeline.js";
 import type {
   ModelChatFn,
@@ -65,6 +66,7 @@ export class ModelOrchestrator {
 
       usedModelIds.push(...result.usedModelIds);
 
+      // V4 AnswerEvaluator can replace or enrich this deterministic output check.
       const outputTrigger = this.fallbackManager.detectOutputIssue(
         decision,
         result.finalAnswer,
@@ -110,6 +112,9 @@ export class ModelOrchestrator {
     fallbackCtx: PipelineFallbackContext,
   ): Promise<OrchestratorResult> {
     const strategy = input.routerDecision.executionStrategy;
+    if (strategy === "rule_only") {
+      return runRuleOnlyPipeline(input);
+    }
     if (strategy === "single_model" || strategy === "strong_model_direct") {
       return runSingleModelPipeline(input, this.chat);
     }

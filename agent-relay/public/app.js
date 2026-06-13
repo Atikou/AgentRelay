@@ -367,6 +367,123 @@ async function handleMetrics() {
   }
 }
 
+function renderRoutingLogRows(routes, detailsEl) {
+  if (!routes.length) {
+    return `<div class="history-empty">暂无模型路由记录。发送一次自动路由对话后再刷新。</div>`;
+  }
+  const rows = routes
+    .map((r) => {
+      const strategy = r.executionStrategy || "-";
+      const model = r.finalModelId || r.selectedModelId || r.reviewModelId || r.draftModelId || "-";
+      const risk = r.risk || "-";
+      const created = formatDateTime(r.createdAt);
+      return `
+        <tr>
+          <td><code>${escapeHtml(r.id)}</code></td>
+          <td>${escapeHtml(created)}</td>
+          <td>${escapeHtml(r.taskType || "-")}</td>
+          <td>${escapeHtml(strategy)}</td>
+          <td>${escapeHtml(model)}</td>
+          <td>${escapeHtml(risk)}</td>
+          <td>
+            <button class="action-btn secondary routing-detail-btn" data-route-log-id="${escapeHtml(r.id)}">详情</button>
+          </td>
+        </tr>`;
+    })
+    .join("");
+  detailsEl.textContent = "选择一条记录查看 calls / collaborations / fallbacks。";
+  return `
+    <table class="model-table routing-log-table">
+      <thead>
+        <tr><th>routeId</th><th>时间</th><th>任务</th><th>策略</th><th>模型</th><th>风险</th><th></th></tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>`;
+}
+
+async function handleRoutingLogs() {
+  clearWelcome();
+  const panel = document.createElement("div");
+  panel.className = "tool-panel routing-log-panel";
+
+  const title = document.createElement("div");
+  title.className = "tool-desc";
+  title.textContent = "查看 SmartModelRouter 的最近决策，以及单条记录关联的模型调用、协作与 fallback 链。";
+  panel.appendChild(title);
+
+  const row = document.createElement("div");
+  row.className = "tool-row";
+
+  const limitInput = document.createElement("input");
+  limitInput.className = "system-input routing-limit-input";
+  limitInput.type = "number";
+  limitInput.min = "1";
+  limitInput.max = "100";
+  limitInput.value = "20";
+  limitInput.title = "最近记录数量";
+
+  const sessionInput = document.createElement("input");
+  sessionInput.className = "system-input routing-session-input";
+  sessionInput.placeholder = "sessionId 过滤（可选）";
+
+  const refreshBtn = document.createElement("button");
+  refreshBtn.className = "action-btn";
+  refreshBtn.textContent = "刷新";
+
+  row.appendChild(limitInput);
+  row.appendChild(sessionInput);
+  row.appendChild(refreshBtn);
+  panel.appendChild(row);
+
+  const list = document.createElement("div");
+  list.className = "tool-result routing-log-list";
+  list.style.display = "block";
+  panel.appendChild(list);
+
+  const details = document.createElement("div");
+  details.className = "tool-result routing-log-details";
+  details.style.display = "block";
+  panel.appendChild(details);
+
+  const loadList = async () => {
+    const limit = Math.min(100, Math.max(1, Number(limitInput.value) || 20));
+    const sessionId = sessionInput.value.trim();
+    const query = new URLSearchParams({ limit: String(limit) });
+    if (sessionId) query.set("sessionId", sessionId);
+    list.classList.remove("err");
+    details.classList.remove("err");
+    list.textContent = "加载路由日志中…";
+    try {
+      const data = await api(`/api/routing/logs?${query.toString()}`);
+      const routes = data.routes || [];
+      list.innerHTML = renderRoutingLogRows(routes, details);
+    } catch (err) {
+      list.classList.add("err");
+      list.textContent = String(err.message || err);
+    }
+  };
+
+  list.addEventListener("click", async (e) => {
+    const btn = e.target.closest(".routing-detail-btn");
+    if (!btn) return;
+    const routeLogId = btn.dataset.routeLogId;
+    details.style.display = "block";
+    details.classList.remove("err");
+    details.textContent = "加载详情中…";
+    try {
+      const data = await api(`/api/routing/logs?routeLogId=${encodeURIComponent(routeLogId)}`);
+      details.textContent = JSON.stringify(data, null, 2);
+    } catch (err) {
+      details.classList.add("err");
+      details.textContent = String(err.message || err);
+    }
+  });
+
+  refreshBtn.addEventListener("click", loadList);
+  addMessage("system", panel);
+  await loadList();
+}
+
 const STATUS_LABEL = {
   pending: "待执行",
   running: "执行中",
@@ -1571,6 +1688,8 @@ document.querySelector(".sidebar").addEventListener("click", async (e) => {
     await handleCheckModels();
   } else if (action === "metrics") {
     await handleMetrics();
+  } else if (action === "routing-logs") {
+    await handleRoutingLogs();
   } else if (action === "tools") {
     await handleTools();
   } else if (action === "background") {

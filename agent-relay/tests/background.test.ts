@@ -24,6 +24,10 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function nodeCommand(script: string): string {
+  return `"${process.execPath}" -e "${script.replace(/"/g, '\\"')}"`;
+}
+
 async function waitForTask(
   mgr: BackgroundTaskManager,
   id: string,
@@ -127,7 +131,7 @@ test("BackgroundTaskManager 运行短命令并写入通知", async () => {
   const queue = new NotificationQueue(journal);
   const mgr = new BackgroundTaskManager(tmpDir, queue);
 
-  const task = mgr.start(process.platform === "win32" ? "node -e \"console.log('ok')\"" : "node -e \"console.log('ok')\"");
+  const task = mgr.start(nodeCommand("console.log('ok')"));
   assert.equal(task.status, "running");
 
   await waitForTask(mgr, task.id);
@@ -172,7 +176,7 @@ test("BackgroundTaskManager timeoutMs 超时终止任务", async () => {
   const queue = new NotificationQueue(journal);
   const mgr = new BackgroundTaskManager(tmpDir, queue);
 
-  const task = mgr.start('node -e "setInterval(()=>{}, 60_000)"', { timeoutMs: 800 });
+  const task = mgr.start(nodeCommand("setInterval(()=>{}, 60_000)"), { timeoutMs: 800 });
   assert.equal(task.timeoutMs, 800);
 
   await waitForTask(mgr, task.id, 10_000);
@@ -195,7 +199,7 @@ test("输出规则命中后 triggerOnMatch 触发下一步", async () => {
       mgr.markTriggeredRun(input.record.id, "run-mock-1");
     },
   );
-  const cmd = 'node -e "console.log(\'Tests: 2 passed\')"';
+  const cmd = nodeCommand("console.log('Tests: 2 passed')");
   const task = mgr.start(cmd, {
     outputRules: [{ name: "test_passed", pattern: "passed", stream: "stdout", ignoreCase: true }],
     triggerOnMatch: { goal: "汇总测试结果并汇报", mode: "any" },
@@ -212,7 +216,7 @@ test("BackgroundTaskManager 可取消长时间任务", async () => {
   const queue = new NotificationQueue(journal);
   const mgr = new BackgroundTaskManager(tmpDir, queue);
 
-  const task = mgr.start('node -e "setInterval(()=>{}, 60_000)"');
+  const task = mgr.start(nodeCommand("setInterval(()=>{}, 60_000)"));
   await sleep(200);
   const cancelled = mgr.cancel(task.id);
   assert.ok(cancelled);

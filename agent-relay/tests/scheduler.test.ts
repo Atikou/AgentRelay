@@ -19,6 +19,10 @@ function test(name: string, fn: () => Promise<void>) {
 
 let tmpDir = "";
 
+function nodeCommand(script: string): string {
+  return `"${process.execPath}" -e "${script.replace(/"/g, '\\"')}"`;
+}
+
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -145,7 +149,7 @@ test("background_completed 可按输出 pattern 过滤", async () => {
     undefined,
     (record) => sched.handleBackgroundCompleted(record),
   );
-  const task = bg.start('node -e "console.log(\'ALL_PASS\')"');
+  const task = bg.start(nodeCommand("console.log('ALL_PASS')"));
   const start = Date.now();
   while (Date.now() - start < 8000) {
     const t = bg.get(task.id);
@@ -177,7 +181,7 @@ test("background_completed 输出 pattern 不匹配时不触发", async () => {
     undefined,
     (record) => sched.handleBackgroundCompleted(record),
   );
-  const task = bg.start('node -e "console.log(\'hello\')"');
+  const task = bg.start(nodeCommand("console.log('hello')"));
   const start = Date.now();
   while (Date.now() - start < 8000) {
     const t = bg.get(task.id);
@@ -209,7 +213,7 @@ test("后台任务完成可触发 event 触发器", async () => {
     undefined,
     (record) => sched.handleBackgroundCompleted(record),
   );
-  const task = bg.start('node -e "process.exit(0)"');
+  const task = bg.start(nodeCommand("process.exit(0)"));
   const start = Date.now();
   while (Date.now() - start < 8000) {
     const t = bg.get(task.id);

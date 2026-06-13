@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 
 import type { ModelRegistry } from "./model-registry.js";
+import { RouterModelEvaluator } from "./router-model-evaluator.js";
 import {
   RouterError,
   type RouterDecision,
@@ -9,9 +10,12 @@ import {
 } from "./types.js";
 
 export class DecisionEngine {
+  private readonly evaluator = new RouterModelEvaluator();
+
   constructor(private readonly registry: ModelRegistry) {}
 
   decide(rule: RuleRouteResult, input: RouterInput): RouterDecision {
+    // V3 RouterModelEvaluator will plug in before this point only when rules are uncertain.
     const now = new Date().toISOString();
     const base = {
       id: randomUUID(),
@@ -42,7 +46,10 @@ export class DecisionEngine {
     }
 
     let strategy = rule.preferredStrategy ?? "single_model";
-    if (input.forceSingleModel || input.allowCollaboration === false || input.qualityMode === "fast") {
+    if (
+      strategy !== "rule_only" &&
+      (input.forceSingleModel || input.allowCollaboration === false || input.qualityMode === "fast")
+    ) {
       strategy = "single_model";
     } else if (
       strategy === "local_draft_remote_review" &&
@@ -53,7 +60,13 @@ export class DecisionEngine {
     }
 
     if (strategy === "rule_only") {
-      throw new RouterError("RULE_ONLY_NOT_IMPLEMENTED", "rule_only 策略尚未实现");
+      return {
+        ...base,
+        source: "rule",
+        executionStrategy: "rule_only",
+        candidates: [],
+        reason: `${base.reason}；不调用模型`,
+      };
     }
 
     if (strategy === "single_model") {
@@ -61,13 +74,29 @@ export class DecisionEngine {
       if (primary.length === 0) {
         throw new RouterError("NO_AVAILABLE_MODEL", "没有可用模型满足当前任务要求");
       }
-      const pick = primary[0]!;
+      const evaluation = this.evaluator.evaluate({
+        routerInput: input,
+        rule,
+        candidates: primary,
+      });
+      let pick = primary[0]!;
+      let source: RouterDecision["source"] = "rule";
+      let reason = base.reason;
+      if (evaluation.shouldOverrideRule && evaluation.recommendedModelId) {
+        const override = primary.find((p) => p.id === evaluation.recommendedModelId);
+        if (override) {
+          pick = override;
+          source = "evaluator";
+          reason = `${base.reason}；V3 评估：${evaluation.reasons.join("，")}`;
+        }
+      }
       return {
         ...base,
-        source: "rule",
+        source,
         executionStrategy: "single_model",
         selectedModelId: pick.id,
         candidates: primary.map((p) => p.id),
+        reason,
       };
     }
 

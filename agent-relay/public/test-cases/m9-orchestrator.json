@@ -55,6 +55,36 @@
         "contentTypeIncludes": "text/html",
         "bodyIncludes": ["/api-spec.json", "AgentRelay", "data-url"]
       }
+    },
+    {
+      "id": "m9-run-report-missing",
+      "title": "不存在的 Run 报告返回 404",
+      "purpose": "确认 GET /api/runs/:id/report 在 Run 不存在时返回明确错误。",
+      "method": "GET",
+      "path": "/api/runs/00000000-0000-0000-0000-000000000000/report",
+      "input": {},
+      "expect": {
+        "status": 404,
+        "bodyHasKeys": ["error"]
+      }
+    },
+    {
+      "id": "m9-config-p3-capabilities",
+      "title": "配置暴露 P3 修复能力标记",
+      "purpose": "确认 startupRecovery、runReportExport、modelTokenStreaming、routerEvaluatorV3、costBudgetPerRun 等能力可探测。",
+      "method": "GET",
+      "path": "/api/config",
+      "input": {},
+      "expect": {
+        "status": 200,
+        "bodyPaths": {
+          "capabilities.startupRecovery": true,
+          "capabilities.runReportExport": true,
+          "capabilities.modelTokenStreaming": true,
+          "capabilities.routerEvaluatorV3": true,
+          "capabilities.costBudgetPerRun": true
+        }
+      }
     }
   ]
 }

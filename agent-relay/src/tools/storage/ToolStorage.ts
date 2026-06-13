@@ -1,7 +1,18 @@
 import { randomUUID } from "node:crypto";
+import { mkdirSync } from "node:fs";
 import { copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
+
+import {
+  applySqliteMigrations,
+  getSchemaInfo,
+  type SchemaInfo,
+} from "../../storage/sqliteMigration.js";
+import {
+  TOOLS_DB_MIGRATIONS,
+  TOOLS_DB_SCHEMA_VERSION,
+} from "../../storage/toolsDbMigrations.js";
 
 export interface FileChangeRecord {
   id: string;
@@ -37,68 +48,29 @@ export interface ToolLogRecord {
 export class ToolStorage {
   readonly dbPath: string;
   readonly backupsRoot: string;
+  readonly schemaVersion: number;
+  readonly schemaInfo: SchemaInfo;
   private readonly db: DatabaseSync;
 
   constructor(dataDir: string) {
     const agentData = path.join(dataDir, "agent_data");
     this.backupsRoot = path.join(agentData, "backups");
     this.dbPath = path.join(agentData, "tools.db");
-    mkdir(agentData, { recursive: true }).catch(() => {});
-    mkdir(this.backupsRoot, { recursive: true }).catch(() => {});
+    mkdirSync(agentData, { recursive: true });
+    mkdirSync(this.backupsRoot, { recursive: true });
 
     this.db = new DatabaseSync(this.dbPath);
     this.db.exec("PRAGMA journal_mode = WAL;");
-    this.migrate();
+    const { version } = applySqliteMigrations(this.db, TOOLS_DB_MIGRATIONS);
+    this.schemaVersion = version;
+    this.schemaInfo = getSchemaInfo(this.db);
+    if (version !== TOOLS_DB_SCHEMA_VERSION) {
+      throw new Error(`tools.db schema 版本异常：期望 ${TOOLS_DB_SCHEMA_VERSION}，实际 ${version}`);
+    }
   }
 
   close(): void {
     this.db.close();
-  }
-
-  private migrate(): void {
-    this.db.exec(`
-      CREATE TABLE IF NOT EXISTS tool_logs (
-        id TEXT PRIMARY KEY,
-        session_id TEXT,
-        request_id TEXT,
-        tool_name TEXT NOT NULL,
-        input_json TEXT,
-        output_json TEXT,
-        ok INTEGER NOT NULL,
-        error_code TEXT,
-        error_message TEXT,
-        started_at TEXT NOT NULL,
-        ended_at TEXT NOT NULL,
-        duration_ms INTEGER NOT NULL
-      );
-
-      CREATE TABLE IF NOT EXISTS file_changes (
-        id TEXT PRIMARY KEY,
-        session_id TEXT,
-        tool_name TEXT NOT NULL,
-        path TEXT NOT NULL,
-        before_hash TEXT,
-        after_hash TEXT,
-        backup_path TEXT,
-        diff TEXT,
-        created_at TEXT NOT NULL
-      );
-
-      CREATE TABLE IF NOT EXISTS backups (
-        id TEXT PRIMARY KEY,
-        reason TEXT,
-        created_at TEXT NOT NULL
-      );
-
-      CREATE TABLE IF NOT EXISTS backup_files (
-        id TEXT PRIMARY KEY,
-        backup_id TEXT NOT NULL,
-        original_path TEXT NOT NULL,
-        backup_path TEXT NOT NULL,
-        sha256 TEXT NOT NULL,
-        created_at TEXT NOT NULL
-      );
-    `);
   }
 
   /** 写入工具调用日志。 */

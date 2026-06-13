@@ -81,6 +81,32 @@
         "status": 404,
         "bodyHasKeys": ["error", "code"]
       }
+    },
+    {
+      "id": "m3-plan-config-smart-routing",
+      "title": "GET /api/config 暴露 plannerSmartRouting",
+      "purpose": "确认默认 Planner 已接入 SmartModelRouter + ModelRegistry，不再硬编码 taskType=reasoning。",
+      "method": "GET",
+      "path": "/api/config",
+      "input": {},
+      "expect": {
+        "status": 200,
+        "bodyPaths": {
+          "capabilities.plannerSmartRouting": true
+        }
+      }
+    },
+    {
+      "id": "m3-plan-draft-still-rejects-unknown-client",
+      "title": "POST /api/plans/draft 未知 clientName 仍走 forceClient",
+      "purpose": "确认显式 clientName 时 Planner 仍绕过 SmartModelRouter，直接绑定指定客户端。",
+      "method": "POST",
+      "path": "/api/plans/draft",
+      "input": { "goal": "生成计划", "clientName": "missing-client" },
+      "expect": {
+        "status": 404,
+        "bodyHasKeys": ["error"]
+      }
     }
   ]
 }

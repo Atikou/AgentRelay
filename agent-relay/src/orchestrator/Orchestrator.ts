@@ -90,6 +90,9 @@ export interface OrchestratorDeps {
 
   planService: PlanService;
 
+  /** 单次 Agent Run 费用上限（USD），来自 security.budget.maxCostUsdPerRun。 */
+  maxCostUsdPerRun?: number;
+
 }
 
 
@@ -831,7 +834,11 @@ export class Orchestrator {
     emit: (event: AgentStreamEvent) => void,
     makeChat?: LoopChatFn,
   ): Promise<void> {
-    const prepared = this.prepareAgentRun(body, makeChat, (step) => emit({ type: "step", step }));
+    const payload = (body ?? {}) as { streamTokens?: boolean };
+    const prepared = this.prepareAgentRun(body, makeChat, {
+      onStep: (step) => emit({ type: "step", step }),
+      onToken: payload.streamTokens ? (delta) => emit({ type: "token", delta }) : undefined,
+    });
     if ("error" in prepared) throw new Error(String((prepared.error.body as { error?: string }).error));
     const { ctx } = prepared;
 
@@ -1265,7 +1272,10 @@ export class Orchestrator {
   private prepareAgentRun(
     body: unknown,
     makeChat?: LoopChatFn,
-    onStep?: (step: AgentToolStep) => void,
+    callbacks?: {
+      onStep?: (step: AgentToolStep) => void;
+      onToken?: (delta: string) => void;
+    },
   ):
     | { error: ApiResult }
     | {
@@ -1336,7 +1346,9 @@ export class Orchestrator {
       runId: run.id,
       taskId: task.id,
       requestId: run.id,
-      onStep,
+      onStep: callbacks?.onStep,
+      onToken: callbacks?.onToken,
+      maxCostUsdPerRun: this.deps.maxCostUsdPerRun,
     });
 
     return {

@@ -43,16 +43,33 @@
       }
     },
     {
-      "id": "m0-api-docs-page",
-      "title": "API 参考页路由",
-      "purpose": "确认 GET /api-docs 返回交互参考 HTML，测试台「API 文档 ↗」入口依赖此路由。",
+      "id": "m0-config-schema-versions",
+      "title": "配置暴露 SQLite schema 版本",
+      "purpose": "确认 GET /api/config.schemaVersions 声明 memory.db / tools.db 迁移版本与已应用迁移名，便于持久化演进复查。",
       "method": "GET",
-      "path": "/api-docs",
+      "path": "/api/config",
       "input": null,
       "expect": {
         "status": 200,
-        "contentTypeIncludes": "text/html",
-        "bodyIncludes": ["/api-spec.json", "AgentRelay", "data-url"]
+        "bodyPaths": {
+          "schemaVersions.memory.version": 7,
+          "schemaVersions.memory.migrations": "array",
+          "schemaVersions.tools.version": 1
+        }
+      }
+    },
+    {
+      "id": "m0-config-sqlite-migrations-capability",
+      "title": "配置暴露 sqliteSchemaMigrations 能力",
+      "purpose": "确认 capabilities.sqliteSchemaMigrations=true，表示 schema_migrations 审计表已落地。",
+      "method": "GET",
+      "path": "/api/config",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyPaths": {
+          "capabilities.sqliteSchemaMigrations": true
+        }
       }
     }
   ]

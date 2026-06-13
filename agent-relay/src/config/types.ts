@@ -80,6 +80,12 @@ export const SecurityConfigSchema = z.object({
       allowCommands: z.array(z.string().min(1)).default([]),
     })
     .default({}),
+  budget: z
+    .object({
+      /** 单次 Agent Run 允许的最大估算费用（USD）；超出则中断循环。 */
+      maxCostUsdPerRun: z.number().positive().optional(),
+    })
+    .optional(),
 });
 export type SecurityConfig = z.infer<typeof SecurityConfigSchema>;
 

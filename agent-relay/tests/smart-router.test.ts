@@ -92,12 +92,12 @@ function test(name: string, fn: () => void) {
   tests.push({ name, fn });
 }
 
-test("你好 → single_model Level 1", () => {
+test("你好 → rule_only Level 0", () => {
   const d = router.route({ userInput: "你好" });
-  assert.equal(d.executionStrategy, "single_model");
+  assert.equal(d.executionStrategy, "rule_only");
   assert.equal(d.taskType, "casual_chat");
-  assert.equal(d.selectedLevel, 1);
-  assert.equal(d.selectedModelId, "local-small");
+  assert.equal(d.selectedLevel, 0);
+  assert.equal(d.selectedModelId, undefined);
 });
 
 test("记住我默认中文 → memory_write single_model", () => {

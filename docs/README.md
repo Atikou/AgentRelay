@@ -54,7 +54,14 @@ npm run docs:screenshots # 用无头浏览器截图到 docs/assets/
 
 ## 文档列表
 
-- [API 参考](API参考.md)：REST 接口总览、能力探测与交互式文档入口（`/api-docs`）。
+### 已完成 TodoList 归档
+
+进行中的任务清单在 `docs/*-TodoList.md`；**已全部结案**的见 [`completed/`](completed/README.md)（含登记表与复查指引）。
+
+- [修复 TodoList（已完成归档）](completed/修复TodoList.md)：架构审阅后续 P0–P3 修复项，已全部落地。
+
+### 进行中的 TodoList
+
 - [外部规范-TodoList索引](外部规范-TodoList索引.md)：**6 份外部规范**对应的完成度清单总览。
 - [Agent执行策略问题-TodoList](Agent执行策略问题-TodoList.md)：RunPolicy / executionMeta / PlanWorkflow 等。
 - [相关文件定位优化-TodoList](相关文件定位优化-TodoList.md)：TaskQueryAnalyzer、RelevantFileLocator、context_pack 与定位预算。
@@ -62,13 +69,16 @@ npm run docs:screenshots # 用无头浏览器截图到 docs/assets/
 - [模型路由规则配置-TodoList](模型路由规则配置-TodoList.md)：规则路由 V1。
 - [模型路由协作-TodoList](模型路由协作-TodoList.md)：draft_review 协作 V1。
 - [模型路由升级TodoList](模型路由升级TodoList.md)：V2 FallbackManager 及后续路线图。
-- [外部规范-TodoList索引](外部规范-TodoList索引.md)：**6 份外部规范**完成度总索引。
+- [项目问题修复TodoList](项目问题修复TodoList.md)：当前项目审阅问题按 P0/P1/P2 排序后的逐项修复清单。
+
+### 说明文档
+
+- [API 参考](API参考.md)：REST 接口总览、能力探测与交互式文档入口（`/api-docs`）。
 - [项目整体架构](项目整体架构.md)：分层设计、模块职责、关键调用链路、目录结构与里程碑路线图。
 - [编排与Run模型](编排与Run模型.md)：Orchestrator、统一 Run/Task、`GET /api/runs`。
 - [计划JSON与Markdown分离](计划JSON与Markdown分离.md)：InternalTaskPlan、PlanStore、预览与执行边界。
 - [计划体系分离](计划体系分离.md)：AgentStepPlan、UserVisiblePlan、ExecutableTaskPlan 三类计划边界与 analyze/compile 流程。
 - [计划JSON与Markdown分离-TodoList](计划JSON与Markdown分离-TodoList.md)：对照规范的完成度清单（查漏补缺用）。
-- [自审核记录](自审核记录.md)：每次任务结束后的自审核结论（最新在上），首次预览项目必读。
 - [工具系统](工具系统.md)：工具协议、内置工具、权限/风险/沙箱安全机制与 HTTP 接口。
 - [对话循环](对话循环.md)：M1 自主对话循环（ReAct JSON 协议、工具调用闭环、安全边界）。
 - [后台任务与通知队列](后台任务与通知队列.md)：M4 长时间命令后台运行、完成通知与安全点消费。
@@ -78,5 +88,6 @@ npm run docs:screenshots # 用无头浏览器截图到 docs/assets/
 - [定时与事件触发](定时与事件触发.md)：M8 触发器调度、通知队列投递与后台完成事件。
 - [测试用例](测试用例.md)：测试台内置/自定义 API 用例，输入·期望·实际三列比对。
 - [接入本地模型](接入本地模型.md)：本地模型（Ollama / LM Studio / vLLM）的接入流程、配置与使用。
-- [模型路由与协作](模型路由与协作.md)：规则路由、`routerProfile` 等级、单任务草拟+审查协作与日志表。
-- [模型路由升级 TodoList](模型路由升级TodoList.md)：**V1→V9 升级路线图扫描结论**与下一阶段任务清单（当前建议 V2 FallbackManager）；改路由前必读。
+- [模型路由与协作](模型路由与协作.md)：规则路由、`routerProfile` 等级、单任务草拟+审查协作与日志表；**含双轨路由边界**（`ModelRouter` vs `SmartModelRouter`）。
+- [模型路由升级 TodoList](模型路由升级TodoList.md)：**V1→V9 升级路线图扫描结论**与下一阶段任务清单；改路由前必读。
+- [自审核记录](自审核记录.md)：每次任务结束后的自审核结论（最新在上），首次预览项目必读。

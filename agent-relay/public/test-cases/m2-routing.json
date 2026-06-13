@@ -189,6 +189,114 @@
       }
     },
     {
+      "id": "m2-routing-panel-entry-documented",
+      "title": "测试台提供模型路由日志入口",
+      "purpose": "确认主测试台已提供模型路由日志面板入口，便于人工查看最近决策与 fallback 链。",
+      "method": "GET",
+      "path": "/",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "contentTypeIncludes": "text/html"
+      }
+    },
+    {
+      "id": "m2-routing-doc-panel-status",
+      "title": "模型路由文档说明测试台面板",
+      "purpose": "确认模型路由文档已从“面板待做”更新为可通过测试台查看最近决策。",
+      "method": "GET",
+      "path": "/api/docs/content?slug=模型路由与协作",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyPaths": {
+          "markdown": "string"
+        }
+      }
+    },
+    {
+      "id": "m2-routing-doc-dual-track",
+      "title": "模型路由文档说明双轨边界",
+      "purpose": "确认文档已统一 ModelRouter（客户端 fallback）与 SmartModelRouter（任务策略）职责，避免改错层。",
+      "method": "GET",
+      "path": "/api/docs/content?slug=模型路由与协作",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyIncludes": ["双轨路由边界", "ModelRouter", "SmartModelRouter", "连通性 fallback"]
+      }
+    },
+    {
+      "id": "m2-routing-arch-doc-dual-track",
+      "title": "架构文档引用双轨边界",
+      "purpose": "确认项目整体架构图与模块表已更新为 Smart 默认路径，并链到双轨边界说明。",
+      "method": "GET",
+      "path": "/api/docs/content?slug=项目整体架构",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyIncludes": ["SmartModelRouter", "双轨", "ModelRouter"]
+      }
+    },
+    {
+      "id": "m2-routing-doc-evaluator-stubs",
+      "title": "模型路由文档说明 V3/V4 评估器状态",
+      "purpose": "确认文档区分 V3 已部分接入与 AnswerEvaluator 仍为 stub，避免误以为全量自动路由已启用。",
+      "method": "GET",
+      "path": "/api/docs/content?slug=模型路由与协作",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyIncludes": ["RouterModelEvaluator", "AnswerEvaluator"]
+      }
+    },
+    {
+      "id": "m2-routing-upgrade-todo-evaluator-stubs",
+      "title": "升级 TodoList 登记评估器 stub",
+      "purpose": "确认升级清单已登记 V3/V4 预留接口，后续实现 RouterModelEvaluator 时不会误以为运行时已启用。",
+      "method": "GET",
+      "path": "/api/docs/content?slug=模型路由升级TodoList",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyPaths": {
+          "markdown": "string"
+        }
+      }
+    },
+    {
+      "id": "m2-chat-rule-only-greeting",
+      "title": "短问候 rule_only 不调用模型",
+      "purpose": "确认 POST /api/chat 对「你好」等短问候走 Level 0 规则直答，executionStrategy=rule_only 且无 model 调用延迟。",
+      "method": "POST",
+      "path": "/api/chat",
+      "input": {
+        "message": "你好",
+        "persist": false
+      },
+      "expect": {
+        "status": 200,
+        "bodyPaths": {
+          "executionStrategy": "rule_only",
+          "content": "string"
+        }
+      }
+    },
+    {
+      "id": "m2-config-rule-only-capability",
+      "title": "配置暴露 ruleOnlyRouting 能力",
+      "purpose": "确认 GET /api/config 声明 Level 0 规则直答已落地，便于测试台与集成方探测。",
+      "method": "GET",
+      "path": "/api/config",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyPaths": {
+          "capabilities.ruleOnlyRouting": true
+        }
+      }
+    },
+    {
       "id": "m2-chat-task-type-invalid",
       "title": "无效 taskType 返回 400",
       "purpose": "边界：非法 taskType 应在编排层校验并 400，避免静默忽略。",

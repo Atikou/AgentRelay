@@ -48,6 +48,8 @@ export interface ChatRequest {
   temperature?: number;
   maxTokens?: number;
   signal?: AbortSignal;
+  /** 流式输出时每收到一段文本回调（由支持 streaming 的 ModelClient 消费）。 */
+  onToken?: (delta: string) => void;
 }
 
 export interface ModelResponse {

@@ -388,7 +388,8 @@ test("shell_run 遵守 allowCommands 策略", async () => {
 
 test("shell_run 安全命令 exitCode 0", async () => {
   const r = reg();
-  const res = await r.run("shell_run", { command: 'node -e "console.log(42)"' }, await ctx());
+  const nodeCmd = `"${process.execPath}" -e "console.log(42)"`;
+  const res = await r.run("shell_run", { command: nodeCmd }, await ctx());
   assert.equal(res.ok, true);
   assert.equal((res as { output: { exitCode: number } }).output.exitCode, 0);
   assert.match((res as { output: { stdout: string } }).output.stdout, /42/);

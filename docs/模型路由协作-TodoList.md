@@ -23,7 +23,7 @@
 | §22 验收标准 | 11 | 1 | 0 |
 | **合计** | **83** | **10** | **6** |
 
-**结论**：规范要求的 **single_model + local_draft_remote_review** 协作链已闭环；缺口：`rule_only`、启动 profile 校验、messages 污染集成测试、路由 HTTP 可观测、统一 FallbackManager。
+**结论**：规范要求的 **single_model + local_draft_remote_review + rule_only** 协作链已闭环；`GET /api/routing/logs` 与统一 FallbackManager 已落地；剩余缺口：部分旧清单验收项待复核。
 
 ---
 
@@ -55,7 +55,7 @@
 
 - [x] `single_model`
 - [x] `local_draft_remote_review`
-- [ ] `rule_only` — 类型有，`DecisionEngine` 抛 `RULE_ONLY_NOT_IMPLEMENTED`
+- [x] `rule_only` — Level 0 短问候/致谢规则直答（`rule-only-responses.ts`）
 - [ ] `strong_model_direct` — 升级路线图有，协作规范未强制；**未单独实现**
 
 ---
@@ -81,8 +81,8 @@
 - [x] local 档 `canDraft=true`、`canReview=false`
 - [x] api-general / api-strong `canReview=true`
 - [x] api-strong `supportsVision=true`
-- [~] 配置校验：至少一个可用 final 模型 — `validateModelProfiles` 未在启动调用
-- [~] 配置校验：启用协作时至少 draft + review — 同上
+- [x] 配置校验：至少一个可用 final 模型 — `validateModelProfiles` 已在启动时 warn
+- [x] 配置校验：启用协作时至少 draft + review — 同上
 
 ---
 
@@ -157,7 +157,7 @@
 - [x] 记录 modelId、role、status、durationMs
 - [x] 协作 verdict、confidence、issues（collaboration run finish）
 - [x] Chat 响应 debug 含 routerDecision、collaborationRunId
-- [ ] `GET /api/routing/logs` HTTP 查询
+- [x] `GET /api/routing/logs` HTTP 查询
 
 ---
 
@@ -224,7 +224,7 @@
 
 ## 5. 建议后续补齐（非本文规范 P0，但影响闭环）
 
-- [ ] 实现或移除 `rule_only`（记忆 Level 0 规则直处理）
+- [x] `rule_only` 短问候 Level 0 — 记忆类仍走 Level 1 单模型（后续可扩展）
 - [ ] `validateModelProfiles()` 启动校验
 - [ ] `tests/collaboration-integration.test.ts`：messages 表仅 1 条 assistant
 - [ ] FallbackManager 统一 DraftReview 内零散 catch

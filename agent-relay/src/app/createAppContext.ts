@@ -28,6 +28,8 @@ import {
   buildModelProfiles,
   CollaborationRunStore,
   createModelChatFn,
+  createAgentChatFn,
+  createPlannerChatFn,
   ModelCallLogStore,
   ModelRegistry,
   RouteLogStore,
@@ -36,6 +38,7 @@ import {
   FallbackLogStore,
   validateModelProfiles,
 } from "../model-router/index.js";
+import { recoverOnStartup, type StartupRecoverySummary } from "./startupRecovery.js";
 import { TraceLogger } from "../trace/TraceLogger.js";
 
 export interface AppPaths {
@@ -74,6 +77,8 @@ export class AppContext {
   readonly modelCallLogStore: ModelCallLogStore;
   readonly collaborationRunStore: CollaborationRunStore;
   readonly fallbackLogStore: FallbackLogStore;
+  private readonly defaultAgentChat: LoopChatFn;
+  readonly startupRecovery?: StartupRecoverySummary;
 
   constructor(opts: {
     profile: string;
@@ -100,6 +105,8 @@ export class AppContext {
     modelCallLogStore: ModelCallLogStore;
     collaborationRunStore: CollaborationRunStore;
     fallbackLogStore: FallbackLogStore;
+    defaultAgentChat: LoopChatFn;
+    startupRecovery?: StartupRecoverySummary;
   }) {
     this.profile = opts.profile;
     this.config = opts.config;
@@ -125,15 +132,20 @@ export class AppContext {
     this.modelCallLogStore = opts.modelCallLogStore;
     this.collaborationRunStore = opts.collaborationRunStore;
     this.fallbackLogStore = opts.fallbackLogStore;
+    this.defaultAgentChat = opts.defaultAgentChat;
+    this.startupRecovery = opts.startupRecovery;
   }
 
   makeChatFn(forceClient?: string): LoopChatFn {
-    return (req, opts) =>
-      this.modelRouter.chat(req, {
-        sensitive: opts?.sensitive,
-        taskType: opts?.taskType,
-        ...(forceClient ? { forceClient } : {}),
-      });
+    if (forceClient) {
+      return (req, opts) =>
+        this.modelRouter.chat(req, {
+          sensitive: opts?.sensitive,
+          taskType: opts?.taskType,
+          forceClient,
+        });
+    }
+    return this.defaultAgentChat;
   }
 
   subAgentCoordinatorFor(forceClient?: string): SubAgentCoordinator {
@@ -184,7 +196,34 @@ export class AppContext {
         toolStorageRedaction: true,
         highRiskConfirmation: true,
         localFirstPrivacyMode: true,
+        plannerSmartRouting: true,
+        agentSmartRouting: true,
+        subAgentSmartRouting: true,
+        startupRecovery: true,
+        runReportExport: true,
+        modelTokenStreaming: true,
+        routerEvaluatorV3: true,
+        costBudgetPerRun: true,
+        ruleOnlyRouting: true,
+        sqliteSchemaMigrations: true,
       },
+      schemaVersions: {
+        memory: {
+          path: this.contextManager.db.dbPath,
+          version: this.contextManager.db.schemaVersion,
+          migrations: this.contextManager.db.schemaInfo.migrations.map((m) => m.name),
+        },
+        tools: (() => {
+          const storage = this.registry.getStorage();
+          if (!storage) return undefined;
+          return {
+            path: storage.dbPath,
+            version: storage.schemaVersion,
+            migrations: storage.schemaInfo.migrations.map((m) => m.name),
+          };
+        })(),
+      },
+      startupRecovery: this.startupRecovery,
     };
   }
 
@@ -279,7 +318,6 @@ export function createAppContext(): AppContext {
     pricing,
   });
 
-  const planner = new Planner((request, opts) => modelRouter.chat(request, opts));
   const registry = createDefaultRegistry({ trace, dataDir, shellPolicy });
   const contextManager = new ContextManager({ dataDir, useLanceDb: true });
   const runs = new RunStore(contextManager.db);
@@ -296,6 +334,10 @@ export function createAppContext(): AppContext {
   const fallbackManager = new FallbackManager(profileRegistry);
   const smartModelRouter = new SmartModelRouter(profileRegistry, routeLogStore);
   const modelChatFn = createModelChatFn(clientMap, modelCallLogStore, trace);
+  const defaultAgentChat = createAgentChatFn({ smartRouter: smartModelRouter, modelChatFn });
+  const planner = new Planner(
+    createPlannerChatFn({ smartRouter: smartModelRouter, modelChatFn }),
+  );
   const modelOrchestrator = new ModelOrchestrator(
     modelChatFn,
     collaborationRunStore,
@@ -303,16 +345,18 @@ export function createAppContext(): AppContext {
     fallbackLogStore,
   );
 
-  const makeChatFn = (forceClient?: string): LoopChatFn => (req, opts) =>
-    modelRouter.chat(req, {
-      sensitive: opts?.sensitive,
-      taskType: opts?.taskType,
-      ...(forceClient ? { forceClient } : {}),
-    });
+  const makeChatFn = (forceClient?: string): LoopChatFn =>
+    forceClient
+      ? (req, opts) =>
+          modelRouter.chat(req, {
+            sensitive: opts?.sensitive,
+            taskType: opts?.taskType,
+            forceClient,
+          })
+      : defaultAgentChat;
 
   const subAgentCoordinator = new SubAgentCoordinator({
-    chat: (req, opts) =>
-      modelRouter.chat(req, { sensitive: opts?.sensitive, taskType: opts?.taskType }),
+    chat: defaultAgentChat,
     registry,
     workspaceRoot,
     trace,
@@ -347,11 +391,7 @@ export function createAppContext(): AppContext {
     subAgentCoordinator,
     subAgentCoordinatorFor: (forceClient) =>
       new SubAgentCoordinator({
-        chat: (req, opts) =>
-          modelRouter.chat(req, {
-            sensitive: opts?.sensitive,
-            ...(forceClient ? { forceClient } : {}),
-          }),
+        chat: makeChatFn(forceClient),
         registry,
         workspaceRoot,
         trace,
@@ -359,6 +399,7 @@ export function createAppContext(): AppContext {
     smartModelRouter,
     modelOrchestrator,
     planService,
+    maxCostUsdPerRun: config.security?.budget?.maxCostUsdPerRun,
   });
   orchestratorHolder.current = orchestrator;
 
@@ -378,6 +419,8 @@ export function createAppContext(): AppContext {
       });
     }
   });
+
+  const startupRecovery = recoverOnStartup({ runs, notificationQueue, trace });
 
   const app = new AppContext({
     profile,
@@ -404,7 +447,14 @@ export function createAppContext(): AppContext {
     modelCallLogStore,
     collaborationRunStore,
     fallbackLogStore,
+    defaultAgentChat,
+    startupRecovery,
   });
+  if (startupRecovery.interruptedRuns > 0 || startupRecovery.pendingNotifications > 0) {
+    console.warn(
+      `[startupRecovery] interruptedRuns=${startupRecovery.interruptedRuns} pendingNotifications=${startupRecovery.pendingNotifications}`,
+    );
+  }
   scheduler.start();
   if (schedCfg?.dailySummaryCron && schedCfg.dailySummaryGoal) {
     const hasDaily = scheduler.list().some((t) => t.name === "__daily_summary__");

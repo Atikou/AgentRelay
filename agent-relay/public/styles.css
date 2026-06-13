@@ -742,6 +742,31 @@ textarea#message-input::placeholder {
   border-color: color-mix(in srgb, var(--danger) 35%, transparent);
 }
 
+.routing-log-panel .tool-row {
+  align-items: stretch;
+}
+
+.routing-limit-input {
+  flex: 0 0 110px;
+  min-width: 110px;
+}
+
+.routing-session-input {
+  min-width: min(100%, 260px);
+}
+
+.routing-log-table code {
+  font-size: 11px;
+}
+
+.routing-log-table .action-btn {
+  padding: 4px 10px;
+}
+
+.routing-log-details {
+  max-height: 420px;
+}
+
 /* 测试用例面板 */
 .test-panel {
   width: 100%;
