@@ -248,6 +248,7 @@ export class AppContext {
         toolResultLayers: true,
         runStateStore: true,
         projectIndex: true,
+        symbolSearch: true,
         costBudgetPerRun: true,
         ruleOnlyRouting: true,
         sqliteSchemaMigrations: true,

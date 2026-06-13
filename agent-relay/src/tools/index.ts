@@ -18,6 +18,7 @@ import {
   contextPackTool,
   locateRelevantFilesTool,
   projectScanTool,
+  symbolSearchTool,
 } from "./locationTools.js";
 import { shellRunTool } from "./shellTool.js";
 import { ToolStorage } from "./storage/ToolStorage.js";
@@ -37,7 +38,7 @@ export {
   rollbackChangeTool,
 } from "./fileTools.js";
 export { gitStatusTool, gitDiffTool } from "./gitTools.js";
-export { projectScanTool, locateRelevantFilesTool, contextPackTool } from "./locationTools.js";
+export { projectScanTool, locateRelevantFilesTool, contextPackTool, symbolSearchTool } from "./locationTools.js";
 export { shellRunTool } from "./shellTool.js";
 export { ToolStorage } from "./storage/ToolStorage.js";
 export { ToolRegistry, type RegistryRunContext } from "./ToolRegistry.js";
@@ -66,6 +67,7 @@ export const BUILTIN_TOOLS = [
   projectScanTool,
   locateRelevantFilesTool,
   contextPackTool,
+  symbolSearchTool,
 ];
 
 export interface CreateRegistryOptions {

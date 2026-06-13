@@ -18,6 +18,18 @@ export interface ProjectSymbolRecord {
   line: number;
 }
 
+export type SymbolSearchMatchMode = "exact" | "prefix" | "contains";
+
+export interface SymbolSearchQueryInput {
+  projectId: string;
+  workspaceRoot: string;
+  queries: string[];
+  match?: SymbolSearchMatchMode;
+  kinds?: string[];
+  pathPrefix?: string;
+  limit?: number;
+}
+
 export interface ProjectIndexStats {
   projectId: string;
   workspaceRoot: string;

@@ -142,6 +142,58 @@ test("extractSymbolsFromContent 提取 class 定义", () => {
   assert.ok(symbols.some((s) => s.symbol === "bar" && s.kind === "function"));
 });
 
+test("searchSymbolsQuery 支持 prefix 匹配", async () => {
+  const { dataDir, root, cleanup } = tempWorkspace();
+  const dbm = new DatabaseManager(dataDir);
+  const index = new ProjectIndex(dbm);
+  try {
+    mkdirSync(path.join(root, "src"), { recursive: true });
+    writeFileSync(path.join(root, "src", "PlanCompiler.ts"), "export class PlanCompiler {}\n", "utf-8");
+    writeFileSync(path.join(root, "src", "PlanRunner.ts"), "export class PlanRunner {}\n", "utf-8");
+    await index.syncFiles({
+      projectId: "default",
+      workspaceRoot: root,
+      files: [
+        {
+          path: "src/PlanCompiler.ts",
+          fileName: "PlanCompiler.ts",
+          extension: ".ts",
+          sizeBytes: 64,
+          modifiedAt: new Date().toISOString(),
+          mtimeMs: Date.now(),
+          contentHash: "hash-c",
+          language: "typescript",
+          tags: ["source"],
+        },
+        {
+          path: "src/PlanRunner.ts",
+          fileName: "PlanRunner.ts",
+          extension: ".ts",
+          sizeBytes: 64,
+          modifiedAt: new Date().toISOString(),
+          mtimeMs: Date.now(),
+          contentHash: "hash-r",
+          language: "typescript",
+          tags: ["source"],
+        },
+      ],
+      extractSymbols: true,
+    });
+    const hits = index.searchSymbolsQuery({
+      projectId: "default",
+      workspaceRoot: root,
+      queries: ["Plan"],
+      match: "prefix",
+      limit: 10,
+    });
+    assert.ok(hits.some((h) => h.symbol === "PlanCompiler"));
+    assert.ok(hits.some((h) => h.symbol === "PlanRunner"));
+  } finally {
+    dbm.close();
+    cleanup();
+  }
+});
+
 let passed = 0;
 let failed = 0;
 for (const { name, fn } of tests) {

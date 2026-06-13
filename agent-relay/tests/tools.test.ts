@@ -50,6 +50,7 @@ const EXPECTED_TOOLS = [
   "rollback_change",
   "search_text",
   "shell_run",
+  "symbol_search",
   "write_file",
 ];
 
@@ -118,6 +119,62 @@ test("locate_relevant_files 根据目标返回 primaryFiles", async () => {
   const out = (res as { output: { primaryFiles: Array<{ path: string }>; confidence: number } }).output;
   assert.ok(out.primaryFiles.some((f) => f.path === "src/plan/PlanCompiler.ts"));
   assert.ok(out.confidence > 0);
+});
+
+test("symbol_search 无索引时从文件系统命中符号", async () => {
+  const r = reg();
+  await r.run(
+    "write_file",
+    {
+      path: "src/plan/PlanCompiler.ts",
+      content: "export class PlanCompiler {}\nexport function compilePlan() {}\n",
+      backup: false,
+    },
+    await ctx(),
+  );
+  const res = await r.run("symbol_search", { query: "PlanCompiler" }, await ctx());
+  assert.equal(res.ok, true);
+  const out = (res as {
+    output: {
+      indexSource: string;
+      symbols: Array<{ symbol: string; filePath: string }>;
+    };
+  }).output;
+  assert.equal(out.indexSource, "filesystem");
+  assert.ok(out.symbols.some((s) => s.symbol === "PlanCompiler" && s.filePath.includes("PlanCompiler.ts")));
+});
+
+test("symbol_search 优先使用 ProjectIndex", async () => {
+  const { DatabaseManager } = await import("../src/context/DatabaseManager.js");
+  const { ProjectIndex } = await import("../src/context/ProjectIndex.js");
+  const dbm = new DatabaseManager(dataDir);
+  const projectIndex = new ProjectIndex(dbm);
+  const r = reg();
+  r.setDefaultContext({ projectIndex });
+  try {
+    await r.run(
+      "write_file",
+      { path: "src/agent/AgentLoop.ts", content: "export class AgentLoop {}\n", backup: false },
+      await ctx(),
+    );
+    await r.run("project_scan", { root: ".", maxDepth: 4 }, await ctx());
+    const res = await r.run("symbol_search", { query: "AgentLoop", kinds: ["class"] }, await ctx());
+    assert.equal(res.ok, true);
+    const out = (res as {
+      output: { indexSource: string; symbols: Array<{ symbol: string; kind: string }> };
+    }).output;
+    assert.equal(out.indexSource, "project_index");
+    assert.ok(out.symbols.some((s) => s.symbol === "AgentLoop" && s.kind === "class"));
+  } finally {
+    dbm.close();
+  }
+});
+
+test("symbol_search 缺少 query 与 symbols 时校验失败", async () => {
+  const r = reg();
+  const res = await r.run("symbol_search", {}, await ctx());
+  assert.equal(res.ok, false);
+  assert.equal((res as { code: string }).code, "invalid_input");
 });
 
 test("locate_relevant_files 在已有 ProjectIndex 时复用索引", async () => {

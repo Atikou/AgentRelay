@@ -73,7 +73,7 @@
 - [x] 返回 `needsMoreSearch` 与 `stopReason`。
 - [x] 返回定位统计 `locateStats`。
 - [x] 已接入持久化 ProjectIndex（`project_scan` 写入、`locate_relevant_files` 复用）。
-- [ ] 尚未接入独立 symbol_search 工具。
+- [x] 尚未接入独立 symbol_search 工具。
 
 **验收**：已可一次性定位相关文件；索引与符号搜索待补。
 
@@ -142,7 +142,7 @@
 
 ## 4. P3：高级能力
 
-- [ ] 独立 `symbol_search` 工具。
+- [x] 独立 `symbol_search` 工具。
 - [ ] 模块依赖图。
 - [ ] import/export 关系分析。
 - [ ] 基于 LanceDB 的语义文件定位。
@@ -157,8 +157,8 @@
 | `project_scan` | [x] | 轻量扫描项目结构与配置 |
 | `locate_relevant_files` | [x] | 生成 SearchPlan、候选排序、定位统计 |
 | `context_pack` | [x] | 多文件上下文打包 |
-| `symbol_search` | [ ] | 尚未独立实现 |
-| `project_index_update` | [ ] | 尚未实现 |
+| `symbol_search` | [x] | 优先查 ProjectIndex，回退文件系统符号提取 |
+| `project_index_update` | [ ] | 尚未实现（`project_scan` 已会增量写入索引） |
 
 ---
 

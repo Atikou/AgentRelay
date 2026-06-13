@@ -7,6 +7,7 @@ import type {
   ProjectIndexStats,
   ProjectIndexSyncResult,
   ProjectSymbolRecord,
+  SymbolSearchQueryInput,
 } from "./projectIndexTypes.js";
 
 const CODE_EXTENSIONS = new Set([".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"]);
@@ -81,32 +82,78 @@ export class ProjectIndex {
     workspaceRoot: string,
     names: string[],
   ): ProjectSymbolRecord[] {
-    const normalizedRoot = normalizeRoot(workspaceRoot);
-    const lowered = [...new Set(names.map((n) => n.trim()).filter(Boolean))];
-    if (!lowered.length) return [];
+    return this.searchSymbolsQuery({
+      projectId,
+      workspaceRoot,
+      queries: names,
+      match: "exact",
+    });
+  }
+
+  searchSymbolsQuery(input: SymbolSearchQueryInput): ProjectSymbolRecord[] {
+    const normalizedRoot = normalizeRoot(input.workspaceRoot);
+    const queries = [...new Set(input.queries.map((q) => q.trim()).filter(Boolean))];
+    if (!queries.length) return [];
+
+    const match = input.match ?? "exact";
+    const limit = Math.max(1, input.limit ?? 50);
+    const kinds = input.kinds?.map((k) => k.toLowerCase());
+    const pathPrefix = input.pathPrefix?.replace(/\\/g, "/");
     const hits: ProjectSymbolRecord[] = [];
-    const stmt = this.db.connection.prepare(
-      `SELECT file_path, symbol, kind, line
-       FROM project_symbols
-       WHERE project_id=? AND workspace_root=? AND lower(symbol)=?`,
-    );
-    for (const name of lowered) {
-      const rows = stmt.all(projectId, normalizedRoot, name.toLowerCase()) as Array<{
+    const seen = new Set<string>();
+
+    for (const query of queries) {
+      const lower = query.toLowerCase();
+      let sql = `SELECT file_path, symbol, kind, line
+                 FROM project_symbols
+                 WHERE project_id=? AND workspace_root=?`;
+      const params: Array<string | number> = [input.projectId, normalizedRoot];
+
+      if (match === "exact") {
+        sql += " AND lower(symbol)=?";
+        params.push(lower);
+      } else if (match === "prefix") {
+        sql += " AND lower(symbol) LIKE ?";
+        params.push(`${lower}%`);
+      } else {
+        sql += " AND lower(symbol) LIKE ?";
+        params.push(`%${lower}%`);
+      }
+
+      if (pathPrefix) {
+        sql += " AND file_path LIKE ?";
+        params.push(`${pathPrefix}%`);
+      }
+      if (kinds?.length) {
+        sql += ` AND lower(kind) IN (${kinds.map(() => "?").join(",")})`;
+        params.push(...kinds);
+      }
+
+      sql += " ORDER BY symbol, file_path LIMIT ?";
+      params.push(limit);
+
+      const rows = this.db.connection.prepare(sql).all(...params) as Array<{
         file_path: string;
         symbol: string;
         kind: string;
         line: number;
       }>;
+
       for (const row of rows) {
+        const key = `${row.file_path}:${row.symbol}:${row.line}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
         hits.push({
           filePath: row.file_path,
           symbol: row.symbol,
           kind: row.kind,
           line: row.line,
         });
+        if (hits.length >= limit) return hits;
       }
     }
-    return hits;
+
+    return hits.slice(0, limit);
   }
 
   async syncFiles(input: {

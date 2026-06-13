@@ -14,6 +14,7 @@ const UNTRUSTED_TOOLS = new Set([
   "list_files",
   "project_scan",
   "locate_relevant_files",
+  "symbol_search",
   "context_pack",
   "notification",
 ]);

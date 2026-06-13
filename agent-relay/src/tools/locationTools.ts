@@ -4,8 +4,11 @@ import path from "node:path";
 import { z } from "zod";
 
 import type { ProjectIndex } from "../context/ProjectIndex.js";
-import { projectFileToScanMeta } from "../context/ProjectIndex.js";
-import type { ProjectFileRecord } from "../context/projectIndexTypes.js";
+import {
+  extractSymbolsForFile,
+  projectFileToScanMeta,
+} from "../context/ProjectIndex.js";
+import type { ProjectFileRecord, SymbolSearchMatchMode } from "../context/projectIndexTypes.js";
 import { DEFAULT_IGNORED_DIRS, DEFAULT_READ_MAX_BYTES } from "./constants.js";
 import { resolveInsideWorkspace, shouldIgnoreDir } from "./pathSafe.js";
 import type { Tool, ToolContext } from "./types.js";
@@ -159,6 +162,32 @@ const contextPackInputSchema = z.object({
   includeSummaries: z.boolean().default(true),
   includeImportantSections: z.boolean().default(true),
 });
+
+const symbolKindSchema = z.enum(["class", "function", "interface", "type", "const", "enum"]);
+
+const symbolSearchInputSchema = z
+  .object({
+    projectId: z.string().default("default"),
+    query: z.string().optional(),
+    symbols: z.array(z.string()).optional(),
+    match: z.enum(["exact", "prefix", "contains"]).default("exact"),
+    kinds: z.array(symbolKindSchema).optional(),
+    root: z.string().default("."),
+    pathPrefix: z.string().optional(),
+    maxDepth: z.number().int().min(1).max(10).default(6),
+    scanLimit: z.number().int().positive().max(2000).default(500),
+    limit: z.number().int().positive().max(100).default(30),
+  })
+  .superRefine((value, ctx) => {
+    const hasQuery = Boolean(value.query?.trim());
+    const hasSymbols = Boolean(value.symbols?.length);
+    if (!hasQuery && !hasSymbols) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "query 或 symbols 至少提供一个",
+      });
+    }
+  });
 
 export function analyzeTaskQuery(goal: string, mode?: string): SearchPlan {
   const rawTokens = [...goal.matchAll(/[A-Za-z_][A-Za-z0-9_]{2,}|[\u4e00-\u9fa5]{2,}/g)].map((m) => m[0]);
@@ -430,6 +459,102 @@ export const locateRelevantFilesTool: Tool<
             ).length,
           }
         : undefined,
+    };
+  },
+};
+
+export const symbolSearchTool: Tool<
+  typeof symbolSearchInputSchema,
+  {
+    projectId: string;
+    queries: string[];
+    symbols: Array<{
+      symbol: string;
+      kind: string;
+      filePath: string;
+      line: number;
+      matchType: SymbolSearchMatchMode;
+    }>;
+    indexSource: "project_index" | "filesystem" | "mixed";
+    truncated: boolean;
+    indexStats?: { fileCount: number; symbolCount: number };
+  }
+> = {
+  name: "symbol_search",
+  description:
+    "按类名/函数名/类型名搜索符号定义位置；优先查 ProjectIndex，索引未命中时回退扫描源码。",
+  permission: "read",
+  hasSideEffect: false,
+  timeoutMs: 20_000,
+  inputSchema: symbolSearchInputSchema,
+  async execute(input, ctx) {
+    const queries = unique([
+      ...(input.symbols ?? []),
+      ...(input.query?.trim() ? [input.query.trim()] : []),
+    ]);
+    const limit = input.limit;
+    const pathPrefix = input.pathPrefix?.replace(/\\/g, "/");
+
+    let indexHits: Array<{
+      symbol: string;
+      kind: string;
+      filePath: string;
+      line: number;
+      matchType: SymbolSearchMatchMode;
+    }> = [];
+    let indexStats: { fileCount: number; symbolCount: number } | undefined;
+
+    if (ctx.projectIndex) {
+      const stats = ctx.projectIndex.getStats(input.projectId, ctx.workspaceRoot);
+      indexStats = { fileCount: stats.fileCount, symbolCount: stats.symbolCount };
+      if (stats.symbolCount > 0) {
+        indexHits = ctx.projectIndex
+          .searchSymbolsQuery({
+            projectId: input.projectId,
+            workspaceRoot: ctx.workspaceRoot,
+            queries,
+            match: input.match,
+            kinds: input.kinds,
+            pathPrefix,
+            limit,
+          })
+          .map((hit) => ({ ...hit, matchType: input.match }));
+      }
+    }
+
+    let filesystemHits: typeof indexHits = [];
+    let truncated = false;
+    if (indexHits.length < limit) {
+      const scanned = await searchSymbolsFilesystem(ctx, {
+        queries,
+        match: input.match,
+        kinds: input.kinds,
+        root: input.root,
+        pathPrefix,
+        maxDepth: input.maxDepth,
+        scanLimit: input.scanLimit,
+        limit: limit - indexHits.length,
+        excludePaths: new Set(indexHits.map((h) => `${h.filePath}:${h.symbol}:${h.line}`)),
+      });
+      filesystemHits = scanned.hits;
+      truncated = scanned.truncated;
+    }
+
+    const merged = mergeSymbolHits(indexHits, filesystemHits, limit);
+    const indexSource: "project_index" | "filesystem" | "mixed" =
+      indexHits.length > 0 && filesystemHits.length > 0
+        ? "mixed"
+        : indexHits.length > 0
+          ? "project_index"
+          : "filesystem";
+
+    return {
+      projectId: input.projectId,
+      queries,
+      symbols: merged,
+      indexSource,
+      truncated,
+      indexStats,
     };
   },
 };
@@ -828,6 +953,105 @@ function fileMetaToProjectRecord(file: ProjectFileMeta): ProjectFileRecord {
     language: file.language,
     tags: file.tags,
   };
+}
+
+const SYMBOL_CODE_EXTENSIONS = new Set([".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"]);
+
+type SymbolSearchHit = {
+  symbol: string;
+  kind: string;
+  filePath: string;
+  line: number;
+  matchType: SymbolSearchMatchMode;
+};
+
+async function searchSymbolsFilesystem(
+  ctx: ToolContext,
+  input: {
+    queries: string[];
+    match: SymbolSearchMatchMode;
+    kinds?: string[];
+    root: string;
+    pathPrefix?: string;
+    maxDepth: number;
+    scanLimit: number;
+    limit: number;
+    excludePaths: Set<string>;
+  },
+): Promise<{ hits: SymbolSearchHit[]; truncated: boolean }> {
+  const collected = await collectProjectFiles(ctx, {
+    root: input.root,
+    maxDepth: input.maxDepth,
+    limit: input.scanLimit,
+    includeContent: false,
+  });
+  const hits: SymbolSearchHit[] = [];
+  for (const file of collected.files) {
+    if (!SYMBOL_CODE_EXTENSIONS.has(file.extension)) continue;
+    if (input.pathPrefix && !file.path.startsWith(input.pathPrefix)) continue;
+    const symbols = await extractSymbolsForFile(ctx.workspaceRoot, file.path);
+    for (const sym of symbols) {
+      if (input.kinds?.length && !input.kinds.includes(sym.kind)) {
+        continue;
+      }
+      if (!symbolMatches(sym.symbol, input.queries, input.match)) continue;
+      const key = `${sym.filePath}:${sym.symbol}:${sym.line}`;
+      if (input.excludePaths.has(key)) continue;
+      hits.push({
+        symbol: sym.symbol,
+        kind: sym.kind,
+        filePath: sym.filePath,
+        line: sym.line,
+        matchType: inferMatchType(sym.symbol, input.queries, input.match),
+      });
+      if (hits.length >= input.limit) {
+        return { hits, truncated: collected.truncated || collected.files.length >= input.scanLimit };
+      }
+    }
+  }
+  return { hits, truncated: collected.truncated };
+}
+
+function mergeSymbolHits(
+  indexHits: SymbolSearchHit[],
+  filesystemHits: SymbolSearchHit[],
+  limit: number,
+): SymbolSearchHit[] {
+  const merged: SymbolSearchHit[] = [];
+  const seen = new Set<string>();
+  for (const hit of [...indexHits, ...filesystemHits]) {
+    const key = `${hit.filePath}:${hit.symbol}:${hit.line}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    merged.push(hit);
+    if (merged.length >= limit) break;
+  }
+  return merged;
+}
+
+function symbolMatches(symbol: string, queries: string[], match: SymbolSearchMatchMode): boolean {
+  const lower = symbol.toLowerCase();
+  return queries.some((query) => {
+    const q = query.toLowerCase();
+    if (match === "exact") return lower === q;
+    if (match === "prefix") return lower.startsWith(q);
+    return lower.includes(q);
+  });
+}
+
+function inferMatchType(
+  symbol: string,
+  queries: string[],
+  match: SymbolSearchMatchMode,
+): SymbolSearchMatchMode {
+  const lower = symbol.toLowerCase();
+  for (const query of queries) {
+    const q = query.toLowerCase();
+    if (match === "exact" && lower === q) return "exact";
+    if (match === "prefix" && lower.startsWith(q)) return "prefix";
+    if (match === "contains" && lower.includes(q)) return "contains";
+  }
+  return match;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

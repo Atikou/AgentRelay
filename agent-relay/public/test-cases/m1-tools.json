@@ -6,14 +6,14 @@
   "cases": [
     {
       "id": "m1-tools-list",
-      "title": "工具列表包含 14 个内置工具",
-      "purpose": "确认注册表暴露 read/list/search/write/patch/diff/backup/rollback/shell/git 与相关文件定位工具。",
+      "title": "工具列表包含 15 个内置工具",
+      "purpose": "确认注册表暴露 read/list/search/write/patch/diff/backup/rollback/shell/git 与相关文件定位工具（含 symbol_search）。",
       "method": "GET",
       "path": "/api/tools",
       "input": null,
       "expect": {
         "status": 200,
-        "bodyPaths": { "tools.length": 14 },
+        "bodyPaths": { "tools.length": 15 },
         "bodyContainsNames": [
           "read_file",
           "write_file",
@@ -23,6 +23,7 @@
           "search_text",
           "project_scan",
           "locate_relevant_files",
+          "symbol_search",
           "context_pack",
           "git_status",
           "git_diff"
@@ -84,7 +85,7 @@
       "input": null,
       "expect": {
         "status": 200,
-        "bodyPaths": { "tools.length": 14 },
+        "bodyPaths": { "tools.length": 15 },
         "bodyContainsNames": [
           "read_file",
           "write_file",
@@ -275,6 +276,40 @@
           "stats.projectId": "default",
           "stats.fileCount": "number",
           "stats.symbolCount": "number"
+        }
+      }
+    },
+    {
+      "id": "m1-tools-symbol-search-filesystem",
+      "title": "symbol_search 文件系统回退命中符号",
+      "purpose": "验证无 ProjectIndex 时 symbol_search 仍能扫描源码并返回类/函数定义位置。",
+      "method": "POST",
+      "path": "/api/tools/run",
+      "input": {
+        "name": "symbol_search",
+        "input": { "query": "ToolRegistry", "root": "src/tools", "maxDepth": 2 }
+      },
+      "expect": {
+        "status": 200,
+        "bodyPaths": {
+          "ok": true,
+          "output.indexSource": "filesystem",
+          "output.symbols": "array"
+        }
+      }
+    },
+    {
+      "id": "m1-tools-symbol-search-invalid",
+      "title": "symbol_search 缺少 query 返回 invalid_input",
+      "purpose": "验证 symbol_search 入参校验：query 与 symbols 至少提供一个。",
+      "method": "POST",
+      "path": "/api/tools/run",
+      "input": { "name": "symbol_search", "input": {} },
+      "expect": {
+        "status": 200,
+        "bodyPaths": {
+          "ok": false,
+          "code": "invalid_input"
         }
       }
     },
