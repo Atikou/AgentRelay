@@ -182,6 +182,10 @@ export class Orchestrator {
 
       sessionId?: string;
 
+      maxCostUsd?: number;
+
+      spentCostUsd?: number;
+
       persist?: boolean;
 
     };
@@ -296,6 +300,8 @@ export class Orchestrator {
           attachmentTypes: payload.attachmentTypes,
           contextTokenEstimate: estimateRouterContextTokens(messages),
           recentMessagesCount: messages.length,
+          maxCostUsd: payload.maxCostUsd,
+          spentCostUsd: payload.spentCostUsd,
         });
         const smartRouter = this.deps.smartModelRouter!;
         const chatOrchestrator = this.deps.modelOrchestrator!;

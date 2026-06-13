@@ -62,7 +62,7 @@
     "test:plan": "tsx tests/plan.test.ts",
     "test:planner-router": "tsx tests/planner-router.test.ts",
     "test:agent-smart-router": "tsx tests/agent-smart-router.test.ts",
-    "test:apply-prompt-strategy-messages": "tsx tests/apply-prompt-strategy-messages.test.ts",
+    "test:cost-budget-manager": "tsx tests/cost-budget-manager.test.ts",
     "test:startup-recovery": "tsx tests/startup-recovery.test.ts",
     "test:schema-migration": "tsx tests/schema-migration.test.ts",
     "test:permission-policy": "tsx tests/permission-policy.test.ts",

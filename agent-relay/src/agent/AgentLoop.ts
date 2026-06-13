@@ -49,7 +49,12 @@ export interface LoopChatResponse extends ModelResponse {
 
 export type LoopChatFn = (
   req: ChatRequest,
-  opts?: { sensitive?: boolean; taskType?: ModelTaskType },
+  opts?: {
+    sensitive?: boolean;
+    taskType?: ModelTaskType;
+    spentCostUsd?: number;
+    maxCostUsd?: number;
+  },
 ) => Promise<LoopChatResponse>;
 
 export interface AgentRunResult {
@@ -271,7 +276,12 @@ export class AgentLoop {
         );
         response = await this.options.chat(
           { messages, temperature: 0.2, onToken: this.options.onToken },
-          { sensitive: this.options.sensitive, taskType: this.options.taskType },
+          {
+            sensitive: this.options.sensitive,
+            taskType: this.options.taskType,
+            spentCostUsd: sumModelTurnCost(this.modelTurnMetrics.map((m) => m.costUsd)),
+            maxCostUsd: this.options.maxCostUsdPerRun,
+          },
         );
         if (!this.runRoutingMeta && response.routingMeta) {
           this.runRoutingMeta = response.routingMeta;

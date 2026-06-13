@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 
 import type { ModelRegistry } from "./model-registry.js";
 import { applyRoutingContext, type RoutingContext } from "./context-analyzer.js";
+import { CostBudgetManager, defaultCostBudgetManager } from "./cost-budget-manager.js";
 import { RouterModelEvaluator } from "./router-model-evaluator.js";
 import type { RuntimeStatsFeedback } from "./runtime-stats-feedback.js";
 import {
@@ -19,6 +20,7 @@ export class DecisionEngine {
   constructor(
     private readonly registry: ModelRegistry,
     private readonly runtimeFeedback?: RuntimeStatsFeedback,
+    private readonly costBudget: CostBudgetManager = defaultCostBudgetManager,
   ) {}
 
   decide(rule: RuleRouteResult, input: RouterInput, routingContext?: RoutingContext): RouterDecision {
@@ -95,7 +97,12 @@ export class DecisionEngine {
       if (primary.length === 0) {
         throw new RouterError("NO_AVAILABLE_MODEL", "没有可用模型满足当前任务要求");
       }
-      const ranked = this.rankWithRuntimeFeedback(primary, effectiveRule.taskType);
+      const ranked = this.rankCandidates(
+        primary,
+        input,
+        effectiveRule.taskType,
+        context?.effectiveTokenEstimate,
+      );
       const evaluation = this.evaluator.evaluate({
         routerInput: input,
         rule: effectiveRule,
@@ -115,19 +122,25 @@ export class DecisionEngine {
       }
       if (
         this.runtimeFeedback &&
-        ranked.signals.length > 0 &&
+        ranked.statsSignals.length > 0 &&
         pick.id !== ranked.candidates[0]!.id
       ) {
         pick = ranked.candidates[0]!;
         source = "runtime_stats";
-        reason = `${base.reason}；V8 运行反馈：${ranked.signals.join("，")}`;
-      } else if (pick.id !== primary[0]!.id && source === "rule") {
+        reason = `${base.reason}；V8 运行反馈：${ranked.statsSignals.join("，")}`;
+      } else if (pick.id !== primary[0]!.id && source === "rule" && ranked.statsSignals.length > 0) {
         source = "runtime_stats";
-        reason = `${base.reason}；V8 运行反馈：${ranked.signals.join("，")}`;
+        reason = `${base.reason}；V8 运行反馈：${ranked.statsSignals.join("，")}`;
+      }
+      if (ranked.costSignals.length > 0 && pick.id !== ranked.candidates[0]!.id) {
+        pick = ranked.candidates[0]!;
+        source = "cost_budget";
+        reason = `${base.reason}；V8 成本预算：${ranked.costSignals.join("，")}`;
       }
       const contextSignals = [
         ...(context?.signals ?? []),
-        ...ranked.signals.map((s) => `stats:${s}`),
+        ...ranked.statsSignals.map((s) => `stats:${s}`),
+        ...ranked.costSignals.map((s) => `cost:${s}`),
       ];
       return {
         ...base,
@@ -143,14 +156,29 @@ export class DecisionEngine {
     return this.decideCollaboration(effectiveRule, input, base, context, contextNote);
   }
 
-  private rankWithRuntimeFeedback(
+  private rankCandidates(
     candidates: ModelProfile[],
+    input: RouterInput,
     taskType: TaskType,
-  ): { candidates: ModelProfile[]; signals: string[] } {
-    if (!this.runtimeFeedback || candidates.length <= 1) {
-      return { candidates, signals: [] };
+    tokenEstimate?: number,
+  ): { candidates: ModelProfile[]; statsSignals: string[]; costSignals: string[] } {
+    let current = candidates;
+    let statsSignals: string[] = [];
+    if (this.runtimeFeedback && current.length > 1) {
+      const statsRanked = this.runtimeFeedback.rankCandidates(current, taskType);
+      current = statsRanked.candidates;
+      statsSignals = statsRanked.signals;
     }
-    return this.runtimeFeedback.rankCandidates(candidates, taskType);
+    const costRanked = this.costBudget.rankCandidates(
+      current,
+      input,
+      tokenEstimate ?? input.contextTokenEstimate,
+    );
+    return {
+      candidates: costRanked.candidates,
+      statsSignals,
+      costSignals: costRanked.signals,
+    };
   }
 
   private decideCollaboration(
@@ -161,22 +189,29 @@ export class DecisionEngine {
     contextNote = "",
   ): RouterDecision {
     const tokenNeed = routingContext?.effectiveTokenEstimate ?? input.contextTokenEstimate;
-    const draftRanked = this.rankWithRuntimeFeedback(
+    const draftRanked = this.rankCandidates(
       this.registry.findDraftCandidates(rule, input.localOnly, tokenNeed),
+      input,
       rule.taskType,
+      tokenNeed,
     );
-    const reviewRanked = this.rankWithRuntimeFeedback(
+    const reviewRanked = this.rankCandidates(
       this.registry.findReviewCandidates(rule, input.localOnly),
+      input,
       rule.taskType,
+      tokenNeed,
     );
     const drafts = draftRanked.candidates;
     const reviews = reviewRanked.candidates;
-    const statsSignals = [...draftRanked.signals, ...reviewRanked.signals];
-    const statsNote =
-      statsSignals.length > 0 ? `；V8 运行反馈：${statsSignals.join("，")}` : "";
+    const feedbackSignals = [...draftRanked.statsSignals, ...reviewRanked.statsSignals];
+    const costSignals = [...draftRanked.costSignals, ...reviewRanked.costSignals];
+    const feedbackNote =
+      feedbackSignals.length > 0 ? `；V8 运行反馈：${feedbackSignals.join("，")}` : "";
+    const costNote = costSignals.length > 0 ? `；V8 成本预算：${costSignals.join("，")}` : "";
     const mergedContextSignals = [
       ...(routingContext?.signals ?? []),
-      ...statsSignals.map((s) => `stats:${s}`),
+      ...feedbackSignals.map((s) => `stats:${s}`),
+      ...costSignals.map((s) => `cost:${s}`),
     ];
     const withStats = {
       ...base,
@@ -194,7 +229,7 @@ export class DecisionEngine {
       if (primary.length === 0) {
         throw new RouterError("NO_AVAILABLE_MODEL", "没有可用模型满足当前任务要求");
       }
-      const ranked = this.rankWithRuntimeFeedback(primary, rule.taskType);
+      const ranked = this.rankCandidates(primary, input, rule.taskType, tokenNeed);
       const strong = ranked.candidates.find((p) => p.defaultLevel >= 3) ?? ranked.candidates[0]!;
       return {
         ...withStats,
@@ -203,7 +238,7 @@ export class DecisionEngine {
         selectedModelId: strong.id,
         candidates: ranked.candidates.map((p) => p.id),
         fallbackNote: "无审查模型，降级为 single_model",
-        reason: `${base.reason}；无 review 模型${statsNote}${contextNote}`,
+        reason: `${base.reason}；无 review 模型${feedbackNote}${costNote}${contextNote}`,
       };
     }
 
@@ -220,7 +255,7 @@ export class DecisionEngine {
           selectedModelId: review.id,
           candidates: allCandidates,
           fallbackNote: "无草稿模型，直接使用审查模型",
-          reason: `${base.reason}${statsNote}${contextNote}`,
+          reason: `${base.reason}${feedbackNote}${costNote}${contextNote}`,
         };
       }
       return {
@@ -230,7 +265,7 @@ export class DecisionEngine {
         selectedModelId: review.id,
         candidates: allCandidates,
         fallbackNote: "无草稿模型，中高风险改用强单模型",
-        reason: `${base.reason}${statsNote}${contextNote}`,
+        reason: `${base.reason}${feedbackNote}${costNote}${contextNote}`,
       };
     }
 
@@ -242,7 +277,7 @@ export class DecisionEngine {
       reviewModelId: review.id,
       finalModelId: review.id,
       candidates: allCandidates,
-      reason: `${base.reason}${statsNote}${contextNote}`,
+      reason: `${base.reason}${feedbackNote}${costNote}${contextNote}`,
     };
   }
 }

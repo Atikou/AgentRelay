@@ -1,5 +1,6 @@
 import { DecisionEngine } from "./decision-engine.js";
 import { defaultContextAnalyzer, type RoutingContext } from "./context-analyzer.js";
+import type { CostBudgetManager } from "./cost-budget-manager.js";
 import type { ModelRegistry } from "./model-registry.js";
 import type { RuntimeStatsFeedback } from "./runtime-stats-feedback.js";
 import { RuleRouter } from "./route-rules.js";
@@ -15,8 +16,9 @@ export class SmartModelRouter {
     registry: ModelRegistry,
     private readonly routeLogStore?: RouteLogStore,
     runtimeFeedback?: RuntimeStatsFeedback,
+    costBudget?: CostBudgetManager,
   ) {
-    this.decisionEngine = new DecisionEngine(registry, runtimeFeedback);
+    this.decisionEngine = new DecisionEngine(registry, runtimeFeedback, costBudget);
   }
 
   route(input: RouterInput): RouterDecision {

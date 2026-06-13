@@ -39,6 +39,8 @@ export function buildAgentRouterInput(
     sensitive?: boolean;
     taskType?: ModelTaskType;
     messages?: ReadonlyArray<{ role: string; content: string }>;
+    spentCostUsd?: number;
+    maxCostUsd?: number;
   },
 ): RouterInput {
   const messages = opts?.messages ?? [];
@@ -50,6 +52,8 @@ export function buildAgentRouterInput(
     allowCollaboration: false,
     contextTokenEstimate: messages.length > 0 ? estimateRouterContextTokens(messages) : undefined,
     recentMessagesCount: messages.length > 0 ? messages.length : undefined,
+    maxCostUsd: opts?.maxCostUsd,
+    spentCostUsd: opts?.spentCostUsd,
     mayUseTools: true,
   });
 }
@@ -60,7 +64,12 @@ export function createSmartSingleModelChatFn(deps: {
   modelChatFn: ModelChatFn;
   buildInput: (
     userInput: string,
-    opts?: { sensitive?: boolean; taskType?: ModelTaskType },
+    opts?: {
+      sensitive?: boolean;
+      taskType?: ModelTaskType;
+      spentCostUsd?: number;
+      maxCostUsd?: number;
+    },
     context?: { messages?: ReadonlyArray<{ role: string; content: string }> },
   ) => RouterInput;
 }): SmartSingleModelChatFn {
@@ -128,6 +137,8 @@ export function createAgentChatFn(deps: {
         sensitive: opts?.sensitive,
         taskType: opts?.taskType,
         messages: context?.messages,
+        spentCostUsd: opts?.spentCostUsd,
+        maxCostUsd: opts?.maxCostUsd,
       }),
   });
 }

@@ -30,6 +30,8 @@ export function buildRouterInputFromChat(payload: {
   mayUseTools?: boolean;
   contextTokenEstimate?: number;
   recentMessagesCount?: number;
+  maxCostUsd?: number;
+  spentCostUsd?: number;
 }): RouterInput {
   let qualityFromLegacy: QualityMode = payload.qualityMode ?? "balanced";
   if (!payload.qualityMode && payload.taskType) {
@@ -51,5 +53,7 @@ export function buildRouterInputFromChat(payload: {
     contextTokenEstimate: payload.contextTokenEstimate,
     recentMessagesCount: payload.recentMessagesCount,
     mayUseTools: payload.mayUseTools,
+    maxCostUsd: payload.maxCostUsd,
+    spentCostUsd: payload.spentCostUsd,
   };
 }

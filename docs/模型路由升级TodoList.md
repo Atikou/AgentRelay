@@ -2,7 +2,7 @@
 
 > 依据 `Agent_Model_Router_Auto_Upgrade_Roadmap.md` 对当前仓库扫描生成。  
 > **关联索引**：[外部规范-TodoList索引](外部规范-TodoList索引.md)  
-> **当前阶段：V8 P3 Agent promptStrategy 暴露已落地 → 继续 CostBudget 等收尾，勿一次性做完 V8。**  
+> **当前阶段：V8 P4 CostBudgetManager 已落地 → V8 核心能力收尾，勿一次性扩展复杂预算策略。**  
 > 推进模型路由相关改动前，请先读 [模型路由与协作](模型路由与协作.md) 了解已实现能力；**不要一次性实现完整自动路由（V8）**。
 
 ---
@@ -38,7 +38,7 @@
 | RouterModelEvaluator | ✅ | V3 启发式已接入 `DecisionEngine`（高风险不覆盖） |
 | ContextAnalyzer | ✅ | `context-analyzer.ts`；V8 P0 多信号接入 DecisionEngine |
 | PromptStrategyBuilder | [~] | `prompt-strategy-builder.ts`；V8 P1 接入 Orchestrator `/api/chat` |
-| RuntimeStatsFeedback | ✅ | `runtime-stats-feedback.ts`；V8 P2 候选降权（不改配置） |
+| CostBudgetManager | ✅ | `cost-budget-manager.ts`；V8 P4 成本友好候选排序 |
 | RuntimeStats / EvalSetRunner | ✅ | V6/V7 已落地 |
 | 拖拽编排 (V9) | ❌ | 终局可选 |
 
@@ -145,6 +145,7 @@
 - [x] `/api/chat` Smart 路径应用 `promptStrategy` 并回传 `routerDecision.promptStrategy`
 - [x] `RuntimeStatsFeedback` 只读反馈影响候选排序（`source=runtime_stats`，不改配置）
 - [x] Agent `/api/agent` 响应暴露 `routerDecision` + `promptStrategy`（首轮 Smart 路由）
+- [x] `CostBudgetManager` 成本预算友好排序（`maxCostUsd`/`spentCostUsd`/`qualityMode=fast`）
 
 ### P2：后续阶段（本清单阶段不做）
 
@@ -153,7 +154,7 @@
 - [x] V5 ModelCapabilities 能力矩阵
 - [x] V6 RuntimeStats（只建议，不改配置）
 - [x] V7 EvalSetRunner（离线评测 + model_eval_results）
-- [ ] V8 完整自动路由（P0–P2 已落地；Agent promptStrategy 暴露待续）
+- [ ] V8 完整自动路由（P0–P4 已落地；复杂多日预算策略不在范围）
 - [ ] V9 WorkflowGraphRunner + 拖拽 UI
 
 ---
@@ -164,7 +165,6 @@
 - EvalSetRunner 全量评测
 - RouterModelEvaluator 每次请求都调用
 - 多模型并行投票 / 无限辩论
-- CostBudgetManager
 - 拖拽式可视化编排器（V9）
 
 ---
@@ -307,7 +307,7 @@
 | FallbackManager | [x] |
 | RouterModelEvaluator / AnswerEvaluator | [x] 运行时接入 |
 | ContextAnalyzer / RuntimeStats / EvalSetRunner | [~] ContextAnalyzer ✅；RuntimeStats ✅；EvalSet ✅ |
-| PromptStrategyBuilder / CostBudgetManager / ModelProfileStore | [~] PromptStrategyBuilder ✅；CostBudget / ProfileStore 待续 |
+| PromptStrategyBuilder / CostBudgetManager / ModelProfileStore | [~] PromptStrategyBuilder ✅；CostBudgetManager ✅；ProfileStore 待续 |
 
 ---
 

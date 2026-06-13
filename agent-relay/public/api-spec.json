@@ -1563,7 +1563,9 @@
             "type": "array",
             "items": { "type": "string", "enum": ["image", "pdf", "doc", "code", "audio", "unknown"] }
           },
-          "sessionId": { "type": "string", "description": "M6 持久化会话" }
+          "sessionId": { "type": "string", "description": "M6 持久化会话" },
+          "maxCostUsd": { "type": "number", "description": "本请求成本上限（USD），供 CostBudgetManager 选型" },
+          "spentCostUsd": { "type": "number", "description": "已累计费用（USD），供 CostBudgetManager 选型" }
         }
       },
       "ChatResponse": {

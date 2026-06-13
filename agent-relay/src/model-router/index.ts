@@ -38,6 +38,8 @@ export type {
 } from "./model-capabilities.js";
 export { RuntimeStatsCollector } from "./runtime-stats.js";
 export { RuntimeStatsFeedback } from "./runtime-stats-feedback.js";
+export { CostBudgetManager, defaultCostBudgetManager } from "./cost-budget-manager.js";
+export type { CostBudgetContext, CostBudgetPressure } from "./cost-budget-manager.js";
 export type {
   RuntimeStatsSnapshot,
   RuntimeStatsSuggestion,

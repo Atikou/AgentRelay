@@ -87,6 +87,10 @@ export interface RouterInput {
   mayModifyWorkspace?: boolean;
   contextTokenEstimate?: number;
   recentMessagesCount?: number;
+  /** 已累计估算费用（USD），供 CostBudgetManager 选型。 */
+  spentCostUsd?: number;
+  /** 本请求/会话成本上限（USD），供 CostBudgetManager 选型。 */
+  maxCostUsd?: number;
   allowCollaboration?: boolean;
   forceSingleModel?: boolean;
   /** 敏感任务：仅允许本地模型。 */
@@ -118,7 +122,7 @@ export interface RouterDecision {
   selectedLevel: ModelLevel;
   risk: RiskLevel;
   reason: string;
-  source: "rule" | "manual_override" | "fallback" | "evaluator" | "runtime_stats";
+  source: "rule" | "manual_override" | "fallback" | "evaluator" | "runtime_stats" | "cost_budget";
   executionStrategy: ExecutionStrategy;
   selectedModelId?: string;
   draftModelId?: string;
