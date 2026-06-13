@@ -38,7 +38,12 @@ function sortReview(a: ModelProfile, b: ModelProfile, requiredLevel: number): nu
 }
 
 export class ModelRegistry {
-  constructor(private readonly profiles: ModelProfile[]) {}
+  constructor(private profiles: ModelProfile[]) {}
+
+  /** 替换全部 profile（ModelProfileStore.reload 使用，保持 registry 引用不变）。 */
+  replaceAll(profiles: ModelProfile[]): void {
+    this.profiles = [...profiles];
+  }
 
   listEnabled(localOnly?: boolean): ModelProfile[] {
     return this.profiles.filter(

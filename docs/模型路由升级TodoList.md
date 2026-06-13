@@ -292,7 +292,7 @@
 | V5 | ModelCapabilities 能力矩阵 | [x] |
 | V6 | RuntimeStats 指标回流（只建议不改配置） | [x] |
 | V7 | EvalSetRunner + model_eval_results | [x] |
-| V8 | ContextAnalyzer + PromptStrategyBuilder + RuntimeStatsFeedback | [~] P0–P2 已接入 |
+| V8 | ContextAnalyzer + PromptStrategyBuilder + RuntimeStatsFeedback + CostBudgetManager + ModelProfileStore | [x] P0–P5 核心已接入 |
 | V9 | WorkflowGraphRunner / NodeRegistry / 拖拽 UI | [ ] |
 
 ---
@@ -307,7 +307,7 @@
 | FallbackManager | [x] |
 | RouterModelEvaluator / AnswerEvaluator | [x] 运行时接入 |
 | ContextAnalyzer / RuntimeStats / EvalSetRunner | [~] ContextAnalyzer ✅；RuntimeStats ✅；EvalSet ✅ |
-| PromptStrategyBuilder / CostBudgetManager / ModelProfileStore | [~] PromptStrategyBuilder ✅；CostBudgetManager ✅；ProfileStore 待续 |
+| PromptStrategyBuilder / CostBudgetManager / ModelProfileStore | [x] 均已接入 |
 
 ---
 

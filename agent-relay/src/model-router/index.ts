@@ -1,5 +1,10 @@
 export * from "./types.js";
 export { buildModelProfiles, validateModelProfiles } from "./model-profiles.js";
+export { ModelProfileStore } from "./model-profile-store.js";
+export type {
+  ModelProfileStoreSnapshot,
+  ModelProfileRuntimeHint,
+} from "./model-profile-store.js";
 export { ModelRegistry } from "./model-registry.js";
 export { RuleRouter } from "./route-rules.js";
 export { DecisionEngine } from "./decision-engine.js";

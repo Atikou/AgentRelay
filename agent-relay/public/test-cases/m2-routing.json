@@ -278,11 +278,26 @@
       "input": null,
       "expect": {
         "status": 200,
-        "bodyHasKeys": ["profiles", "matrix", "coverage", "validationWarnings"],
+        "bodyHasKeys": ["profiles", "matrix", "coverage", "validationWarnings", "generatedAt", "enabledCount", "validationErrors", "runtimeHintsByModelId"],
         "bodyPaths": {
           "profiles": "array",
           "matrix": "array",
-          "coverage": "array"
+          "coverage": "array",
+          "runtimeHintsByModelId": "object"
+        }
+      }
+    },
+    {
+      "id": "m2-config-model-profile-store-v8",
+      "title": "配置暴露 modelProfileStoreV8 能力",
+      "purpose": "确认 V8 ModelProfileStore 已接入 AppContext，capabilities 声明 modelProfileStoreV8。",
+      "method": "GET",
+      "path": "/api/config",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyPaths": {
+          "capabilities.modelProfileStoreV8": true
         }
       }
     },

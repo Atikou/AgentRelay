@@ -98,11 +98,19 @@ test("GET /api/routing/profiles 返回能力矩阵", async () => {
     matrix: unknown[];
     coverage: unknown[];
     validationWarnings: unknown[];
+    generatedAt: string;
+    enabledCount: number;
+    validationErrors: unknown[];
+    runtimeHintsByModelId: Record<string, unknown>;
   };
   assert.ok(Array.isArray(body.profiles));
   assert.ok(body.matrix.length >= 10);
   assert.ok(Array.isArray(body.coverage));
   assert.ok(Array.isArray(body.validationWarnings));
+  assert.ok(typeof body.generatedAt === "string");
+  assert.ok(typeof body.enabledCount === "number");
+  assert.ok(Array.isArray(body.validationErrors));
+  assert.ok(body.runtimeHintsByModelId && typeof body.runtimeHintsByModelId === "object");
 });
 
 test("GET /api/models/catalog 返回 entries 数组", async () => {

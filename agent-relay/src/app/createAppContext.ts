@@ -40,6 +40,7 @@ import {
   createPlannerChatFn,
   ModelCallLogStore,
   ModelRegistry,
+  ModelProfileStore,
   RouteLogStore,
   SmartModelRouter,
   RuntimeStatsFeedback,
@@ -96,6 +97,7 @@ export class AppContext {
   readonly fallbackLogStore: FallbackLogStore;
   readonly modelEvalStore: ModelEvalStore;
   readonly evalSetRunner: EvalSetRunner;
+  readonly modelProfileStore: ModelProfileStore;
   readonly modelProfileRegistry: ModelRegistry;
   readonly projectAllowedPermissions: ToolPermission[];
   readonly shellPolicy: ShellPolicy;
@@ -135,6 +137,7 @@ export class AppContext {
     fallbackLogStore: FallbackLogStore;
     modelEvalStore: ModelEvalStore;
     evalSetRunner: EvalSetRunner;
+    modelProfileStore: ModelProfileStore;
     modelProfileRegistry: ModelRegistry;
     defaultAgentChat: LoopChatFn;
     projectAllowedPermissions: ToolPermission[];
@@ -173,6 +176,7 @@ export class AppContext {
     this.fallbackLogStore = opts.fallbackLogStore;
     this.modelEvalStore = opts.modelEvalStore;
     this.evalSetRunner = opts.evalSetRunner;
+    this.modelProfileStore = opts.modelProfileStore;
     this.modelProfileRegistry = opts.modelProfileRegistry;
     this.defaultAgentChat = opts.defaultAgentChat;
     this.projectAllowedPermissions = opts.projectAllowedPermissions;
@@ -260,6 +264,7 @@ export class AppContext {
         runtimeStatsFeedbackV8: true,
         agentPromptStrategyV8: true,
         costBudgetManagerV8: true,
+        modelProfileStoreV8: true,
         runPolicyManager: true,
         budgetManager: true,
         finalizer: true,
@@ -425,7 +430,11 @@ export function createAppContext(): AppContext {
   for (const msg of validateCapabilityMatrixCoverage(modelProfiles)) {
     console.warn(`[model-router] 能力矩阵覆盖：${msg}`);
   }
-  const profileRegistry = new ModelRegistry(modelProfiles);
+  const modelProfileStore = ModelProfileStore.fromClients(config.models.clients, {
+    db: contextManager.db.connection,
+    metrics,
+  });
+  const profileRegistry = modelProfileStore.registry;
   const routeLogStore = new RouteLogStore(contextManager.db.connection);
   const modelCallLogStore = new ModelCallLogStore(contextManager.db.connection);
   const collaborationRunStore = new CollaborationRunStore(contextManager.db.connection);
@@ -565,6 +574,7 @@ export function createAppContext(): AppContext {
     fallbackLogStore,
     modelEvalStore,
     evalSetRunner,
+    modelProfileStore,
     modelProfileRegistry: profileRegistry,
     defaultAgentChat,
     projectAllowedPermissions,

@@ -541,15 +541,15 @@
     "/api/routing/profiles": {
       "get": {
         "tags": ["模型与指标"],
-        "summary": "ModelProfile 能力矩阵与覆盖快照（V5）",
+        "summary": "ModelProfile 能力矩阵与覆盖快照（V5/V8）",
         "operationId": "routingCapabilityMatrix",
-        "description": "返回当前进程内全部 ModelProfile、任务类型能力矩阵、各 taskType 的 primary/draft/review 候选覆盖与 validationWarnings。只读，不修改 config。",
+        "description": "返回当前进程内全部 ModelProfile、任务类型能力矩阵、各 taskType 的 primary/draft/review 候选覆盖与 validationWarnings；V8 追加 generatedAt、enabledCount、validationErrors、runtimeHintsByModelId（只读 SQLite 指标）。只读，不修改 config。",
         "responses": {
           "200": {
             "description": "能力矩阵快照",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/CapabilityMatrixSnapshot" }
+                "schema": { "$ref": "#/components/schemas/ModelProfileStoreSnapshot" }
               }
             }
           }
@@ -2162,6 +2162,35 @@
           "validationWarnings": { "type": "array", "items": { "type": "string" } }
         },
         "required": ["profiles", "matrix", "coverage", "validationWarnings"]
+      },
+      "ModelProfileRuntimeHint": {
+        "type": "object",
+        "properties": {
+          "calls": { "type": "integer" },
+          "errors": { "type": "integer" },
+          "errorRate": { "type": "number" },
+          "fallbackFromCount": { "type": "integer" },
+          "fallbackToCount": { "type": "integer" }
+        },
+        "required": ["calls", "errors", "errorRate", "fallbackFromCount", "fallbackToCount"]
+      },
+      "ModelProfileStoreSnapshot": {
+        "allOf": [
+          { "$ref": "#/components/schemas/CapabilityMatrixSnapshot" },
+          {
+            "type": "object",
+            "properties": {
+              "generatedAt": { "type": "string", "format": "date-time" },
+              "enabledCount": { "type": "integer" },
+              "validationErrors": { "type": "array", "items": { "type": "string" } },
+              "runtimeHintsByModelId": {
+                "type": "object",
+                "additionalProperties": { "$ref": "#/components/schemas/ModelProfileRuntimeHint" }
+              }
+            },
+            "required": ["generatedAt", "enabledCount", "validationErrors", "runtimeHintsByModelId"]
+          }
+        ]
       },
       "RuntimeStatsSuggestion": {
         "type": "object",

@@ -1,11 +1,10 @@
 import type { AppContext } from "../../app/createAppContext.js";
 import type { ApiResult } from "../../orchestrator/Orchestrator.js";
 import type { EvalSetCase, EvalSetScope } from "../../model-router/eval-set-runner.js";
-import { buildCapabilityMatrixSnapshot } from "../../model-router/model-capabilities.js";
 import { RuntimeStatsCollector } from "../../model-router/runtime-stats.js";
 
 export function handleRoutingProfiles(app: AppContext): ApiResult {
-  const snapshot = buildCapabilityMatrixSnapshot(app.modelProfileRegistry.listAll());
+  const snapshot = app.modelProfileStore.snapshot();
   return { status: 200, body: snapshot };
 }
 
