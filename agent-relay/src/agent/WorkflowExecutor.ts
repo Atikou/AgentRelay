@@ -4,6 +4,7 @@ import type { TraceLogger } from "../trace/TraceLogger.js";
 import type { ToolRegistry } from "../tools/ToolRegistry.js";
 import type { BudgetManager } from "./BudgetManager.js";
 import type { ToolPermission } from "./permissions.js";
+import { EditProposalWorkflow } from "./EditProposalWorkflow.js";
 import { PlanWorkflow, type PlanWorkflowResumeContext } from "./PlanWorkflow.js";
 import type { RunPolicy, RunBudget } from "./RunPolicyTypes.js";
 import { RunVerifyWorkflow } from "./RunVerifyWorkflow.js";
@@ -46,6 +47,11 @@ export class WorkflowExecutor {
     if (planResult) {
       steps.push(...planResult.steps);
       modelContexts.push(planResult.modelContext);
+    }
+
+    const editProposalResult = this.runEditProposalWorkflow(input.goal);
+    if (editProposalResult) {
+      modelContexts.push(editProposalResult.modelContext);
     }
 
     const runVerifyResult = await this.runRunVerifyWorkflow(input.goal);
@@ -120,5 +126,13 @@ export class WorkflowExecutor {
       taskId: this.options.taskId,
       requestId: this.options.requestId,
     }).run(goal, this.options.policy.intent);
+  }
+
+  private runEditProposalWorkflow(goal: string) {
+    return new EditProposalWorkflow().run({
+      goal,
+      intent: this.options.policy.intent,
+      permissionPolicy: this.options.policy.permissionPolicy,
+    });
   }
 }

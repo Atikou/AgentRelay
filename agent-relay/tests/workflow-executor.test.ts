@@ -104,7 +104,10 @@ test("edit workflow prelocates files through WorkflowExecutor", async () => {
     "locate_relevant_files",
     "context_pack",
   ]);
+  assert.equal(result.modelContexts.length, 2);
   assert.match(result.modelContexts[0]!, /editWorkflow read-only prelocation result/);
+  assert.match(result.modelContexts[1]!, /editWorkflow proposal phase/);
+  assert.match(result.modelContexts[1]!, /diffPlan/);
   assert.equal(locate.calls.length, 1);
   assert.equal(contextPack.calls.length, 1);
 });
@@ -145,7 +148,10 @@ test("generate file workflow prelocates conventions through WorkflowExecutor", a
     "locate_relevant_files",
     "context_pack",
   ]);
+  assert.equal(result.modelContexts.length, 2);
   assert.match(result.modelContexts[0]!, /generateFileWorkflow read-only prelocation result/);
+  assert.match(result.modelContexts[1]!, /generateFileWorkflow proposal phase/);
+  assert.match(result.modelContexts[1]!, /targetFiles/);
   assert.equal(locate.calls.length, 1);
   assert.equal(contextPack.calls.length, 1);
 });

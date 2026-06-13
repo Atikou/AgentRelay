@@ -922,6 +922,33 @@
       }
     },
     {
+      "id": "m1-agent-edit-proposal-workflow-api-spec",
+      "title": "API \u89c4\u8303\u767b\u8bb0 EditProposalWorkflow",
+      "purpose": "\u786e\u8ba4 OpenAPI \u8bf4\u660e editWorkflow/generateFileWorkflow \u5728\u53ea\u8bfb\u9884\u5b9a\u4f4d\u540e\u4f1a\u8fdb\u5165\u5199\u5165\u524d\u65b9\u6848\u9636\u6bb5\uff0c\u5ba2\u6237\u7aef\u53ef\u7406\u89e3\u4e3a\u4ec0\u4e48\u6a21\u578b\u4f1a\u5148\u751f\u6210 diffPlan \u800c\u4e0d\u662f\u76f4\u63a5\u5199\u5165\u3002",
+      "method": "GET",
+      "path": "/api/api-spec.json",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyContains": ["EditProposalWorkflow", "proposal phase", "permissionCheck", "diffPlan", "verificationPlan"]
+      }
+    },
+    {
+      "id": "m1-agent-edit-proposal-workflow-doc",
+      "title": "\u5bf9\u8bdd\u5faa\u73af\u6587\u6863\u8bb0\u5f55\u5199\u5165\u524d\u65b9\u6848\u9636\u6bb5",
+      "purpose": "\u786e\u8ba4\u6587\u6863\u7ad9\u5df2\u8bf4\u660e EditProposalWorkflow \u53ea\u6ce8\u5165\u65b9\u6848\u7ea6\u675f\uff0c\u771f\u6b63\u5199\u5165\u4ecd\u53d7 PermissionGuard \u548c\u5de5\u5177\u98ce\u9669\u8fb9\u754c\u63a7\u5236\u3002",
+      "method": "GET",
+      "path": "/api/docs/content?slug=\u5bf9\u8bdd\u5faa\u73af",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyPaths": {
+          "markdown": "string"
+        },
+        "bodyContains": ["EditProposalWorkflow", "targetFiles", "diffPlan", "PermissionGuard"]
+      }
+    },
+    {
       "id": "m1-agent-plan-report-workflow-api-spec",
       "title": "API 规范登记 PlanReportWorkflow",
       "purpose": "确认 /api/plans/analyze 已声明由 PlanReportWorkflow 负责生成并保存 UserVisiblePlan，HTTP handler 仅保留参数校验与模型选择。",

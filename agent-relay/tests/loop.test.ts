@@ -403,6 +403,45 @@ test("PlanWorkflow 在计划模式项目分析前预扫描并注入上下文", a
   assert.ok(res.executionMeta.location.usedLocateSteps >= 1);
 });
 
+test("editWorkflow injects proposal phase before model writes", async () => {
+  await fs.mkdir(path.join(sandbox, "src", "agent"), { recursive: true });
+  await fs.writeFile(
+    path.join(sandbox, "src", "agent", "AgentLoop.ts"),
+    "export class AgentLoop { run() { return 'ok'; } }\n",
+    "utf-8",
+  );
+
+  let firstPrompt = "";
+  const chat: LoopChatFn = async (req) => {
+    firstPrompt = req.messages.map((m) => m.content).join("\n");
+    return {
+      content: '{"action":"final","answer":"已形成修改方案，等待下一步执行"}',
+      toolCalls: [],
+      clientName: "fake",
+      modelName: "fake",
+      location: "local",
+      latencyMs: 1,
+    };
+  };
+  const loop = new AgentLoop({
+    chat,
+    registry: createDefaultRegistry(),
+    workspaceRoot: sandbox,
+    mode: "implement",
+    permissionPolicy: "autoEdit",
+  });
+
+  const res = await loop.run("修改 src/agent/AgentLoop.ts 的提示文案，先定位并生成修改方案");
+
+  assert.equal(res.executionMeta.intent, "edit");
+  assert.equal(res.executionMeta.workflowType, "editWorkflow");
+  assert.match(firstPrompt, /editWorkflow proposal phase/);
+  assert.match(firstPrompt, /targetFiles/);
+  assert.match(firstPrompt, /diffPlan/);
+  assert.match(firstPrompt, /permissionPolicy: autoEdit/);
+  assert.equal(res.executionMeta.usedWriteCalls, 0);
+});
+
 test("PlanWorkflow 不处理非项目分析型计划请求", async () => {
   assert.equal(shouldRunPlanWorkflow("计划模式中新建文件", "plan"), false);
   assert.equal(shouldRunPlanWorkflow("只读分析当前项目结构", "plan"), true);
