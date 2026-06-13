@@ -349,6 +349,14 @@ export class FallbackLogStore {
       .all(routeLogId) as Array<Record<string, unknown>>;
     return rows.map(mapFallbackRow);
   }
+
+  listBySession(sessionId: string, limit = 30): FallbackLogRow[] {
+    const capped = Math.min(Math.max(limit, 1), 100);
+    const rows = this.db
+      .prepare(`SELECT * FROM fallback_logs WHERE session_id = ? ORDER BY created_at DESC LIMIT ?`)
+      .all(sessionId, capped) as Array<Record<string, unknown>>;
+    return rows.map(mapFallbackRow).reverse();
+  }
 }
 
 function mapFallbackRow(r: Record<string, unknown>): FallbackLogRow {

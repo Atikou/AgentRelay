@@ -93,6 +93,9 @@ export interface OrchestratorDeps {
   /** 单次 Agent Run 费用上限（USD），来自 security.budget.maxCostUsdPerRun。 */
   maxCostUsdPerRun?: number;
 
+  /** 项目级权限上限，来自 config.security.permissions。 */
+  projectAllowedPermissions: ToolPermission[];
+
 }
 
 
@@ -654,6 +657,8 @@ export class Orchestrator {
 
           requestId: run.id,
 
+          projectAllowedPermissions: this.deps.projectAllowedPermissions,
+
         });
 
 
@@ -663,6 +668,8 @@ export class Orchestrator {
       executor,
 
       autoConfirm: payload.autoConfirm ?? false,
+
+      projectAllowedPermissions: this.deps.projectAllowedPermissions,
 
       onUpdate: (plan) => this.persistTaskPlan(task.id, plan),
 
@@ -1339,6 +1346,7 @@ export class Orchestrator {
       sensitive: payload.sensitive,
       taskType: taskTypeParsed.taskType,
       policy,
+      projectAllowedPermissions: this.deps.projectAllowedPermissions,
       trace: this.deps.trace,
       notificationQueue: this.deps.notificationQueue,
       contextManager: persist ? this.deps.contextManager : undefined,
@@ -1561,11 +1569,13 @@ export class Orchestrator {
           taskId,
           sessionId,
           requestId: run.id,
+          projectAllowedPermissions: this.deps.projectAllowedPermissions,
         });
 
     const runner = new TaskRunner(plan, {
       executor,
       autoConfirm: payload.autoConfirm ?? false,
+      projectAllowedPermissions: this.deps.projectAllowedPermissions,
       onUpdate: (updated) => this.persistTaskPlan(taskId, updated),
       trace: this.deps.trace,
       runId: run.id,

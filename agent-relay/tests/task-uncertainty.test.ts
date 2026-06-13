@@ -8,6 +8,7 @@ import os from "node:os";
 import path from "node:path";
 
 import type { Planner } from "../src/agent/Planner.js";
+import { ALL_PERMISSIONS } from "../src/agent/permissions.js";
 import { PlanSchema } from "../src/agent/types.js";
 import { ContextManager } from "../src/context/ContextManager.js";
 import { Orchestrator } from "../src/orchestrator/Orchestrator.js";
@@ -91,6 +92,7 @@ test("Orchestrator fallbackToPlanOnUncertainty 返回 revisedPlan", async () => 
       throw new Error("不应调用 chat");
     },
     planService: createTestPlanService({ workspaceRoot: sandbox, db: ctx.db, registry }),
+    projectAllowedPermissions: ALL_PERMISSIONS,
   });
 
   const plan = PlanSchema.parse({
@@ -137,6 +139,7 @@ test("Orchestrator 未开启 fallback 时不生成 modeFallback", async () => {
       throw new Error("no chat");
     },
     planService: createTestPlanService({ workspaceRoot: sandbox, db: ctx.db, registry }),
+    projectAllowedPermissions: ALL_PERMISSIONS,
   });
   const plan = PlanSchema.parse({
     goal: "x",

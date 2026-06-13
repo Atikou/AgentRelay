@@ -100,8 +100,22 @@ sequenceDiagram
 | --- | --- | --- |
 | GET | `/api/runs` | 最近 Run 列表 |
 | GET | `/api/runs/{id}` | 单个 Run 详情 |
+| GET | `/api/runs/{id}/report` | Run + trace 聚合报告（含 `timeline` 时间线） |
 
-Agent/Task/Chat 响应体现在包含 `runId`（及 `taskId`）。
+`report.timeline` 按时间排序，将 trace 事件与同源 session 的路由/fallback 记录统一为以下类别：
+
+| category | 来源 |
+| --- | --- |
+| `run` | `run_start` / `run_end` |
+| `model` | `agent_model_turn` / `model_call` / `run_usage_summary` |
+| `tool` | `agent_tool` / `tool_audit` |
+| `agent` | `agent_decision` |
+| `task` | `task_step` / `task_status_change` |
+| `routing` | `model_route_logs`（按 session + Run 时间窗） |
+| `fallback` | `fallback_logs`（按 session + Run 时间窗） |
+| `background` / `subagent` / `notification` | 对应 trace 事件 |
+
+测试台侧栏 **运行报告** 面板调用上述 API，展示用量摘要与时间线列表。
 
 ## 模块路径
 

@@ -12,6 +12,7 @@ import type { LoopChatFn } from "../src/agent/AgentLoop.js";
 import type { AgentStreamEvent } from "../src/orchestrator/AgentStream.js";
 import { Orchestrator } from "../src/orchestrator/Orchestrator.js";
 import { RunStore } from "../src/orchestrator/RunStore.js";
+import { ALL_PERMISSIONS } from "../src/agent/permissions.js";
 import { DryRunExecutor, TaskRunner } from "../src/agent/TaskRunner.js";
 import { PlanSchema } from "../src/agent/types.js";
 import { createDefaultRegistry } from "../src/tools/index.js";
@@ -45,6 +46,7 @@ function baseOrchestrator(
       throw new Error("no chat in test");
     },
     planService: ps,
+    projectAllowedPermissions: ALL_PERMISSIONS,
     ...extra,
   });
   return { orchestrator, planService: ps };

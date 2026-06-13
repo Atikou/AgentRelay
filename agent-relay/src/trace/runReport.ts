@@ -1,6 +1,7 @@
 import { createReadStream, existsSync } from "node:fs";
 import { createInterface } from "node:readline";
 
+import type { FallbackLogRow, RouteLogRow } from "../model-router/route-stores.js";
 import { redactValue } from "../util/redact.js";
 import type { TraceEvent } from "./TraceLogger.js";
 
@@ -13,11 +14,43 @@ export interface RunUsageReport {
   toolFailures: number;
 }
 
+export type RunTimelineCategory =
+  | "run"
+  | "model"
+  | "tool"
+  | "agent"
+  | "task"
+  | "routing"
+  | "fallback"
+  | "notification"
+  | "background"
+  | "subagent"
+  | "other";
+
+export interface RunTimelineEntry {
+  time: string;
+  category: RunTimelineCategory;
+  type: string;
+  title: string;
+  status?: string;
+  detail?: string;
+  refs?: Record<string, string | number | boolean | undefined>;
+}
+
 export interface RunReport {
   runId: string;
   eventCount: number;
   events: TraceEvent[];
   usage: RunUsageReport;
+  timeline: RunTimelineEntry[];
+}
+
+export interface EnrichRunTimelineInput {
+  sessionId?: string;
+  runCreatedAt?: string;
+  runUpdatedAt?: string;
+  routeLogs?: RouteLogRow[];
+  fallbackLogs?: FallbackLogRow[];
 }
 
 function accumulateUsage(events: TraceEvent[]): RunUsageReport {
@@ -40,7 +73,7 @@ function accumulateUsage(events: TraceEvent[]): RunUsageReport {
     }
     if (e.type === "agent_tool" || e.type === "tool_audit") {
       usage.toolCalls += 1;
-      if (e.success === false || e.ok === false) usage.toolFailures += 1;
+      if (e.success === false || e.ok === false || e.status === "error") usage.toolFailures += 1;
     }
     if (e.type === "run_usage_summary") {
       usage.modelTurns = Number(e.modelTurns ?? usage.modelTurns);
@@ -55,7 +88,265 @@ function accumulateUsage(events: TraceEvent[]): RunUsageReport {
   return usage;
 }
 
-/** 扫描 trace 文件，收集指定 runId 的事件（上限 maxEvents 条）。 */
+function eventTime(event: TraceEvent): string {
+  const e = event as Record<string, unknown>;
+  return typeof e.time === "string" ? e.time : "";
+}
+
+function str(value: unknown): string | undefined {
+  return typeof value === "string" && value ? value : undefined;
+}
+
+function num(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+/** 将单条 trace 事件映射为时间线条目。 */
+export function mapTraceEventToTimelineEntry(event: TraceEvent): RunTimelineEntry | null {
+  const e = event as Record<string, unknown>;
+  const type = String(e.type ?? "");
+  const time = eventTime(event);
+  if (!type) return null;
+
+  if (type === "run_start") {
+    return {
+      time,
+      category: "run",
+      type,
+      title: `Run 开始 · ${str(e.kind) ?? "unknown"}`,
+      status: "started",
+      refs: { sessionId: str(e.sessionId), taskId: str(e.taskId) },
+    };
+  }
+  if (type === "run_end") {
+    return {
+      time,
+      category: "run",
+      type,
+      title: `Run 结束 · ${str(e.kind) ?? "unknown"}`,
+      status: str(e.status) ?? "ended",
+      detail: str(e.error),
+    };
+  }
+  if (type === "agent_model_turn") {
+    const client = str(e.client) ?? str(e.clientName) ?? "-";
+    const model = str(e.model) ?? str(e.modelName) ?? "-";
+    return {
+      time,
+      category: "model",
+      type,
+      title: `模型轮次 #${num(e.iteration) ?? "?"} · ${client}/${model}`,
+      status: e.error ? "error" : "ok",
+      detail: e.error ? str(e.error) : `tokens ${num(e.inputTokens) ?? 0}/${num(e.outputTokens) ?? 0} · $${num(e.costUsd) ?? 0}`,
+      refs: {
+        iteration: num(e.iteration),
+        latencyMs: num(e.latencyMs),
+        toolCallId: str(e.toolCallId),
+      },
+    };
+  }
+  if (type === "model_call") {
+    return {
+      time,
+      category: "model",
+      type,
+      title: `模型调用 · ${str(e.client) ?? "-"}/${str(e.model) ?? "-"}`,
+      status: e.success === false ? "error" : "ok",
+      detail: str(e.error),
+      refs: { routeLogId: str(e.routeLogId), role: str(e.role), latencyMs: num(e.latencyMs) },
+    };
+  }
+  if (type === "run_usage_summary") {
+    return {
+      time,
+      category: "model",
+      type,
+      title: "运行用量摘要",
+      status: "summary",
+      detail: `模型 ${num(e.modelTurns) ?? 0} 轮 · 工具 ${num(e.toolCalls) ?? 0} 次 · $${num(e.totalCostUsd) ?? 0}`,
+    };
+  }
+  if (type === "agent_decision") {
+    return {
+      time,
+      category: "agent",
+      type,
+      title: `Agent 决策 · ${str(e.action) ?? "unknown"}`,
+      status: str(e.action),
+      detail: str(e.tool) ? `tool=${str(e.tool)}` : str(e.parseError),
+      refs: { iteration: num(e.iteration), tool: str(e.tool) },
+    };
+  }
+  if (type === "agent_tool") {
+    return {
+      time,
+      category: "tool",
+      type,
+      title: `Agent 工具 · ${str(e.tool) ?? "unknown"}`,
+      status: "requested",
+      refs: { iteration: num(e.iteration), toolCallId: str(e.toolCallId) },
+    };
+  }
+  if (type === "tool_audit") {
+    return {
+      time,
+      category: "tool",
+      type,
+      title: `工具审计 · ${str(e.tool) ?? "unknown"}`,
+      status: str(e.status) ?? "unknown",
+      detail: str(e.error) ?? str(e.code),
+      refs: {
+        toolCallId: str(e.toolCallId),
+        permission: str(e.permission),
+        riskTier: str(e.riskTier),
+        durationMs: num(e.durationMs),
+      },
+    };
+  }
+  if (type === "task_step") {
+    return {
+      time,
+      category: "task",
+      type,
+      title: `任务步骤 · ${str(e.step) ?? "unknown"}`,
+      status: str(e.status) ?? "unknown",
+      detail: str(e.error),
+      refs: { toolCallId: str(e.toolCallId) },
+    };
+  }
+  if (type === "task_status_change") {
+    return {
+      time,
+      category: "task",
+      type,
+      title: `任务状态 · ${str(e.scope) ?? "task"}`,
+      status: `${str(e.from)} → ${str(e.to)}`,
+      detail: str(e.stepTitle) ?? str(e.error),
+      refs: { stepId: str(e.stepId), taskId: str(e.taskId) },
+    };
+  }
+  if (type === "subagent_start" || type === "subagent_end") {
+    return {
+      time,
+      category: "subagent",
+      type,
+      title: type === "subagent_start" ? `子 Agent 开始 · ${str(e.role) ?? "-"}` : `子 Agent 结束 · ${str(e.role) ?? "-"}`,
+      status: str(e.status) ?? (type === "subagent_start" ? "started" : "ended"),
+      detail: str(e.error),
+      refs: { subAgentId: str(e.subAgentId), durationMs: num(e.durationMs) },
+    };
+  }
+  if (type === "background_start" || type === "background_done" || type === "background_trigger_next") {
+    return {
+      time,
+      category: "background",
+      type,
+      title:
+        type === "background_start"
+          ? "后台任务启动"
+          : type === "background_done"
+            ? "后台任务结束"
+            : "后台触发后续",
+      status: str(e.status) ?? type,
+      detail: str(e.command) ?? str(e.error),
+      refs: { taskId: str(e.taskId) },
+    };
+  }
+  if (type === "scheduler_fire") {
+    return {
+      time,
+      category: "notification",
+      type,
+      title: `调度触发 · ${str(e.triggerId) ?? "-"}`,
+      status: str(e.kind) ?? "fired",
+      detail: str(e.goal),
+    };
+  }
+
+  return {
+    time,
+    category: "other",
+    type,
+    title: type,
+    status: str(e.status),
+  };
+}
+
+export function buildRunTimeline(events: TraceEvent[]): RunTimelineEntry[] {
+  const entries = events
+    .map(mapTraceEventToTimelineEntry)
+    .filter((entry): entry is RunTimelineEntry => entry != null);
+  return sortTimeline(entries);
+}
+
+export function sortTimeline(entries: RunTimelineEntry[]): RunTimelineEntry[] {
+  return [...entries].sort((a, b) => {
+    if (a.time && b.time) return a.time.localeCompare(b.time);
+    if (a.time) return -1;
+    if (b.time) return 1;
+    return 0;
+  });
+}
+
+function withinRunWindow(
+  ts: string,
+  runCreatedAt?: string,
+  runUpdatedAt?: string,
+): boolean {
+  if (!runCreatedAt) return true;
+  if (ts < runCreatedAt) return false;
+  if (runUpdatedAt && ts > runUpdatedAt) {
+    const slack = new Date(runUpdatedAt).getTime() + 60_000;
+    return new Date(ts).getTime() <= slack;
+  }
+  return true;
+}
+
+export function enrichRunTimeline(
+  base: RunTimelineEntry[],
+  input: EnrichRunTimelineInput = {},
+): RunTimelineEntry[] {
+  const extra: RunTimelineEntry[] = [];
+
+  for (const route of input.routeLogs ?? []) {
+    if (!withinRunWindow(route.createdAt, input.runCreatedAt, input.runUpdatedAt)) continue;
+    extra.push({
+      time: route.createdAt,
+      category: "routing",
+      type: "route_decision",
+      title: `路由决策 · ${route.executionStrategy}`,
+      status: route.risk,
+      detail: route.reason,
+      refs: {
+        routeLogId: route.id,
+        taskType: route.taskType,
+        selectedModelId: route.selectedModelId ?? route.finalModelId,
+        fallbackNote: route.fallbackNote,
+      },
+    });
+  }
+
+  for (const fb of input.fallbackLogs ?? []) {
+    if (!withinRunWindow(fb.createdAt, input.runCreatedAt, input.runUpdatedAt)) continue;
+    extra.push({
+      time: fb.createdAt,
+      category: "fallback",
+      type: "model_fallback",
+      title: `模型升级 · ${fb.fromModelId} → ${fb.toModelId}`,
+      status: fb.triggerType,
+      detail: fb.reason,
+      refs: {
+        routeLogId: fb.routeLogId,
+        fromStrategy: fb.fromStrategy,
+        toStrategy: fb.toStrategy,
+      },
+    });
+  }
+
+  return sortTimeline([...base, ...extra]);
+}
+
+/** 扫描 trace 文件，收集指定 runId 的事件（上限 maxEvents 条）并构建时间线。 */
 export async function buildRunReport(
   traceFile: string,
   runId: string,
@@ -81,10 +372,31 @@ export async function buildRunReport(
 
   if (events.length === 0) return null;
 
+  const timeline = buildRunTimeline(events);
   return {
     runId,
     eventCount: events.length,
     events,
     usage: accumulateUsage(events),
+    timeline,
+  };
+}
+
+export interface EnrichRunReportInput {
+  sessionId?: string;
+  runCreatedAt?: string;
+  runUpdatedAt?: string;
+  routeLogs?: RouteLogRow[];
+  fallbackLogs?: FallbackLogRow[];
+}
+
+/** 在 trace 时间线基础上合并路由决策与 fallback 记录。 */
+export function enrichRunReport(
+  report: RunReport,
+  input: EnrichRunReportInput = {},
+): RunReport {
+  return {
+    ...report,
+    timeline: enrichRunTimeline(report.timeline, input),
   };
 }
