@@ -20,8 +20,7 @@ export interface AnswerEvaluatorInput {
 const DEFAULT_MIN_COMPLEX_ANSWER_CHARS = 80;
 
 /**
- * V4 扩展点：规则版答案足够性评估。
- * 当前未接入 ModelOrchestrator；现有 fallback 仍由 FallbackManager.detectOutputIssue 负责。
+ * V4 规则版答案足够性评估，由 ModelOrchestrator 与 FallbackManager 运行时调用。
  */
 export class AnswerEvaluator {
   evaluate(input: AnswerEvaluatorInput): AnswerEvaluation {

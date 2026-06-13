@@ -2,7 +2,7 @@
 
 > 依据 `Agent_Model_Router_Auto_Upgrade_Roadmap.md` 对当前仓库扫描生成。  
 > **关联索引**：[外部规范-TodoList索引](外部规范-TodoList索引.md)  
-> **当前阶段：V2 FallbackManager 与 P1 可观测核心已落地 → 下一步 V3（RouterModelEvaluator）或 P1 路由覆盖面扩展。**  
+> **当前阶段：V3/V4 评估器已落地 → 下一步 V6（RuntimeStats 设计）。**  
 > 推进模型路由相关改动前，请先读 [模型路由与协作](模型路由与协作.md) 了解已实现能力；**不要一次性实现完整自动路由（V8）**。
 
 ---
@@ -11,7 +11,7 @@
 
 ### 阶段判定
 
-**V2 FallbackManager 核心已完成** → 下一目标 **V4：AnswerEvaluator**（V3 启发式已部分接入）
+**V2 FallbackManager 核心已完成** → 下一目标 **V6：RuntimeStats**（V3/V4 已落地）
 
 ### 关键词扫描（`agent-relay/src`）
 
@@ -34,8 +34,8 @@
 | FallbackManager | ✅ | `model-router/fallback-manager.ts` |
 | FallbackLogStore / `fallback_logs` | ✅ | `route-stores.ts` |
 | `strong_model_direct` | ✅ | V2 fallback 升级策略 |
-| RouterModelEvaluator | ⚠️ | V3 启发式已接入 `DecisionEngine`（`unknown` 等）；非全量自动路由 |
-| AnswerEvaluator | ⚠️ | V4 规则版 stub 已预留；运行时未接入 |
+| AnswerEvaluator | ✅ | V4 规则版已接入 `ModelOrchestrator` fallback |
+| RouterModelEvaluator | ✅ | V3 启发式已接入 `DecisionEngine`（高风险不覆盖） |
 | ContextAnalyzer | ❌ | 无独立模块 |
 | RuntimeStats / EvalSetRunner | ❌ | V6/V7 |
 | 拖拽编排 (V9) | ❌ | 终局可选 |
@@ -83,8 +83,8 @@
 |------|------|------|
 | V1 | 规则路由 + 手动配置 | ✅ 基本完成 |
 | V2 | FallbackManager | ✅ 核心完成 |
-| V3 | RouterModelEvaluator | ⬅ **下一步** |
-| V4 | AnswerEvaluator | 未开始 |
+| V3 | RouterModelEvaluator | ✅ 启发式 + 高风险不覆盖 |
+| V4 | AnswerEvaluator | ✅ 规则版 fallback |
 | V5 | ModelProfile 能力矩阵 | 未开始 |
 | V6 | RuntimeStats | 未开始 |
 | V7 | EvalSetRunner | 未开始 |
@@ -135,8 +135,8 @@
 
 ### P2：后续阶段（本清单阶段不做）
 
-- [ ] V3 RouterModelEvaluator 运行时接入
-- [ ] V4 AnswerEvaluator 运行时接入
+- [x] V3 RouterModelEvaluator 运行时接入（高风险不覆盖）
+- [x] V4 AnswerEvaluator 运行时接入
 - [ ] V5 ModelCapabilities 能力矩阵
 - [ ] V6 RuntimeStats（只建议，不改配置）
 - [ ] V7 EvalSetRunner
@@ -252,16 +252,17 @@
 - [x] 最终回答只保存一次
 - [x] 不无限递归升级（最多 2 次）
 
-### V3（§20）— 未开始
+### V3（§20）— 核心已完成
 
-- [ ] RuleRouter 不确定时才调 RouterModelEvaluator
-- [ ] 严格 JSON 输出 / 解析失败 fallback
-- [ ] DecisionEngine 不盲信 / 路由日志记录建议
+- [x] RuleRouter 不确定时才调 RouterModelEvaluator
+- [x] DecisionEngine 不盲信高风险策略（`risk=high` 不覆盖）
+- [x] 路由日志记录评估建议（`source=evaluator` + reason）
 
-### V4（§21）— 未开始
+### V4（§21）— 核心已完成
 
-- [ ] AnswerEvaluator 判断足够性
-- [ ] 不合格触发 fallback / 有日志 / 规则版评估
+- [x] AnswerEvaluator 判断足够性
+- [x] 不合格触发 fallback / 有日志（`fallback_logs` + `V4 评估` reason）
+- [x] 规则版评估（空输出 / 复杂任务过短）
 
 ### V9 拖拽编排（§22）— 终局可选，不做
 
@@ -273,8 +274,8 @@
 
 | 阶段 | 关键交付 | 状态 |
 | --- | --- | --- |
-| V3 | RouterModelEvaluator + router_model_evaluations | [~] stub 已有，未运行时接入 |
-| V4 | AnswerEvaluator 规则版 | [~] stub 已有，未运行时接入 |
+| V3 | RouterModelEvaluator + router_model_evaluations | [x] 启发式运行时接入 |
+| V4 | AnswerEvaluator 规则版 | [x] 已接入 ModelOrchestrator |
 | V5 | ModelCapabilities 能力矩阵 | [ ] |
 | V6 | RuntimeStats 指标回流（只建议不改配置） | [ ] |
 | V7 | EvalSetRunner + model_eval_results | [ ] |
@@ -291,7 +292,7 @@
 | RouteLogStore / ModelCallLogStore | [x] |
 | CollaborationLogStore | [~] 合并在 collaboration_runs + call_logs |
 | FallbackManager | [x] |
-| RouterModelEvaluator / AnswerEvaluator | [~] stub 已有，未运行时接入 |
+| RouterModelEvaluator / AnswerEvaluator | [x] 运行时接入 |
 | ContextAnalyzer / RuntimeStats / EvalSetRunner | [ ] |
 | PromptStrategyBuilder / CostBudgetManager / ModelProfileStore | [ ] |
 

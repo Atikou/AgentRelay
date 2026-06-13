@@ -43,7 +43,10 @@ export class RouterModelEvaluator {
         input.rule.taskType !== "high_risk_action" &&
         input.candidates.length > 1);
 
-    if (uncertain && input.candidates.length > 0) {
+    const highRiskBlocked =
+      input.rule.risk === "high" || input.rule.taskType === "high_risk_action";
+
+    if (!highRiskBlocked && uncertain && input.candidates.length > 0) {
       const sorted = [...input.candidates].sort((a, b) => {
         if (b.defaultLevel !== a.defaultLevel) return b.defaultLevel - a.defaultLevel;
         const costOrder = { free: 0, low: 1, medium: 2, high: 3 } as const;

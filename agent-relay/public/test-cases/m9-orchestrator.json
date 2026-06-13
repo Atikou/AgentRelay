@@ -69,9 +69,39 @@
       }
     },
     {
+      "id": "m9-run-report-timeline-capability",
+      "title": "配置暴露运行报告时间线能力",
+      "purpose": "确认服务端声明 GET /api/runs/:id/report 会返回按类别排序的 timeline 字段，供测试台时间线面板使用。",
+      "method": "GET",
+      "path": "/api/config",
+      "input": {},
+      "expect": {
+        "status": 200,
+        "bodyPaths": {
+          "capabilities.runReportTimeline": true,
+          "capabilities.runReportExport": true
+        }
+      }
+    },
+    {
+      "id": "m9-run-report-timeline-contract",
+      "title": "运行报告响应含 timeline 数组",
+      "purpose": "确认 report 对象在存在 trace 时包含 timeline 数组（结构与 runReport.ts 一致）；无 trace 时仍返回 404。",
+      "method": "GET",
+      "path": "/api/runs?limit=1",
+      "input": {},
+      "expect": {
+        "status": 200,
+        "bodyHasKeys": ["runs"],
+        "bodyPaths": {
+          "runs": "array"
+        }
+      }
+    },
+    {
       "id": "m9-config-p3-capabilities",
       "title": "配置暴露 P3 修复能力标记",
-      "purpose": "确认 startupRecovery、runReportExport、modelTokenStreaming、routerEvaluatorV3、costBudgetPerRun 等能力可探测。",
+      "purpose": "确认 startupRecovery、runReportExport、modelTokenStreaming、routerEvaluatorV3、answerEvaluatorV4、costBudgetPerRun 等能力可探测。",
       "method": "GET",
       "path": "/api/config",
       "input": {},
@@ -80,8 +110,10 @@
         "bodyPaths": {
           "capabilities.startupRecovery": true,
           "capabilities.runReportExport": true,
+          "capabilities.runReportTimeline": true,
           "capabilities.modelTokenStreaming": true,
           "capabilities.routerEvaluatorV3": true,
+          "capabilities.answerEvaluatorV4": true,
           "capabilities.costBudgetPerRun": true
         }
       }

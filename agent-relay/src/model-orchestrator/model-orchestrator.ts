@@ -1,4 +1,5 @@
 import type { FallbackLogStore } from "../model-router/route-stores.js";
+import { AnswerEvaluator } from "../model-router/answer-evaluator.js";
 import {
   FallbackManager,
   MAX_FALLBACKS_PER_REQUEST,
@@ -16,6 +17,8 @@ import type {
 } from "./types.js";
 
 export class ModelOrchestrator {
+  private readonly answerEvaluator = new AnswerEvaluator();
+
   constructor(
     private readonly chat: ModelChatFn,
     private readonly collaborationStore: CollaborationRunStore,
@@ -66,18 +69,25 @@ export class ModelOrchestrator {
 
       usedModelIds.push(...result.usedModelIds);
 
-      // V4 AnswerEvaluator can replace or enrich this deterministic output check.
-      const outputTrigger = this.fallbackManager.detectOutputIssue(
+      const answerEval = this.answerEvaluator.evaluate({
         decision,
-        result.finalAnswer,
-        input.userInput,
-      );
-      if (outputTrigger && fallbackCount < MAX_FALLBACKS_PER_REQUEST) {
-        const plan = this.fallbackManager.plan(decision, outputTrigger, { usedModelIds });
+        answer: result.finalAnswer,
+        userInput: input.userInput,
+      });
+      if (
+        answerEval.verdict === "needs_fallback" &&
+        answerEval.trigger &&
+        fallbackCount < MAX_FALLBACKS_PER_REQUEST
+      ) {
+        const plan = this.fallbackManager.plan(decision, answerEval.trigger, { usedModelIds });
         if (plan) {
-          const logId = this.recordPlan(decision, input.sessionId, plan);
+          const enrichedPlan =
+            answerEval.reasons.length > 0
+              ? { ...plan, reason: `${plan.reason}；V4 评估：${answerEval.reasons.join("，")}` }
+              : plan;
+          const logId = this.recordPlan(decision, input.sessionId, enrichedPlan);
           fallbackCtx.recordFallback(logId);
-          decision = this.fallbackManager.applyPlan(decision, plan);
+          decision = this.fallbackManager.applyPlan(decision, enrichedPlan);
           continue;
         }
       }

@@ -1091,21 +1091,23 @@
         "tags": ["安全与审计"],
         "summary": "导出 trace 事件",
         "operationId": "exportTrace",
-        "parameters": [{ "name": "limit", "in": "query", "schema": { "type": "integer", "default": 500, "maximum": 2000 } }],
+        "parameters": [
+          { "$ref": "#/components/parameters/traceLimitExport" },
+          { "$ref": "#/components/parameters/traceRunId" },
+          { "$ref": "#/components/parameters/traceSessionId" },
+          { "$ref": "#/components/parameters/traceTaskId" },
+          { "$ref": "#/components/parameters/traceToolCallId" },
+          { "$ref": "#/components/parameters/traceType" },
+          { "$ref": "#/components/parameters/traceTypes" },
+          { "$ref": "#/components/parameters/traceCategory" },
+          { "$ref": "#/components/parameters/traceReplayOnly" }
+        ],
         "responses": {
           "200": {
-            "description": "含 exportedAt",
+            "description": "含 exportedAt、filters、summary、timeline",
             "content": {
               "application/json": {
-                "schema": {
-                  "allOf": [
-                    { "$ref": "#/components/schemas/TraceListResponse" },
-                    {
-                      "type": "object",
-                      "properties": { "exportedAt": { "type": "string", "format": "date-time" } }
-                    }
-                  ]
-                }
+                "schema": { "$ref": "#/components/schemas/TraceExportResponse" }
               }
             }
           }
@@ -1115,20 +1117,25 @@
     "/api/trace/replay": {
       "get": {
         "tags": ["安全与审计"],
-        "summary": "审计回放（仅工具/任务链路事件）",
+        "summary": "审计回放（过滤 model_call 等噪声，支持 runId/toolCallId/category 等过滤）",
         "operationId": "replayTrace",
-        "parameters": [{ "name": "limit", "in": "query", "schema": { "type": "integer", "default": 100, "maximum": 500 } }],
+        "parameters": [
+          { "$ref": "#/components/parameters/traceLimitReplay" },
+          { "$ref": "#/components/parameters/traceRunId" },
+          { "$ref": "#/components/parameters/traceSessionId" },
+          { "$ref": "#/components/parameters/traceTaskId" },
+          { "$ref": "#/components/parameters/traceToolCallId" },
+          { "$ref": "#/components/parameters/traceType" },
+          { "$ref": "#/components/parameters/traceTypes" },
+          { "$ref": "#/components/parameters/traceCategory" },
+          { "$ref": "#/components/parameters/traceReplayOnly" }
+        ],
         "responses": {
           "200": {
-            "description": "replay=true",
+            "description": "replay=true，含 filters、summary、timeline",
             "content": {
               "application/json": {
-                "schema": {
-                  "allOf": [
-                    { "$ref": "#/components/schemas/TraceListResponse" },
-                    { "type": "object", "properties": { "replay": { "type": "boolean", "const": true } } }
-                  ]
-                }
+                "schema": { "$ref": "#/components/schemas/TraceReplayResponse" }
               }
             }
           }
@@ -1198,6 +1205,67 @@
         "in": "path",
         "required": true,
         "schema": { "type": "string" }
+      },
+      "traceLimitReplay": {
+        "name": "limit",
+        "in": "query",
+        "schema": { "type": "integer", "default": 100, "maximum": 500 }
+      },
+      "traceLimitExport": {
+        "name": "limit",
+        "in": "query",
+        "schema": { "type": "integer", "default": 500, "maximum": 2000 }
+      },
+      "traceRunId": {
+        "name": "runId",
+        "in": "query",
+        "description": "按 Run ID 过滤",
+        "schema": { "type": "string" }
+      },
+      "traceSessionId": {
+        "name": "sessionId",
+        "in": "query",
+        "description": "按会话 ID 过滤",
+        "schema": { "type": "string" }
+      },
+      "traceTaskId": {
+        "name": "taskId",
+        "in": "query",
+        "description": "按任务 ID 过滤",
+        "schema": { "type": "string" }
+      },
+      "traceToolCallId": {
+        "name": "toolCallId",
+        "in": "query",
+        "description": "按工具调用 ID 串联链路",
+        "schema": { "type": "string" }
+      },
+      "traceType": {
+        "name": "type",
+        "in": "query",
+        "description": "单事件类型过滤",
+        "schema": { "type": "string" }
+      },
+      "traceTypes": {
+        "name": "types",
+        "in": "query",
+        "description": "逗号分隔的多事件类型",
+        "schema": { "type": "string" }
+      },
+      "traceCategory": {
+        "name": "category",
+        "in": "query",
+        "description": "事件分类：run / model / tool / agent / task / background / subagent / scheduler",
+        "schema": {
+          "type": "string",
+          "enum": ["run", "model", "tool", "agent", "task", "background", "subagent", "scheduler"]
+        }
+      },
+      "traceReplayOnly": {
+        "name": "replayOnly",
+        "in": "query",
+        "description": "是否仅保留审计回放白名单事件（默认 true；export 可设 false）",
+        "schema": { "type": "boolean", "default": true }
       }
     },
     "responses": {
@@ -1237,6 +1305,7 @@
         "properties": {
           "traceAudit": { "type": "boolean" },
           "traceReplay": { "type": "boolean" },
+          "traceReplayFilters": { "type": "boolean" },
           "contextPersistence": { "type": "boolean" },
           "subAgent": { "type": "boolean" },
           "scheduler": { "type": "boolean" },
@@ -1257,8 +1326,10 @@
             "subAgentSmartRouting": { "type": "boolean" },
             "startupRecovery": { "type": "boolean" },
             "runReportExport": { "type": "boolean" },
+          "runReportTimeline": { "type": "boolean" },
             "modelTokenStreaming": { "type": "boolean" },
             "routerEvaluatorV3": { "type": "boolean" },
+            "answerEvaluatorV4": { "type": "boolean" },
             "costBudgetPerRun": { "type": "boolean" }
           }
         },
@@ -1675,6 +1746,20 @@
           "tool": { "type": "string" },
           "permission": { "type": "string" },
           "preview": { "type": "object", "additionalProperties": true },
+          "risk": {
+            "type": "object",
+            "properties": {
+              "tier": { "type": "string", "enum": ["low", "medium", "high", "critical"] },
+              "category": { "type": "string" },
+              "summary": { "type": "string" },
+              "reasons": { "type": "array", "items": { "type": "string" } },
+              "requiresConfirmation": { "type": "boolean" },
+              "policyBlocked": { "type": "boolean" },
+              "commandLevel": { "type": "string", "enum": ["safe", "caution", "dangerous"] },
+              "target": { "type": "string" },
+              "matchedRule": { "type": "string" }
+            }
+          },
           "output": { "type": "object", "additionalProperties": true },
           "error": { "type": "string" },
           "code": { "type": "string" },
@@ -1806,6 +1891,51 @@
           "count": { "type": "integer" },
           "redacted": { "type": "boolean", "const": true }
         }
+      },
+      "TraceQuerySummary": {
+        "type": "object",
+        "properties": {
+          "types": { "type": "object", "additionalProperties": { "type": "integer" } },
+          "toolCallIds": { "type": "array", "items": { "type": "string" } },
+          "runIds": { "type": "array", "items": { "type": "string" } },
+          "sessionIds": { "type": "array", "items": { "type": "string" } }
+        }
+      },
+      "TraceTimelineEntry": {
+        "type": "object",
+        "properties": {
+          "time": { "type": "string" },
+          "category": { "type": "string" },
+          "title": { "type": "string" },
+          "detail": { "type": "string" },
+          "type": { "type": "string" }
+        }
+      },
+      "TraceReplayResponse": {
+        "allOf": [
+          { "$ref": "#/components/schemas/TraceListResponse" },
+          {
+            "type": "object",
+            "properties": {
+              "replay": { "type": "boolean", "const": true },
+              "filters": { "type": "object", "additionalProperties": true },
+              "summary": { "$ref": "#/components/schemas/TraceQuerySummary" },
+              "timeline": { "type": "array", "items": { "$ref": "#/components/schemas/TraceTimelineEntry" } }
+            }
+          }
+        ]
+      },
+      "TraceExportResponse": {
+        "allOf": [
+          { "$ref": "#/components/schemas/TraceReplayResponse" },
+          {
+            "type": "object",
+            "properties": {
+              "exportedAt": { "type": "string", "format": "date-time" },
+              "replay": { "type": "boolean" }
+            }
+          }
+        ]
       }
     }
   }

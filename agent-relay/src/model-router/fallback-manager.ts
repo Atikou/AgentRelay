@@ -1,3 +1,4 @@
+import { AnswerEvaluator } from "./answer-evaluator.js";
 import type { ModelRegistry } from "./model-registry.js";
 import {
   type ExecutionStrategy,
@@ -9,8 +10,6 @@ import {
 } from "./types.js";
 
 export const MAX_FALLBACKS_PER_REQUEST = 2;
-
-const MIN_COMPLEX_ANSWER_CHARS = 80;
 
 function ruleFromDecision(decision: RouterDecision, level?: ModelLevel): RuleRouteResult {
   return {
@@ -31,6 +30,8 @@ function primaryModelId(decision: RouterDecision): string | undefined {
 }
 
 export class FallbackManager {
+  private readonly answerEvaluator = new AnswerEvaluator();
+
   constructor(private readonly registry: ModelRegistry) {}
 
   plan(
@@ -97,15 +98,9 @@ export class FallbackManager {
     answer: string,
     userInput: string,
   ): FallbackTrigger | null {
-    const trimmed = answer.trim();
-    if (!trimmed) return "empty_output";
-    const complex =
-      decision.selectedLevel >= 2 ||
-      decision.taskType === "architecture" ||
-      decision.taskType === "document_qa" ||
-      userInput.length > 120;
-    if (complex && trimmed.length < MIN_COMPLEX_ANSWER_CHARS) {
-      return "answer_too_short";
+    const evaluation = this.answerEvaluator.evaluate({ decision, answer, userInput });
+    if (evaluation.verdict === "needs_fallback") {
+      return evaluation.trigger ?? null;
     }
     return null;
   }

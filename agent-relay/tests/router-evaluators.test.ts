@@ -1,5 +1,5 @@
 /**
- * V3/V4 评估器预留接口自检：不接入运行时、不改变现有路由行为。
+ * V3/V4 评估器运行时自检。
  */
 import assert from "node:assert/strict";
 
@@ -59,6 +59,24 @@ const tests: Array<{ name: string; fn: () => void }> = [];
 function test(name: string, fn: () => void) {
   tests.push({ name, fn });
 }
+
+test("RouterModelEvaluator 高风险任务不覆盖规则", () => {
+  const unknownHighRisk = {
+    taskType: "unknown" as const,
+    requiredLevel: 3 as const,
+    risk: "high" as const,
+    reason: "高风险未知",
+    preferredStrategy: "single_model" as const,
+  };
+  const strong = { ...profile, id: "api-strong", defaultLevel: 3 as const, provider: "api" as const };
+  const evaluation = new RouterModelEvaluator().evaluate({
+    routerInput: { userInput: "部署到生产" },
+    rule: unknownHighRisk,
+    candidates: [profile, strong],
+  });
+  assert.equal(evaluation.shouldOverrideRule, false);
+  assert.equal(evaluation.source, "stub");
+});
 
 test("RouterModelEvaluator stub 不覆盖规则决策", () => {
   const evaluation = new RouterModelEvaluator().evaluate({

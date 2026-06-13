@@ -3,6 +3,7 @@ import { fileURLToPath } from "node:url";
 
 import { Planner } from "../agent/Planner.js";
 import type { LoopChatFn } from "../agent/AgentLoop.js";
+import type { ToolPermission } from "../agent/permissions.js";
 import { BackgroundTaskManager, NotificationQueue } from "../background/index.js";
 import { loadConfig } from "../config/loadConfig.js";
 import type { AppConfig } from "../config/types.js";
@@ -22,7 +23,9 @@ import { RunStore } from "../orchestrator/RunStore.js";
 import { Scheduler } from "../scheduler/index.js";
 import { SubAgentCoordinator } from "../subagent/index.js";
 import { createDefaultRegistry } from "../tools/index.js";
-import { createShellPolicy } from "../policy/ShellPolicy.js";
+import { createShellPolicy, type ShellPolicy } from "../policy/ShellPolicy.js";
+import { createNetworkPolicy, type NetworkPolicy } from "../policy/NetworkPolicy.js";
+import { resolveProjectAllowedPermissions, PERMISSION_SCOPE_ORDER } from "../policy/PermissionPolicy.js";
 import { ModelOrchestrator } from "../model-orchestrator/index.js";
 import {
   buildModelProfiles,
@@ -77,6 +80,9 @@ export class AppContext {
   readonly modelCallLogStore: ModelCallLogStore;
   readonly collaborationRunStore: CollaborationRunStore;
   readonly fallbackLogStore: FallbackLogStore;
+  readonly projectAllowedPermissions: ToolPermission[];
+  readonly shellPolicy: ShellPolicy;
+  readonly networkPolicy: NetworkPolicy;
   private readonly defaultAgentChat: LoopChatFn;
   readonly startupRecovery?: StartupRecoverySummary;
 
@@ -106,6 +112,9 @@ export class AppContext {
     collaborationRunStore: CollaborationRunStore;
     fallbackLogStore: FallbackLogStore;
     defaultAgentChat: LoopChatFn;
+    projectAllowedPermissions: ToolPermission[];
+    shellPolicy: ShellPolicy;
+    networkPolicy: NetworkPolicy;
     startupRecovery?: StartupRecoverySummary;
   }) {
     this.profile = opts.profile;
@@ -133,6 +142,9 @@ export class AppContext {
     this.collaborationRunStore = opts.collaborationRunStore;
     this.fallbackLogStore = opts.fallbackLogStore;
     this.defaultAgentChat = opts.defaultAgentChat;
+    this.projectAllowedPermissions = opts.projectAllowedPermissions;
+    this.shellPolicy = opts.shellPolicy;
+    this.networkPolicy = opts.networkPolicy;
     this.startupRecovery = opts.startupRecovery;
   }
 
@@ -155,6 +167,7 @@ export class AppContext {
       registry: this.registry,
       workspaceRoot: this.workspaceRoot,
       trace: this.trace,
+      projectAllowedPermissions: this.projectAllowedPermissions,
     });
   }
 
@@ -201,11 +214,27 @@ export class AppContext {
         subAgentSmartRouting: true,
         startupRecovery: true,
         runReportExport: true,
+        runReportTimeline: true,
+        traceReplayFilters: true,
         modelTokenStreaming: true,
         routerEvaluatorV3: true,
+        answerEvaluatorV4: true,
         costBudgetPerRun: true,
         ruleOnlyRouting: true,
         sqliteSchemaMigrations: true,
+        permissionScopeResolution: true,
+        networkDomainPolicy: true,
+        structuredToolRisk: true,
+      },
+      security: {
+        permissions: {
+          allowed: this.projectAllowedPermissions,
+          scopeOrder: [...PERMISSION_SCOPE_ORDER],
+        },
+        network: {
+          denyDomains: this.config.security?.network?.denyDomains ?? [],
+          allowDomains: this.config.security?.network?.allowDomains ?? [],
+        },
       },
       schemaVersions: {
         memory: {
@@ -252,6 +281,8 @@ export function createAppContext(): AppContext {
 
   const { profile, config, workspaceRoot } = loadConfig();
   const shellPolicy = createShellPolicy(config.security?.shell);
+  const networkPolicy = createNetworkPolicy(config.security?.network);
+  const projectAllowedPermissions = resolveProjectAllowedPermissions(config.security?.permissions);
 
   const clientMap = new Map<string, ModelClient>();
   const pricing = new Map<string, ClientPricing>();
@@ -318,7 +349,7 @@ export function createAppContext(): AppContext {
     pricing,
   });
 
-  const registry = createDefaultRegistry({ trace, dataDir, shellPolicy });
+  const registry = createDefaultRegistry({ trace, dataDir, shellPolicy, networkPolicy });
   const contextManager = new ContextManager({ dataDir, useLanceDb: true });
   const runs = new RunStore(contextManager.db);
 
@@ -360,6 +391,7 @@ export function createAppContext(): AppContext {
     registry,
     workspaceRoot,
     trace,
+    projectAllowedPermissions,
   });
 
   const planStore = new PlanStore(contextManager.db);
@@ -395,11 +427,13 @@ export function createAppContext(): AppContext {
         registry,
         workspaceRoot,
         trace,
+        projectAllowedPermissions,
       }),
     smartModelRouter,
     modelOrchestrator,
     planService,
     maxCostUsdPerRun: config.security?.budget?.maxCostUsdPerRun,
+    projectAllowedPermissions,
   });
   orchestratorHolder.current = orchestrator;
 
@@ -448,6 +482,9 @@ export function createAppContext(): AppContext {
     collaborationRunStore,
     fallbackLogStore,
     defaultAgentChat,
+    projectAllowedPermissions,
+    shellPolicy,
+    networkPolicy,
     startupRecovery,
   });
   if (startupRecovery.interruptedRuns > 0 || startupRecovery.pendingNotifications > 0) {

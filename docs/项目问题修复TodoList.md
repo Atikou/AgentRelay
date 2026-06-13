@@ -18,41 +18,48 @@
 
 - [x] 为 SQLite 表结构增加显式 schema version 与迁移记录（`schema_migrations` + `PRAGMA user_version`；`memory.db` v7、`tools.db` v1）。
 - [x] 为路由、工具、任务、上下文等关键存储补充最小迁移测试（`tests/schema-migration.test.ts`）。
-- [ ] 梳理并文档化 JSONL 与 SQLite 的边界：哪些是审计流水，哪些是可查询业务状态。
+- [x] 梳理并文档化 JSONL 与 SQLite 的边界：哪些是审计流水，哪些是可查询业务状态（见 [数据存储边界](数据存储边界.md)）。
 
 ## P1：安全策略闭环
 
 目标：把现有路径沙箱、ShellPolicy、确认门和脱敏能力组织成更清晰的策略层，方便后续插件、网络工具和子 Agent 写权限复用。
 
-- [ ] 定义任务级 / 用户级 / 项目级权限覆盖顺序。
-- [ ] 为未来网络工具预留域名 allowlist / denylist 策略。
-- [ ] 给高风险工具输出补充结构化风险字段，便于测试台与审计页统一展示。
+- [x] 定义任务级 / 用户级 / 项目级权限覆盖顺序。
+- [x] 为未来网络工具预留域名 allowlist / denylist 策略。
+- [x] 给高风险工具输出补充结构化风险字段，便于测试台与审计页统一展示。
 
 ## P2：可观测与复盘体验
 
 目标：在已有 trace、routing logs、tool audit 的基础上，把“出了什么事、为什么这么选、怎么复现”做成更连续的调试体验。
 
 - [x] 路由日志查询 API 与测试台「模型路由日志」面板。
-- [ ] 统一运行报告视图：Run、模型调用、工具调用、fallback、通知与任务状态按时间线展示。
-- [ ] trace replay 页面补充过滤、导出与问题复现入口。
+- [x] 统一运行报告视图：Run、模型调用、工具调用、fallback、通知与任务状态按时间线展示。
+- [x] trace replay 页面补充过滤、导出与问题复现入口。
 
 ## P2：评估与自适应路由
 
 目标：在不提前实现完整 V8 自动路由的前提下，逐步接入评估器和运行统计。
 
 - [x] `RouterModelEvaluator` / `AnswerEvaluator` 类型与 stub 预留。
-- [ ] V3：规则不确定时接入 `RouterModelEvaluator`，只作为建议，不直接覆盖高风险策略。
-- [ ] V4：将 `AnswerEvaluator` 接入答案质量 fallback。
+- [x] V3：规则不确定时接入 `RouterModelEvaluator`，只作为建议，不直接覆盖高风险策略。
+- [x] V4：将 `AnswerEvaluator` 接入答案质量 fallback。
 - [ ] V6/V7：设计 `RuntimeStats` 与 EvalSetRunner，先采集、再评估、最后才考虑配置调优。
 
 ## 当前推进顺序
 
 1. ~~P0 路由入口收口~~ → **已完成**
-2. ~~P1 SQLite schema version（前两子项）~~ → **已完成**；JSONL/SQLite 边界文档待补
-3. P1 安全策略覆盖顺序
-4. P2 运行报告视图（`GET /api/runs/:id/report` 已落地，测试台时间线待补）。
+2. ~~P1 SQLite schema version + JSONL/SQLite 边界文档~~ → **已完成**
+3. ~~P1 安全策略闭环（覆盖顺序 + 域名策略 + 结构化风险）~~ → **已完成**
+4. ~~P2 运行报告时间线~~ → **已完成**
+5. ~~P2 trace replay 过滤/导出~~ → **已完成**
+6. ~~V3 RouterModelEvaluator + V4 AnswerEvaluator 运行时接入~~ → **已完成**
+7. 下一小块建议：V6/V7 RuntimeStats 与 EvalSetRunner 设计
 
 ## 本轮状态
 
 - P0 模型路由入口与文档双轨边界 **已全部收口**。
-- 下一小块建议：P1 JSONL/SQLite 边界文档，或 V4 AnswerEvaluator 运行时接入。
+- P1 安全策略闭环 **已全部完成**。
+- P2 运行报告时间线 **已完成**。
+- P2 trace replay 过滤/导出 **已完成**。
+- P2 V3/V4 评估路由运行时接入 **已完成**。
+- 下一小块建议：V6/V7 RuntimeStats 与 EvalSetRunner 设计。
