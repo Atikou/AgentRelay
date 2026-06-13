@@ -83,7 +83,7 @@
 | RunPolicyManager | [x] | `RunPolicyManager.ts`；`resolveRunPolicy` 委托 `defaultRunPolicyManager` |
 | BudgetManager | [x] | `BudgetManager.ts`；AgentLoop / PlanWorkflow 分项硬限制 |
 | ExecutionMetaBuilder | [x] | `AgentLoop.buildExecutionMeta()` |
-| Finalizer | [~] | `buildPartialFinalAnswer` 内联，非独立 `Finalizer` 类 |
+| Finalizer | [x] | `Finalizer.ts` + `taskComplexity.ts`；预算耗尽部分收尾与 `suggestedToolCalls` |
 | PlanWorkflow | [x] | `src/agent/PlanWorkflow.ts` |
 | ProjectScanTool | [x] | `project_scan` / `locate_relevant_files` / `context_pack` |
 | RunStateStore | [x] | `RunStateStore.ts` + `run_states` 表 + `POST /api/agent/resume` |
@@ -215,10 +215,10 @@
 #### P3-1：自动预算预估
 
 - [x] `suggestedBudget` 按模式给出
-- [ ] 按任务复杂度估算 `suggestedToolCalls`
-- [ ] `completedSteps` / `missingSteps` 结构化返回（报告 §3.11 示例）
+- [x] 按任务复杂度估算 `suggestedToolCalls`
+- [x] `completedSteps` / `missingSteps` 结构化返回（报告 §3.11 示例）
 
-**验收**：⚠️
+**验收**：✅
 
 ---
 
@@ -278,7 +278,7 @@
   → WorkflowPlanner/PlanWorkflow ✅
   → AgentLoop ✅
   → TraceRecorder ✅
-  → Finalizer(内联 partial) ✅
+  → Finalizer(partial + suggestedToolCalls) ✅
   → RunStateStore ✅
 ```
 

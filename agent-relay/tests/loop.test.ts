@@ -125,7 +125,10 @@ test("达到迭代上限时返回 reachedLimit", async () => {
   assert.equal(res.executionMeta.budget.maxModelTurns, 3);
   assert.equal(res.executionMeta.budgetExhausted, "maxModelTurns");
   assert.equal(res.executionMeta.suggestedBudget?.maxModelTurns, 8);
-  assert.match(res.answer, /已达到当前运行预算/);
+  assert.match(res.answer, /建议工具调用次数/);
+  assert.ok(res.executionMeta.suggestedToolCalls);
+  assert.ok(res.executionMeta.completedSteps?.length);
+  assert.ok(res.executionMeta.missingSteps?.includes("model_final_answer"));
   assert.match(res.answer, /本次未执行写入类工具/);
   assert.doesNotMatch(res.answer, /未得到最终答案/);
 });

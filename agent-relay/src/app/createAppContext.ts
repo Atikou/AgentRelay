@@ -240,6 +240,7 @@ export class AppContext {
         modelCapabilitiesV5: true,
         runPolicyManager: true,
         budgetManager: true,
+        finalizer: true,
         toolResultLayers: true,
         runStateStore: true,
         costBudgetPerRun: true,

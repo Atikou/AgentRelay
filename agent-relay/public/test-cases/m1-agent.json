@@ -269,6 +269,47 @@
       }
     },
     {
+      "id": "m1-agent-finalizer-capability",
+      "title": "GET /api/config 暴露 finalizer",
+      "purpose": "确认 capabilities 声明 Finalizer 已落地，客户端可探测预算耗尽部分收尾与复杂度估算能力。",
+      "method": "GET",
+      "path": "/api/config",
+      "input": {},
+      "expect": {
+        "status": 200,
+        "bodyPaths": {
+          "capabilities.finalizer": true
+        }
+      }
+    },
+    {
+      "id": "m1-agent-budget-exhausted-suggested-tool-calls",
+      "title": "预算耗尽时 executionMeta 含 suggestedToolCalls",
+      "purpose": "验证 AgentLoop 经 Finalizer 在预算耗尽时返回复杂度估算与 completedSteps/missingSteps。",
+      "method": "POST",
+      "path": "/api/agent",
+      "input": {
+        "message": "一直列目录",
+        "budget": {
+          "maxModelTurns": 2,
+          "maxToolCalls": 2,
+          "maxReadCalls": 2,
+          "maxWriteCalls": 0,
+          "maxShellCalls": 0,
+          "maxRuntimeMs": 60000
+        }
+      },
+      "expect": {
+        "status": 200,
+        "bodyPaths": {
+          "reachedLimit": true,
+          "executionMeta.needsMoreBudget": true,
+          "executionMeta.suggestedToolCalls": ">0",
+          "executionMeta.missingSteps": "array"
+        }
+      }
+    },
+    {
       "id": "m1-agent-tool-result-layers-capability",
       "title": "GET /api/config 暴露 toolResultLayers",
       "purpose": "确认 capabilities 声明工具结果三层 trace 已落地，便于客户端区分 raw/model/user 展示。",

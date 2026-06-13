@@ -21,10 +21,8 @@ import {
 } from "../policy/PermissionPolicy.js";
 import { assessPermissionDeniedRisk, assessToolRisk } from "../policy/ToolRiskAssessment.js";
 import type { AgentToolStep } from "./toolStep.js";
-import {
-  BudgetManager,
-  renderBudget,
-} from "./BudgetManager.js";
+import { BudgetManager } from "./BudgetManager.js";
+import { defaultFinalizer } from "./Finalizer.js";
 import {
   defaultRunPolicyManager,
   type AgentExecutionMeta,
@@ -140,6 +138,7 @@ export class AgentLoop {
   private readonly allowed: ToolPermission[];
   private readonly budgetManager: BudgetManager;
   private readonly policy: RunPolicy;
+  private readonly finalizer = defaultFinalizer;
   private modelTurnMetrics: AgentModelTurnMetric[] = [];
 
   constructor(private readonly options: AgentLoopOptions) {
@@ -234,7 +233,7 @@ export class AgentLoop {
       const runtimeExhausted = this.budgetManager.findRuntimeExhaustion();
       if (runtimeExhausted) {
         return await this.finishRun({
-          answer: this.buildPartialFinalAnswer(steps, runtimeExhausted),
+          answer: this.buildPartialAnswer(steps, runtimeExhausted, effectiveGoal),
           steps,
           iterations: modelTurns,
           reachedLimit: true,
@@ -339,7 +338,7 @@ export class AgentLoop {
         steps.push(step);
         this.options.onStep?.(step);
         return await this.finishRun({
-          answer: this.buildPartialFinalAnswer(steps, toolBudgetExhausted),
+          answer: this.buildPartialAnswer(steps, toolBudgetExhausted, effectiveGoal),
           steps,
           iterations: modelTurns,
           reachedLimit: true,
@@ -362,7 +361,7 @@ export class AgentLoop {
       const postToolRuntimeExhausted = this.budgetManager.findRuntimeExhaustion();
       if (postToolRuntimeExhausted) {
         return await this.finishRun({
-          answer: this.buildPartialFinalAnswer(steps, postToolRuntimeExhausted),
+          answer: this.buildPartialAnswer(steps, postToolRuntimeExhausted, effectiveGoal),
           steps,
           iterations: modelTurns,
           reachedLimit: true,
@@ -375,7 +374,7 @@ export class AgentLoop {
     }
 
     return await this.finishRun({
-      answer: this.buildPartialFinalAnswer(steps, "maxModelTurns"),
+      answer: this.buildPartialAnswer(steps, "maxModelTurns", effectiveGoal),
       steps,
       iterations: modelTurns,
       reachedLimit: true,
@@ -408,6 +407,7 @@ export class AgentLoop {
       iterations: input.iterations,
       stopReason: input.reachedLimit ? "budget_exhausted" : "completed",
       budgetExhausted: input.budgetExhausted,
+      goal: input.userMessage,
     });
     this.writeRunUsageSummary(input.steps, executionMeta);
 
@@ -634,10 +634,12 @@ export class AgentLoop {
     iterations: number;
     stopReason: AgentStopReason;
     budgetExhausted?: RunBudgetKey;
+    goal: string;
   }): AgentExecutionMeta {
     const usage = this.budgetManager.buildUsage(input.steps, input.iterations);
     const needsMoreBudget = input.stopReason === "budget_exhausted";
-    return {
+    const location = this.buildLocationMeta(input.steps);
+    const base: AgentExecutionMeta = {
       mode: this.policy.mode,
       budget: this.budget,
       usage,
@@ -650,11 +652,35 @@ export class AgentLoop {
       usedShellCalls: usage.shellCalls,
       stopReason: input.stopReason,
       needsMoreBudget,
-      location: this.buildLocationMeta(input.steps),
-      suggestedBudget: needsMoreBudget
+      location,
+      suggestedBudget: needsMoreBudget && input.budgetExhausted
         ? this.budgetManager.buildSuggestedBudget(input.budgetExhausted)
         : undefined,
     };
+    if (!needsMoreBudget || !input.budgetExhausted) return base;
+    return this.finalizer.enrichExecutionMeta(base, {
+      steps: input.steps,
+      budgetExhausted: input.budgetExhausted,
+      budgetManager: this.budgetManager,
+      mode: this.policy.mode,
+      goal: input.goal,
+      location,
+    });
+  }
+
+  private buildPartialAnswer(
+    steps: AgentToolStep[],
+    budgetExhausted: RunBudgetKey,
+    goal: string,
+  ): string {
+    return this.finalizer.buildPartialAnswer({
+      steps,
+      budgetExhausted,
+      budgetManager: this.budgetManager,
+      mode: this.policy.mode,
+      goal,
+      location: this.buildLocationMeta(steps),
+    });
   }
 
   private buildLocationMeta(steps: AgentToolStep[]): LocationExecutionMeta | undefined {
@@ -803,53 +829,6 @@ export class AgentLoop {
       steps: plan.steps,
       createdAt: plan.createdAt,
     });
-  }
-
-  private buildPartialFinalAnswer(steps: AgentToolStep[], budgetExhausted: RunBudgetKey): string {
-    const okSteps = steps.filter((s) => s.ok);
-    const blockedSteps = steps.filter((s) => s.blocked);
-    const failedSteps = steps.filter((s) => !s.ok && !s.blocked);
-    const modified = okSteps.filter((s) => s.permission === "write" || s.permission === "dangerous");
-    const suggested = this.budgetManager.buildSuggestedBudget(budgetExhausted);
-
-    const lines = [
-      this.budgetManager.formatExhaustedLine(budgetExhausted),
-      "",
-      okSteps.length
-        ? `已完成：${okSteps.map((s) => `${s.tool}#${s.iteration}`).join("、")}。`
-        : "已完成：尚未成功执行工具调用。",
-    ];
-
-    if (blockedSteps.length) {
-      lines.push(`被阻塞：${blockedSteps.map((s) => `${s.tool}#${s.iteration}（${s.error ?? "权限或确认限制"}）`).join("、")}。`);
-    }
-    if (failedSteps.length) {
-      lines.push(`执行失败：${failedSteps.map((s) => `${s.tool}#${s.iteration}（${s.error ?? "未知错误"}）`).join("、")}。`);
-    }
-    const location = this.buildLocationMeta(steps);
-    if (location) {
-      lines.push(
-        location.locatedFiles.length
-          ? `已定位文件：${location.locatedFiles.slice(0, 8).join("、")}。`
-          : "已定位文件：尚未确认 primary 文件。",
-      );
-      if (location.candidateFiles.length) {
-        lines.push(`候选文件：${location.candidateFiles.slice(0, 8).join("、")}。`);
-      }
-      if (location.needsContinue) {
-        lines.push("定位状态：仍需要继续定位或扩大定位预算。");
-      }
-    }
-
-    lines.push(
-      "缺失信息：模型尚未输出 final 动作，因此当前结论可能不完整；如需继续，请提高预算或缩小任务范围。",
-      `建议继续预算：${renderBudget(suggested)}。`,
-      modified.length
-        ? `本次已执行写入/高风险类工具 ${modified.length} 次，请以 steps 中的工具结果为准核对影响范围。`
-        : "本次未执行写入类工具，未修改文件。",
-    );
-
-    return lines.join("\n");
   }
 }
 

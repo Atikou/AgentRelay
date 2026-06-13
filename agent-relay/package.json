@@ -23,6 +23,7 @@
     "test:fallback-manager": "tsx tests/fallback-manager.test.ts",
     "test:run-policy-manager": "tsx tests/run-policy-manager.test.ts",
     "test:budget-manager": "tsx tests/budget-manager.test.ts",
+    "test:finalizer": "tsx tests/finalizer.test.ts",
     "test:tool-result-layers": "tsx tests/tool-result-layers.test.ts",
     "test:run-state-store": "tsx tests/run-state-store.test.ts",
     "test:task-resume": "tsx tests/task-resume.test.ts",

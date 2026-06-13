@@ -1639,7 +1639,11 @@
             "enum": ["completed", "budget_exhausted", "error", "user_cancelled"]
           },
           "needsMoreBudget": { "type": "boolean" },
-          "suggestedBudget": { "$ref": "#/components/schemas/RunBudget" }
+          "suggestedBudget": { "$ref": "#/components/schemas/RunBudget" },
+          "suggestedToolCalls": { "type": "integer", "description": "按任务复杂度估算的建议工具调用次数" },
+          "complexityTier": { "type": "string", "enum": ["low", "medium", "high"] },
+          "completedSteps": { "type": "array", "items": { "type": "string" } },
+          "missingSteps": { "type": "array", "items": { "type": "string" } }
         }
       },
       "AgentResponse": {

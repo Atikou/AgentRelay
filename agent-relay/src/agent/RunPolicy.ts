@@ -53,6 +53,13 @@ export interface AgentExecutionMeta {
   stopReason: AgentStopReason;
   needsMoreBudget: boolean;
   suggestedBudget?: RunBudget;
+  /** 按任务复杂度估算的建议工具调用次数（预算耗尽时返回）。 */
+  suggestedToolCalls?: number;
+  complexityTier?: "low" | "medium" | "high";
+  /** 已成功完成的工具步骤摘要（预算耗尽时返回）。 */
+  completedSteps?: string[];
+  /** 推断的待继续步骤（预算耗尽时返回）。 */
+  missingSteps?: string[];
 }
 
 export interface RunPolicy {
