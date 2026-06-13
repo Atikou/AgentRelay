@@ -122,6 +122,24 @@ const projectScanInputSchema = z.object({
   exclude: z.array(z.string()).default([]),
 });
 
+const locateResumeContextSchema = z.object({
+  visitedFiles: z.array(z.string()).default([]),
+  visitedDirs: z.array(z.string()).default([]),
+  candidateFiles: z.array(z.string()).default([]),
+  primaryFiles: z.array(z.string()).default([]),
+  searchPlan: z
+    .object({
+      goal: z.string(),
+      keywords: z.array(z.string()).optional(),
+      possibleSymbols: z.array(z.string()).optional(),
+      possiblePaths: z.array(z.string()).optional(),
+      exclude: z.array(z.string()).optional(),
+      taskType: z.string().optional(),
+    })
+    .partial()
+    .optional(),
+});
+
 const locateRelevantFilesInputSchema = z.object({
   projectId: z.string().default("default"),
   goal: z.string().min(1),
@@ -131,6 +149,7 @@ const locateRelevantFilesInputSchema = z.object({
   possiblePaths: z.array(z.string()).optional(),
   limit: z.number().int().positive().max(100).default(20),
   locateBudget: locateBudgetSchema.partial().optional(),
+  resumeContext: locateResumeContextSchema.optional(),
 });
 
 const contextPackInputSchema = z.object({
@@ -285,6 +304,11 @@ export const locateRelevantFilesTool: Tool<
       visitedDirs: string[];
     };
     indexSource: "project_index" | "filesystem";
+    locationResume?: {
+      mergedSearchPlan: boolean;
+      skippedVisitedFiles: number;
+      boostedCandidateFiles: number;
+    };
   }
 > = {
   name: "locate_relevant_files",
@@ -295,13 +319,35 @@ export const locateRelevantFilesTool: Tool<
   inputSchema: locateRelevantFilesInputSchema,
   async execute(input, ctx) {
     const budget = { ...DEFAULT_LOCATE_BUDGET, ...input.locateBudget };
+    const resumeCtx = input.resumeContext;
     const basePlan = analyzeTaskQuery(input.goal, input.mode);
+    const resumedPlan = resumeCtx?.searchPlan;
     const searchPlan: SearchPlan = {
       ...basePlan,
-      keywords: unique([...(input.keywords ?? []), ...basePlan.keywords]).slice(0, 20),
-      possibleSymbols: unique([...(input.possibleSymbols ?? []), ...basePlan.possibleSymbols]).slice(0, 16),
-      possiblePaths: unique([...(input.possiblePaths ?? []), ...basePlan.possiblePaths]).slice(0, 12),
+      goal: resumedPlan?.goal ?? basePlan.goal,
+      keywords: unique([
+        ...(input.keywords ?? []),
+        ...(resumedPlan?.keywords ?? []),
+        ...basePlan.keywords,
+      ]).slice(0, 20),
+      possibleSymbols: unique([
+        ...(input.possibleSymbols ?? []),
+        ...(resumedPlan?.possibleSymbols ?? []),
+        ...basePlan.possibleSymbols,
+      ]).slice(0, 16),
+      possiblePaths: unique([
+        ...(input.possiblePaths ?? []),
+        ...(resumedPlan?.possiblePaths ?? []),
+        ...basePlan.possiblePaths,
+      ]).slice(0, 12),
+      exclude: unique([...basePlan.exclude, ...(resumedPlan?.exclude ?? [])]),
+      taskType:
+        isSearchPlanTaskType(resumedPlan?.taskType) ? resumedPlan.taskType : basePlan.taskType,
     };
+    const visitedFiles = new Set(resumeCtx?.visitedFiles ?? []);
+    const visitedDirs = new Set(resumeCtx?.visitedDirs ?? []);
+    const resumeCandidates = new Set(resumeCtx?.candidateFiles ?? []);
+    const resumePrimary = new Set(resumeCtx?.primaryFiles ?? []);
     const stats = {
       usedLocateSteps: 1,
       usedSearchCalls: 0,
@@ -336,7 +382,12 @@ export const locateRelevantFilesTool: Tool<
       }
     }
     stats.visitedDirs = unique(files.files.map((f) => f.path.split("/").slice(0, -1).join("/") || ".")).slice(0, 80);
-    const ranked = await rankCandidates(ctx, files.files, searchPlan, budget, stats, ctx.projectIndex, input.projectId);
+    const ranked = await rankCandidates(ctx, files.files, searchPlan, budget, stats, ctx.projectIndex, input.projectId, {
+      visitedFiles,
+      visitedDirs,
+      resumeCandidates,
+      resumePrimary,
+    });
     const maxPrimary = Math.min(input.limit, budget.maxPrimaryFiles);
     const primaryFiles = ranked.filter((f) => f.score >= 0.7).slice(0, maxPrimary);
     const candidateFiles = ranked
@@ -368,6 +419,17 @@ export const locateRelevantFilesTool: Tool<
       stopReason,
       locateStats: stats,
       indexSource,
+      locationResume: resumeCtx
+        ? {
+            mergedSearchPlan: Boolean(resumedPlan),
+            skippedVisitedFiles: [...visitedFiles].filter((p) =>
+              stats.visitedFiles.includes(p) || ranked.every((r) => r.path !== p),
+            ).length,
+            boostedCandidateFiles: [...resumeCandidates].filter((p) =>
+              ranked.some((r) => r.path === p),
+            ).length,
+          }
+        : undefined,
     };
   },
 };
@@ -513,6 +575,12 @@ async function rankCandidates(
   stats: { usedSearchCalls: number; usedReadForLocationCalls: number; visitedFiles: string[] },
   projectIndex?: ProjectIndex,
   projectId = "default",
+  resume?: {
+    visitedFiles: Set<string>;
+    visitedDirs: Set<string>;
+    resumeCandidates: Set<string>;
+    resumePrimary: Set<string>;
+  },
 ): Promise<LocatedFile[]> {
   const ranked: LocatedFile[] = [];
   const loweredKeywords = plan.keywords.map((k) => k.toLowerCase());
@@ -548,6 +616,16 @@ async function rankCandidates(
     let score = 0;
     const matchTypes = new Set<LocatedFile["matchTypes"][number]>();
     const reasons: string[] = [];
+    const alreadyVisited = resume?.visitedFiles.has(file.path) ?? false;
+    if (resume?.resumePrimary.has(file.path)) {
+      score += 0.4;
+      matchTypes.add("memory");
+      reasons.push("续跑 primary 候选保留");
+    } else if (resume?.resumeCandidates.has(file.path)) {
+      score += 0.25;
+      matchTypes.add("memory");
+      reasons.push("续跑 candidate 候选保留");
+    }
     for (const hint of pathHints) {
       if (p.includes(hint)) {
         score += 0.35;
@@ -574,8 +652,21 @@ async function rankCandidates(
       matchTypes.add("importance");
       reasons.push("重要配置或入口文件");
     }
-    if (score > 0 || stats.usedReadForLocationCalls < budget.maxReadForLocationCalls) {
-      const contentScore = await scoreFileContent(ctx, file.path, loweredKeywords, symbolSet);
+    const allowContentRead =
+      !alreadyVisited ||
+      symbolSet.size > 0 ||
+      resume?.resumePrimary.has(file.path) ||
+      resume?.resumeCandidates.has(file.path);
+    if (score > 0 || (allowContentRead && stats.usedReadForLocationCalls < budget.maxReadForLocationCalls)) {
+      if (alreadyVisited && score > 0) {
+        matchTypes.add("recent");
+        reasons.push("续跑已访问（跳过重复读内容）");
+      } else if (alreadyVisited) {
+        continue;
+      }
+      const contentScore = allowContentRead && !alreadyVisited
+        ? await scoreFileContent(ctx, file.path, loweredKeywords, symbolSet)
+        : { score: 0, matchTypes: [] as LocatedFile["matchTypes"], reasons: [] as string[] };
       if (contentScore.score > 0) {
         stats.usedSearchCalls = Math.min(budget.maxSearchCalls, stats.usedSearchCalls + 1);
         stats.usedReadForLocationCalls += 1;
@@ -713,6 +804,16 @@ function estimateTokens(text: string): number {
 
 function unique<T>(items: T[]): T[] {
   return [...new Set(items)];
+}
+
+function isSearchPlanTaskType(value: unknown): value is SearchPlan["taskType"] {
+  return (
+    value === "architecture_or_code_edit" ||
+    value === "debug" ||
+    value === "review" ||
+    value === "documentation" ||
+    value === "unknown"
+  );
 }
 
 function fileMetaToProjectRecord(file: ProjectFileMeta): ProjectFileRecord {

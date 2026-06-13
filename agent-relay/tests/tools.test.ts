@@ -149,6 +149,57 @@ test("locate_relevant_files 在已有 ProjectIndex 时复用索引", async () =>
   }
 });
 
+test("locate_relevant_files resumeContext 合并 searchPlan 并跳过已访问文件", async () => {
+  const { DatabaseManager } = await import("../src/context/DatabaseManager.js");
+  const { ProjectIndex } = await import("../src/context/ProjectIndex.js");
+  const dbm = new DatabaseManager(dataDir);
+  const projectIndex = new ProjectIndex(dbm);
+  const r = reg();
+  r.setDefaultContext({ projectIndex });
+  try {
+    await r.run(
+      "write_file",
+      { path: "src/plan/PlanCompiler.ts", content: "export class PlanCompiler {}\n", backup: false },
+      await ctx(),
+    );
+    await r.run("project_scan", { root: ".", maxDepth: 4 }, await ctx());
+    const first = await r.run(
+      "locate_relevant_files",
+      { goal: "修复 PlanCompiler", possibleSymbols: ["PlanCompiler"] },
+      await ctx(),
+    );
+    assert.equal(first.ok, true);
+    const firstOut = (first as { output: { locateStats: { visitedFiles: string[] } } }).output;
+    const visited = firstOut.locateStats.visitedFiles;
+    const second = await r.run(
+      "locate_relevant_files",
+      {
+        goal: "修复 PlanCompiler",
+        possibleSymbols: ["PlanCompiler"],
+        resumeContext: {
+          visitedFiles: visited,
+          visitedDirs: ["src/plan"],
+          candidateFiles: ["src/plan/PlanCompiler.ts"],
+          searchPlan: {
+            goal: "修复 PlanCompiler",
+            keywords: ["PlanCompiler"],
+            possibleSymbols: ["PlanCompiler"],
+          },
+        },
+      },
+      await ctx(),
+    );
+    assert.equal(second.ok, true);
+    const secondOut = (second as {
+      output: { locationResume?: { mergedSearchPlan: boolean }; searchPlan: { keywords: string[] } };
+    }).output;
+    assert.equal(secondOut.locationResume?.mergedSearchPlan, true);
+    assert.ok(secondOut.searchPlan.keywords.includes("PlanCompiler"));
+  } finally {
+    dbm.close();
+  }
+});
+
 test("context_pack 一次性打包多个相关文件", async () => {
   const r = reg();
   await r.run("write_file", { path: "src/context/A.ts", content: "export function alpha() { return 1; }", backup: false }, await ctx());

@@ -455,6 +455,7 @@ export function createAppContext(): AppContext {
     tasks: contextManager.tasks,
     runs,
     runStateStore,
+    projectIndex,
     notificationQueue,
     trace,
     makeChatFn,

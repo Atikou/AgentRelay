@@ -34,6 +34,7 @@ import {
   type RunPolicy,
 } from "./RunPolicy.js";
 import type { RunStateStore } from "../orchestrator/RunStateStore.js";
+import type { ProjectIndex } from "../context/ProjectIndex.js";
 import {
   buildRunStateFromAgentRun,
   type RunState,
@@ -111,6 +112,8 @@ export interface AgentLoopOptions {
   requestId?: string;
   /** 预算耗尽时持久化续跑状态。 */
   runStateStore?: RunStateStore;
+  /** 项目索引：写入 RunState.location 的 index 统计。 */
+  projectIndex?: ProjectIndex;
   /** 从 RunStateStore 恢复的续跑上下文。 */
   resumeState?: RunState;
 }
@@ -421,6 +424,12 @@ export class AgentLoop {
           taskId: this.options.taskId,
           steps: input.steps,
           executionMeta,
+          projectIndexStats: this.options.projectIndex
+            ? (() => {
+                const stats = this.options.projectIndex!.getStats("default", this.options.workspaceRoot);
+                return { fileCount: stats.fileCount, symbolCount: stats.symbolCount };
+              })()
+            : undefined,
         });
         if (state) this.options.runStateStore.save(state);
       } else {
@@ -452,6 +461,7 @@ export class AgentLoop {
         ? {
             completedStepIds: this.options.resumeState.completedSteps,
             priorSteps: this.options.resumeState.completedToolSteps,
+            location: this.options.resumeState.location,
           }
         : undefined;
     return new PlanWorkflow({

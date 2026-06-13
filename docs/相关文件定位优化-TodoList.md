@@ -128,7 +128,7 @@
 - [x] 保存 `scannedPaths`、`readFiles`（从 PlanWorkflow 步骤提取）。
 - [x] 保存 `completedSteps` / `pendingSteps`（PlanWorkflow 三步）。
 - [x] 支持预算耗尽后 continue run（`POST /api/agent/resume`）。
-- [ ] 保存 `searchPlan`、`visitedFiles`、`visitedDirs`、`candidateFiles`（完整定位状态，待 ProjectIndex 联动）。
+- [x] 保存 `searchPlan`、`visitedFiles`、`visitedDirs`、`candidateFiles`（完整定位状态，ProjectIndex 联动 `indexFileCount`）。
 
 ### P2-3：ExplorationProgressTracker
 

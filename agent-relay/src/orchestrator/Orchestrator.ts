@@ -50,6 +50,7 @@ import type { TraceLogger } from "../trace/TraceLogger.js";
 
 import { RunStore } from "./RunStore.js";
 import { RunStateStore } from "./RunStateStore.js";
+import type { ProjectIndex } from "../context/ProjectIndex.js";
 import type { RunState } from "./runStateTypes.js";
 import { rollbackFileChangesForRun, type TaskRollbackResult } from "./TaskRollback.js";
 import {
@@ -77,6 +78,8 @@ export interface OrchestratorDeps {
   runs: RunStore;
 
   runStateStore: RunStateStore;
+
+  projectIndex?: ProjectIndex;
 
   notificationQueue: NotificationQueue;
 
@@ -912,6 +915,7 @@ export class Orchestrator {
       taskId: task.id,
       requestId: runId,
       runStateStore: this.deps.runStateStore,
+      projectIndex: this.deps.projectIndex,
       resumeState: state,
       maxCostUsdPerRun: this.deps.maxCostUsdPerRun,
     });
@@ -1459,6 +1463,7 @@ export class Orchestrator {
       taskId: task.id,
       requestId: run.id,
       runStateStore: this.deps.runStateStore,
+      projectIndex: this.deps.projectIndex,
       onStep: callbacks?.onStep,
       onToken: callbacks?.onToken,
       maxCostUsdPerRun: this.deps.maxCostUsdPerRun,

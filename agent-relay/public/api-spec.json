@@ -1732,7 +1732,20 @@
           "budgetUsage": { "$ref": "#/components/schemas/RunBudgetUsage" },
           "stopReason": { "type": "string" },
           "budgetExhausted": { "type": "string" },
-          "updatedAt": { "type": "string", "format": "date-time" }
+          "updatedAt": { "type": "string", "format": "date-time" },
+          "location": {
+            "type": "object",
+            "properties": {
+              "projectId": { "type": "string" },
+              "searchPlan": { "type": "object", "additionalProperties": true },
+              "visitedFiles": { "type": "array", "items": { "type": "string" } },
+              "visitedDirs": { "type": "array", "items": { "type": "string" } },
+              "candidateFiles": { "type": "array", "items": { "type": "string" } },
+              "primaryFiles": { "type": "array", "items": { "type": "string" } },
+              "indexFileCount": { "type": "integer" },
+              "indexSymbolCount": { "type": "integer" }
+            }
+          }
         }
       },
       "PlanRequest": {

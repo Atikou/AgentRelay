@@ -27,6 +27,7 @@
     "test:project-index": "tsx tests/project-index.test.ts",
     "test:tool-result-layers": "tsx tests/tool-result-layers.test.ts",
     "test:run-state-store": "tsx tests/run-state-store.test.ts",
+    "test:run-state-location": "tsx tests/run-state-location.test.ts",
     "test:task-resume": "tsx tests/task-resume.test.ts",
     "test:routing-logs": "tsx tests/routing-logs.test.ts",
     "test:model-capabilities": "tsx tests/model-capabilities.test.ts",

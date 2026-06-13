@@ -7,15 +7,20 @@ import type {
   RunBudgetUsage,
 } from "../agent/RunPolicy.js";
 import type { AgentToolStep } from "../agent/toolStep.js";
+import {
+  PLAN_WORKFLOW_STEP_IDS,
+  type PlanWorkflowStepId,
+} from "./planWorkflowConstants.js";
+import {
+  extractLocationContextFromSteps,
+  type RunStateLocationContext,
+  type RunStateSearchPlan,
+} from "./runStateLocation.js";
 
-/** PlanWorkflow 固定三步；与 `PlanWorkflow` 执行顺序一致。 */
-export const PLAN_WORKFLOW_STEP_IDS = [
-  "project_scan",
-  "locate_relevant_files",
-  "context_pack",
-] as const;
-
-export type PlanWorkflowStepId = (typeof PLAN_WORKFLOW_STEP_IDS)[number];
+export type { PlanWorkflowStepId } from "./planWorkflowConstants.js";
+export { PLAN_WORKFLOW_STEP_IDS } from "./planWorkflowConstants.js";
+export type { RunStateLocationContext, RunStateSearchPlan } from "./runStateLocation.js";
+export { extractLocationContextFromSteps } from "./runStateLocation.js";
 
 export type RunStateStatus = "resumable" | "completed";
 
@@ -42,6 +47,8 @@ export interface RunState {
   stopReason: AgentStopReason;
   budgetExhausted?: RunBudgetKey;
   updatedAt: string;
+  /** 定位进度：searchPlan / visitedFiles / candidateFiles 等，续跑时注入 locate。 */
+  location?: RunStateLocationContext;
 }
 
 export function extractCompletedWorkflowSteps(steps: AgentToolStep[]): PlanWorkflowStepId[] {
@@ -124,6 +131,7 @@ export function buildRunStateFromAgentRun(input: {
   taskId?: string;
   steps: AgentToolStep[];
   executionMeta: AgentExecutionMeta;
+  projectIndexStats?: { fileCount: number; symbolCount: number };
 }): RunState | null {
   if (input.executionMeta.stopReason !== "budget_exhausted") return null;
   if (!shouldRunPlanWorkflow(input.goal, input.mode)) return null;
@@ -133,6 +141,10 @@ export function buildRunStateFromAgentRun(input: {
   if (pendingSteps.length === 0) return null;
 
   const now = new Date().toISOString();
+  const location = extractLocationContextFromSteps(input.steps, {
+    projectIndexFileCount: input.projectIndexStats?.fileCount,
+    projectIndexSymbolCount: input.projectIndexStats?.symbolCount,
+  });
   return {
     runId: input.runId,
     mode: input.mode,
@@ -150,5 +162,6 @@ export function buildRunStateFromAgentRun(input: {
     stopReason: input.executionMeta.stopReason,
     budgetExhausted: input.executionMeta.budgetExhausted,
     updatedAt: now,
+    location,
   };
 }

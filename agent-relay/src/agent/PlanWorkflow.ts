@@ -9,7 +9,8 @@ import { countSuccessfulPermissionUsage } from "./BudgetManager.js";
 import {
   PLAN_WORKFLOW_STEP_IDS,
   type PlanWorkflowStepId,
-} from "../orchestrator/runStateTypes.js";
+} from "../orchestrator/planWorkflowConstants.js";
+import type { RunStateLocationContext } from "../orchestrator/runStateLocation.js";
 
 export interface PlanWorkflowOptions {
   registry: ToolRegistry;
@@ -32,6 +33,7 @@ export interface PlanWorkflowResult {
 export interface PlanWorkflowResumeContext {
   completedStepIds: readonly PlanWorkflowStepId[];
   priorSteps: AgentToolStep[];
+  location?: RunStateLocationContext;
 }
 
 const WORKFLOW_TOOLS = PLAN_WORKFLOW_STEP_IDS;
@@ -94,14 +96,29 @@ export class PlanWorkflow {
       }
 
       if (stepId === "locate_relevant_files") {
-        const possiblePaths = readStringArray(scanOutput?.sourceRoots).slice(0, 8);
+        const possiblePaths = unique([
+          ...readStringArray(scanOutput?.sourceRoots).slice(0, 8),
+          ...(resume?.location?.searchPlan?.possiblePaths ?? []),
+        ]).slice(0, 12);
         const locate = await this.runTool(
           "locate_relevant_files",
           {
+            projectId: resume?.location?.projectId ?? "default",
             goal,
             mode,
             limit: 12,
             possiblePaths,
+            keywords: resume?.location?.searchPlan?.keywords,
+            possibleSymbols: resume?.location?.searchPlan?.possibleSymbols,
+            resumeContext: resume?.location
+              ? {
+                  visitedFiles: resume.location.visitedFiles,
+                  visitedDirs: resume.location.visitedDirs,
+                  candidateFiles: resume.location.candidateFiles,
+                  primaryFiles: resume.location.primaryFiles,
+                  searchPlan: resume.location.searchPlan,
+                }
+              : undefined,
             locateBudget: {
               maxSearchCalls: 3,
               maxListCalls: 1,
@@ -110,7 +127,9 @@ export class PlanWorkflow {
               maxPrimaryFiles: 8,
             },
           },
-          "计划/审阅模式固定预扫描：根据目标定位 primaryFiles 和 candidateFiles。",
+          resume?.location
+            ? "计划/审阅续跑：在已保存 searchPlan/visitedFiles 基础上继续定位。"
+            : "计划/审阅模式固定预扫描：根据目标定位 primaryFiles 和 candidateFiles。",
         );
         steps.push(locate);
         newSteps += 1;
@@ -255,6 +274,10 @@ function pathArray(value: unknown): string[] {
       return typeof record?.path === "string" ? record.path : undefined;
     })
     .filter((item): item is string => Boolean(item));
+}
+
+function unique(items: string[]): string[] {
+  return [...new Set(items)];
 }
 
 function readStringArray(value: unknown): string[] {

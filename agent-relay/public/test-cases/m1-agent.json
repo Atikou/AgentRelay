@@ -241,6 +241,45 @@
       }
     },
     {
+      "id": "m1-agent-runstate-location-doc",
+      "title": "api-spec RunState 含 location 定位上下文",
+      "purpose": "确认 OpenAPI RunState schema 已声明 location（searchPlan/visitedFiles/candidateFiles），便于客户端续跑时恢复定位状态。",
+      "method": "GET",
+      "path": "/api-docs",
+      "input": {},
+      "expect": {
+        "status": 200,
+        "bodyContains": ["location", "visitedFiles", "searchPlan", "indexFileCount"]
+      }
+    },
+    {
+      "id": "m1-agent-plan-low-budget-runstate-pending",
+      "title": "计划模式低预算耗尽返回 runState.pendingSteps",
+      "purpose": "验证预算耗尽时 runState 含 pendingSteps，续跑可继续 PlanWorkflow；location 在 locate 执行后写入。",
+      "method": "POST",
+      "path": "/api/agent",
+      "input": {
+        "message": "请进入计划模式，只读分析当前项目模型路由模块并生成升级计划",
+        "mode": "plan",
+        "budget": {
+          "maxModelTurns": 2,
+          "maxToolCalls": 3,
+          "maxReadCalls": 1,
+          "maxWriteCalls": 0,
+          "maxShellCalls": 0,
+          "maxRuntimeMs": 120000
+        }
+      },
+      "expect": {
+        "status": 200,
+        "bodyPaths": {
+          "reachedLimit": true,
+          "runState.status": "resumable",
+          "runState.pendingSteps": "array"
+        }
+      }
+    },
+    {
       "id": "m1-agent-run-policy-manager-capability",
       "title": "GET /api/config 暴露 runPolicyManager",
       "purpose": "确认 capabilities 声明 RunPolicyManager 已落地，客户端可探测模式/预算策略解析能力。",
