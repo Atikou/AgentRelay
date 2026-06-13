@@ -2,6 +2,7 @@ import { appendFileSync, mkdirSync } from "node:fs";
 import path from "node:path";
 
 import { redactValue } from "../util/redact.js";
+import { compactToolOutputForModel } from "../agent/ToolResultLayers.js";
 
 import type { ChatMessage } from "../model/types.js";
 import { ContextRestorer } from "./ContextRestorer.js";
@@ -165,16 +166,7 @@ export class ContextManager {
   }
 
   compactToolOutput(tool: string, output: unknown): unknown {
-    const json = JSON.stringify(output);
-    if (json.length <= this.largeToolChars) return output;
-    const summary = json.slice(0, 800);
-    return {
-      _truncated: true,
-      tool,
-      preview: `${summary}…`,
-      note: "完整输出已截断；如需全文请用 read_file 重新读取对应路径。",
-      originalLength: json.length,
-    };
+    return compactToolOutputForModel(tool, output, this.largeToolChars).modelVisible;
   }
 
   /** 恢复结构化上下文（运行时快照，不持久化 contextPackage 本身）。 */

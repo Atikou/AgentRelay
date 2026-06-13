@@ -241,6 +241,20 @@
       }
     },
     {
+      "id": "m1-agent-tool-result-layers-capability",
+      "title": "GET /api/config 暴露 toolResultLayers",
+      "purpose": "确认 capabilities 声明工具结果三层 trace 已落地，便于客户端区分 raw/model/user 展示。",
+      "method": "GET",
+      "path": "/api/config",
+      "input": {},
+      "expect": {
+        "status": 200,
+        "bodyPaths": {
+          "capabilities.toolResultLayers": true
+        }
+      }
+    },
+    {
       "id": "m1-agent-unknown-client-still-force",
       "title": "未知 clientName 仍立即 404",
       "purpose": "确认 Smart 路由接入后，显式 clientName 校验行为不变，不会静默回退默认路由。",

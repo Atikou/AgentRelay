@@ -1,5 +1,6 @@
 import type { ToolPermission } from "./permissions.js";
 import type { StructuredToolRisk } from "../policy/ToolRiskAssessment.js";
+import type { ToolResultLayers } from "./ToolResultLayers.js";
 
 /** 一次工具调用的记录（用于回显执行过程）。 */
 export interface AgentToolStep {
@@ -11,6 +12,8 @@ export interface AgentToolStep {
   thought?: string;
   ok: boolean;
   output?: unknown;
+  /** 工具结果三层：raw / modelVisible / userDisplay。 */
+  resultLayers?: ToolResultLayers;
   error?: string;
   durationMs?: number;
   blocked?: boolean;

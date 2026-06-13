@@ -238,6 +238,7 @@ export class AppContext {
         runtimeStatsV6: true,
         evalSetRunnerV7: true,
         modelCapabilitiesV5: true,
+        toolResultLayers: true,
         runStateStore: true,
         costBudgetPerRun: true,
         ruleOnlyRouting: true,

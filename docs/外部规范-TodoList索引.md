@@ -21,7 +21,7 @@
 | 原始规范 | 项目 TodoList | 当前阶段 | 完成度概要 |
 | --- | --- | --- | --- |
 | `Agent_TaskPlan_JSON_Markdown_Separation_Spec.md` | [计划JSON与Markdown分离-TodoList](计划JSON与Markdown分离-TodoList.md) | P0 主体 ✅ / P1 部分 | 类型/Store/Renderer/执行边界 + reject API 已落地；版本链、step 审计待补 |
-| `Agent_Execution_Policy_Issues_Report.md` | [Agent执行策略问题-TodoList](Agent执行策略问题-TodoList.md) | P0 ✅ / P1 主体 ✅ / P2 RunStateStore ✅ | executionMeta、partial 收尾、plan 写拦截、PlanWorkflow、RunStateStore 续跑已完成；BudgetManager、三层 trace 待补 |
+| `Agent_Execution_Policy_Issues_Report.md` | [Agent执行策略问题-TodoList](Agent执行策略问题-TodoList.md) | P0 ✅ / P1 主体 ✅ / P2 主体 ✅ | executionMeta、PlanWorkflow、RunStateStore、ToolResultLayers 已落地；BudgetManager 待补 |
 | `Agent_Model_Router_Rule_Config_Spec.md` | [模型路由规则配置-TodoList](模型路由规则配置-TodoList.md) | V1 ✅ | 规则路由 + 手动配置 + 启动 `validateModelProfiles` 已完成；路由 HTTP 查询待补 |
 | `Agent_Model_Router_Collaboration_Spec.md` | [模型路由协作-TodoList](模型路由协作-TodoList.md) | V1 ✅ | single_model + draft_review 已闭环；rule_only、DB 集成测试待补 |
 | `Agent_Model_Router_Auto_Upgrade_Roadmap.md` | [模型路由升级TodoList](模型路由升级TodoList.md) | **V8 下一步** | V2–V7 已完成（含 V5 能力矩阵）；V8 完整自动路由未开始 |

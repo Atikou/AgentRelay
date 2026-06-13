@@ -29,12 +29,12 @@
 | --- | ---: | ---: | ---: | ---: |
 | P0 | 3 | 0 | 0 | 3 |
 | P1 | 3 | 1 | 0 | 4 |
-| P2 | 1 | 1 | 1 | 3 |
+| P2 | 2 | 0 | 1 | 3 |
 | P3 | 0 | 1 | 1 | 2 |
-| 验收测试 §7 | 3 | 0 | 2 | 5 |
-| **合计** | **10** | **3** | **4** | **17** |
+| 验收测试 §7 | 4 | 0 | 1 | 5 |
+| **合计** | **12** | **2** | **3** | **17** |
 
-**结论**：报告 P0（executionMeta、部分收尾、计划模式写拦截）已落地；`project_scan` 已作为相关文件定位工具落地；PlanWorkflow 第一版已接入 AgentLoop；RunStateStore 续跑已落地；仍缺独立 BudgetManager 类与工具结果三层 trace。
+**结论**：报告 P0（executionMeta、部分收尾、计划模式写拦截）已落地；`project_scan` 已作为相关文件定位工具落地；PlanWorkflow 第一版已接入 AgentLoop；RunStateStore 续跑与工具结果三层 trace 已落地；仍缺独立 BudgetManager 类。
 
 ---
 
@@ -201,12 +201,12 @@
 
 #### P2-3：工具结果 trace 分层
 
-- [~] raw：完整结果在 trace / tool_logs（部分）
-- [~] model-visible：`compactToolOutput` + 4k 截断
-- [ ] user-visible display 独立层 + `truncated=true` 标记
-- [ ] 规范三层结构显式类型与存储
+- [x] raw：完整结果在 trace `agent_tool.rawOutput` / `tool_logs`
+- [x] model-visible：`compactToolOutput` + `clipModelToolJson` 4k 截断
+- [x] user-visible display 独立层 `userDisplay` + `truncated=true` 标记
+- [x] 规范三层结构显式类型 `ToolResultLayers` + `AgentToolStep.resultLayers`
 
-**验收**：⚠️
+**验收**：✅（`npm run test:tool-result-layers`）
 
 ---
 
@@ -236,7 +236,7 @@
 - [x] **测试 1** 计划模式低 budget → 部分扫描 + 建议预算 + 未改文件（`loop.test.ts`）
 - [x] **测试 2** 计划模式禁止写入（`loop.test.ts`）
 - [x] **测试 3** 不传 budget → plan 默认 `budget.maxModelTurns=16` 且写/shell 预算为 0（`orchestrator.test.ts`）
-- [ ] **测试 4** list_files 大量结果 → raw trace 完整 + model summary + truncated 标记
+- [x] **测试 4** list_files 大量结果 → raw trace 完整 + model summary + truncated 标记（`tool-result-layers.test.ts`）
 - [x] **测试 5** runId 续跑 pendingSteps（`run-state-store.test.ts`）
 
 ---
@@ -264,7 +264,7 @@
 | executionMeta | [x] |
 | partial final answer | [x] |
 | PlanWorkflow | [x] |
-| tool result trace 分层 | [~] |
+| tool result trace 分层 | [x] `ToolResultLayers` + `resultLayers` on steps |
 
 ---
 

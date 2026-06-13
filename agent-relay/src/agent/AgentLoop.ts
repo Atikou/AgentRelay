@@ -11,6 +11,10 @@ import { assertWithinCostBudget, sumModelTurnCost } from "../util/costBudget.js"
 import { wrapUntrustedToolOutput } from "../util/injection.js";
 import { redactPreview } from "../util/redact.js";
 import { PlanWorkflow, type PlanWorkflowResumeContext } from "./PlanWorkflow.js";
+import {
+  buildToolResultLayers,
+  clipModelToolJson,
+} from "./ToolResultLayers.js";
 import { CONFIRMATION_REQUIRED, MODE_PERMISSIONS, type ToolPermission } from "./permissions.js";
 import {
   resolveEffectivePermissions,
@@ -514,10 +518,33 @@ export class AgentLoop {
     });
 
     if (result.ok) {
-      const output =
-        this.options.contextManager?.compactToolOutput(action.tool, result.output) ??
-        result.output;
-      return { ...withPermission, ok: true, output, durationMs: result.durationMs, toolCallId: result.toolCallId };
+      const layers = buildToolResultLayers(action.tool, result.output, {
+        compact: this.options.contextManager
+          ? (t, out) => this.options.contextManager!.compactToolOutput(t, out)
+          : undefined,
+      });
+      this.options.trace?.write({
+        type: "agent_tool",
+        tool: action.tool,
+        iteration,
+        toolCallId,
+        runId: this.options.runId,
+        sessionId: this.options.sessionId,
+        taskId: this.options.taskId,
+        status: "ok",
+        rawJsonLength: layers.rawJsonLength,
+        modelJsonLength: layers.modelJsonLength,
+        userDisplay: layers.userDisplay,
+        rawOutput: layers.raw,
+      });
+      return {
+        ...withPermission,
+        ok: true,
+        output: layers.modelVisible,
+        resultLayers: layers,
+        durationMs: result.durationMs,
+        toolCallId: result.toolCallId,
+      };
     }
     return {
       ...withPermission,
@@ -577,11 +604,9 @@ export class AgentLoop {
     if (!step.ok) {
       return `工具「${step.tool}」执行失败：${step.error}。请据此调整下一步。`;
     }
-    const compacted =
-      this.options.contextManager?.compactToolOutput(step.tool, step.output) ?? step.output;
+    const compacted = step.resultLayers?.modelVisible ?? step.output;
     const wrapped = wrapUntrustedToolOutput(step.tool, compacted);
-    const json = JSON.stringify(wrapped);
-    const body = json.length > 4000 ? `${json.slice(0, 4000)}…(已截断)` : json;
+    const body = clipModelToolJson(wrapped);
     return `工具「${step.tool}」执行结果（JSON）：\n${body}`;
   }
 
