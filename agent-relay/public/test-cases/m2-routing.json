@@ -301,6 +301,30 @@
       }
     },
     {
+      "id": "m2-v2-fallback-verification-docs",
+      "title": "升级 TodoList 登记 V2 fallback 验收测试",
+      "purpose": "确认 V2 FallbackManager 六项验收测试已勾选并指向 fallback-verification / draft-review 测试文件。",
+      "method": "GET",
+      "path": "/api/docs/content?slug=模型路由升级TodoList",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyIncludes": ["fallback-verification.test.ts", "fallback 达上限", "fallback_logs"]
+      }
+    },
+    {
+      "id": "m2-v2-fallback-routing-logs-doc",
+      "title": "模型路由文档说明 fallback 日志关联",
+      "purpose": "确认协作文档描述 GET /api/routing/logs 可查看 fallbacks 链，支撑 V2 可观测性验收。",
+      "method": "GET",
+      "path": "/api/docs/content?slug=模型路由与协作",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyIncludes": ["fallbacks", "GET /api/routing/logs", "FallbackManager"]
+      }
+    },
+    {
       "id": "m2-routing-stats-api",
       "title": "GET /api/routing/stats 返回运行统计",
       "purpose": "确认 V6 RuntimeStats 聚合 model_call_logs / fallback_logs / route_logs 并返回 suggestions 数组。",

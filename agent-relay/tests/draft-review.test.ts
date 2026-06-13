@@ -107,7 +107,7 @@ class MockFallbackLogStore {
   }
 }
 
-function makeFallbackCtx(): PipelineFallbackContext {
+function makeFallbackCtx(): PipelineFallbackContext & { recorded: string[] } {
   const manager = new FallbackManager(new ModelRegistry([localDraft, apiGeneral, apiStrong]));
   const logStore = new MockFallbackLogStore();
   const recorded: string[] = [];
@@ -115,6 +115,7 @@ function makeFallbackCtx(): PipelineFallbackContext {
     manager,
     logStore: logStore as unknown as PipelineFallbackContext["logStore"],
     recordFallback: (id) => recorded.push(id),
+    recorded,
   };
 }
 
@@ -239,6 +240,57 @@ test("reject 高风险且无 revisedAnswer 走强模型 fallback", async () => {
     fallbackCtx,
   );
   assert.equal(result.finalAnswer, "强模型重写答案");
+  assert.equal(result.usedStrategy, "strong_model_direct");
+});
+
+test("审查 JSON 首次无效第二次解析成功", async () => {
+  const store = new MockCollabStore();
+  const fallbackCtx = makeFallbackCtx();
+  let reviewCalls = 0;
+  const chat: ModelChatFn = async (modelId, _req, meta) => {
+    if (meta.role === "draft") {
+      return { response: mockResponse("草稿正文", "local-small"), callLogId: "1" };
+    }
+    reviewCalls += 1;
+    const content =
+      reviewCalls === 1
+        ? "not-json"
+        : '{"verdict":"approve","confidence":1,"issues":[],"revisedAnswer":""}';
+    return { response: mockResponse(content, "api-general"), callLogId: `r-${reviewCalls}` };
+  };
+  const result = await runDraftReviewPipeline(
+    baseInput,
+    chat,
+    store as CollaborationRunStore,
+    "medium",
+    fallbackCtx,
+  );
+  assert.equal(reviewCalls, 2);
+  assert.equal(result.finalAnswer, "草稿正文");
+  assert.equal(fallbackCtx.recorded.length, 0);
+});
+
+test("审查 JSON 两次失败升级强模型且 draft 不进 finalAnswer", async () => {
+  const store = new MockCollabStore();
+  const fallbackCtx = makeFallbackCtx();
+  const chat: ModelChatFn = async (modelId, _req, meta) => {
+    if (meta.role === "draft") {
+      return { response: mockResponse("低质量草稿", "local-small"), callLogId: "1" };
+    }
+    if (modelId === "api-strong") {
+      return { response: mockResponse("强模型重生答案", "api-strong"), callLogId: "3" };
+    }
+    return { response: mockResponse("still-not-json", "api-general"), callLogId: "2" };
+  };
+  const result = await runDraftReviewPipeline(
+    baseInput,
+    chat,
+    store as CollaborationRunStore,
+    "medium",
+    fallbackCtx,
+  );
+  assert.equal(result.finalAnswer, "强模型重生答案");
+  assert.notEqual(result.finalAnswer, "低质量草稿");
   assert.equal(result.usedStrategy, "strong_model_direct");
 });
 

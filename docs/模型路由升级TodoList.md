@@ -158,12 +158,12 @@
 
 ## 需要验证的测试（V2 完成后）
 
-- [ ] Level 1 超时/抛错 → 升级 Level 2，只保存一条 final assistant
-- [ ] Level 2 失败 → 升级 Level 3
-- [ ] `review reject` 且无 `revisedAnswer` → 强模型重生成，draft 不进 messages
-- [ ] 审查 JSON 失败 → 最多重试 1 次后 fallback
-- [ ] fallback 达上限 → 明确错误码，不写半成品 assistant
-- [ ] `fallback_logs` 与 `model_route_logs` 可关联回放
+- [x] Level 1 超时/抛错 → 升级 Level 2，只保存一条 final assistant（`tests/fallback-verification.test.ts`）
+- [x] Level 2 失败 → 升级 Level 3（`tests/fallback-verification.test.ts`）
+- [x] `review reject` 且无 `revisedAnswer` → 强模型重生成，draft 不进 messages（`tests/draft-review.test.ts`）
+- [x] 审查 JSON 失败 → 最多重试 1 次后 fallback（`tests/draft-review.test.ts`）
+- [x] fallback 达上限 → 明确错误码，不写半成品 assistant（`tests/fallback-verification.test.ts`）
+- [x] `fallback_logs` 与 `model_route_logs` 可关联回放（`tests/fallback-verification.test.ts` + `tests/routing-logs.test.ts`）
 
 ---
 
@@ -198,30 +198,30 @@
 
 ## V2 FallbackManager 触发条件（§5.2 规范逐项）
 
-- [ ] 模型调用超时
-- [ ] 模型调用异常
-- [ ] 模型输出为空
-- [ ] JSON 解析失败
-- [ ] 远程 review 拒绝本地 draft
-- [ ] 工具执行失败（规范 V2 可选）
-- [ ] 用户要求重新认真分析
-- [ ] 回答低于最小长度且任务复杂
+- [x] 模型调用超时（`model_timeout` 类型 + `FallbackManager.plan`）
+- [x] 模型调用异常（`model_error` + `ModelOrchestrator` catch 升级）
+- [x] 模型输出为空（`empty_output` / `detectOutputIssue`）
+- [x] JSON 解析失败（`json_parse_failed` + draft-review 重试 1 次）
+- [x] 远程 review 拒绝本地 draft（`review_rejected` + 强模型 fallback）
+- [ ] 工具执行失败（规范 V2 可选，未接入路由 fallback）
+- [ ] 用户要求重新认真分析（未单独实现触发器）
+- [x] 回答低于最小长度且任务复杂（`answer_too_short` / V4 AnswerEvaluator）
 
 ---
 
 ## V2 升级路径（§5.3）
 
-- [ ] L1 single → L2 single → L3 strong_model_direct
-- [ ] local_draft_remote_review → strong_model_direct
-- [ ] L2 single → L3 strong_model_direct
+- [x] L1 single → L2 single → L3 strong_model_direct（`tests/fallback-verification.test.ts`）
+- [x] local_draft_remote_review → strong_model_direct（`tests/draft-review.test.ts`）
+- [x] L2 single → L3 strong_model_direct（`tests/fallback-verification.test.ts`）
 
 ---
 
 ## V2 fallback_logs 字段（§5.4）
 
-- [ ] id / route_id / from_model_id / to_model_id
-- [ ] from_strategy / to_strategy / trigger_type / reason / created_at
-- [ ] route_logs 关联 fallback_id
+- [x] id / route_id / from_model_id / to_model_id
+- [x] from_strategy / to_strategy / trigger_type / reason / created_at
+- [x] route_logs 关联 fallback_id（`routeLogId` + `GET /api/routing/logs?routeLogId=`）
 
 ---
 

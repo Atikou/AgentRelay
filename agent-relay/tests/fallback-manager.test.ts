@@ -72,8 +72,8 @@ const manager = new FallbackManager(registry);
 
 const baseDecision: RouterDecision = {
   id: "route-1",
-  taskType: "architecture",
-  selectedLevel: 3,
+  taskType: "technical_qa",
+  selectedLevel: 1,
   risk: "medium",
   reason: "test",
   source: "rule",
@@ -180,7 +180,12 @@ test("localOnly 时协作失败不会升级到远程强模型", () => {
 });
 
 test("detectOutputIssue 复杂任务过短答案触发 answer_too_short", () => {
-  const trigger = manager.detectOutputIssue(baseDecision, "太短", "请设计完整架构方案并说明模块边界");
+  const archDecision: RouterDecision = {
+    ...baseDecision,
+    taskType: "architecture",
+    selectedLevel: 3,
+  };
+  const trigger = manager.detectOutputIssue(archDecision, "太短", "请设计完整架构方案并说明模块边界");
   assert.equal(trigger, "answer_too_short");
 });
 
