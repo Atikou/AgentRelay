@@ -210,7 +210,7 @@ Content-Type: application/json
 
 `mode` 可选 `chat` / `plan` / `implement` / `debug` / `review`；省略时会根据用户消息推断。`permissionPolicy` 可选 `readOnly` / `confirmBeforeEdit` / `autoEdit` / `confirmBeforeRun` / `autoRun`，省略时按内部意图与 `autoConfirm` 保守推断；当前阶段它是可观测元策略，实际工具放行仍受运行模式权限上限、确认门和风险策略约束。`plan` / `review` 在执行层只开放 read 权限，即使模型尝试写入也会被阻塞。`budget` 是运行预算对象；省略时由 `RunPolicy` 按模式动态分配，支持 `maxModelTurns`、`maxToolCalls`、`maxReadCalls`、`maxWriteCalls`、`maxShellCalls`、`maxRuntimeMs`。
 
-`autoConfirm: true` 时允许写文件、`shell_run` 等副作用工具；默认需人工确认或走任务模式。响应含 `runId`、`taskId` 与 `executionMeta`：
+`autoConfirm: true` 时允许写文件、`shell_run` 等副作用工具；默认需人工确认或走任务模式。高风险行为仍会强制确认：删除/清空、提交或推送、执行未知远程脚本、修改系统环境、安装全局依赖、读取/写入疑似密钥等，即使 `permissionPolicy` 为 `autoEdit` / `autoRun` 也不会直接放行。响应含 `runId`、`taskId` 与 `executionMeta`：
 
 ```json
 {

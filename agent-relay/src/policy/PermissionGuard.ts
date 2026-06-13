@@ -92,6 +92,22 @@ export function evaluatePermissionGuard(input: PermissionGuardInput): Permission
     return { decision: "allow", risk };
   }
 
+  const forcedConfirmation = resolveForcedConfirmation(input, risk);
+  if (forcedConfirmation) {
+    const forcedRisk = withForcedConfirmationReason(risk, forcedConfirmation.reason);
+    return {
+      decision: "needsConfirmation",
+      reason: forcedConfirmation.reason,
+      risk: forcedRisk,
+      confirmationRequest: buildConfirmationRequest(
+        input,
+        forcedRisk,
+        "waiting_confirmation",
+        "等待确认高风险操作",
+      ),
+    };
+  }
+
   if (input.permission === "write") {
     if (input.permissionPolicy === "autoEdit" || input.permissionPolicy === "autoRun") {
       return { decision: "allow", risk };
@@ -240,4 +256,85 @@ function readStringArray(value: unknown): string[] {
 
 function unique(values: string[]): string[] {
   return [...new Set(values)].slice(0, 20);
+}
+
+function resolveForcedConfirmation(
+  input: PermissionGuardInput,
+  risk: StructuredToolRisk,
+): { reason: string } | undefined {
+  if (input.permission === "dangerous") {
+    return { reason: "dangerous 权限操作必须人工确认" };
+  }
+
+  if (input.permission === "write") {
+    const targets = extractAffectedTargets(input, risk).files;
+    if (risk.tier === "high" || risk.tier === "critical") {
+      return { reason: "高风险文件写入必须人工确认" };
+    }
+    if (targets.some(isSensitivePath)) {
+      return { reason: "涉及密钥、配置或 Git 元数据的写入必须人工确认" };
+    }
+    if (targets.length >= 20) {
+      return { reason: "批量修改大量文件必须人工确认" };
+    }
+  }
+
+  if (input.permission === "shell") {
+    const command = readCommand(input.input);
+    if (!command) return undefined;
+    for (const rule of FORCED_SHELL_CONFIRMATION_RULES) {
+      if (rule.re.test(command)) return { reason: rule.reason };
+    }
+    if (risk.commandLevel === "dangerous" || risk.tier === "critical") {
+      return { reason: "高危 Shell 命令必须人工确认" };
+    }
+  }
+
+  if (input.permission === "network" && risk.tier === "critical") {
+    return { reason: "被网络策略标记为高风险的访问必须人工确认" };
+  }
+
+  return undefined;
+}
+
+const FORCED_SHELL_CONFIRMATION_RULES: Array<{ re: RegExp; reason: string }> = [
+  { re: /\bgit\s+commit\b/i, reason: "提交操作必须人工确认" },
+  { re: /\bgit\s+push\b/i, reason: "提交推送操作必须人工确认" },
+  { re: /\bgit\s+reset\s+--hard\b/i, reason: "硬重置工作区必须人工确认" },
+  { re: /\bgit\s+clean\s+(-[a-z]*f|--force)/i, reason: "清理未跟踪文件必须人工确认" },
+  { re: /\brm\s+(-[a-z]*r[a-z]*f|-[a-z]*f[a-z]*r)\b/i, reason: "递归强制删除必须人工确认" },
+  { re: /\brmdir\s+\/s\b/i, reason: "递归删除目录必须人工确认" },
+  { re: /\brd\s+\/s\b/i, reason: "递归删除目录必须人工确认" },
+  { re: /\bdel\s+\/[sf]\b/i, reason: "批量删除文件必须人工确认" },
+  { re: /\bRemove-Item\b[^\n]*\s-(Recurse|r)\b[^\n]*\s-(Force|f)\b/i, reason: "递归强制删除必须人工确认" },
+  { re: /\b(curl|wget)\b[^|]*\|\s*(sh|bash|powershell|pwsh|cmd)\b/i, reason: "联网下载后直接执行脚本必须人工确认" },
+  { re: /\b(iwr|irm|Invoke-WebRequest|Invoke-RestMethod)\b[^|]*\|\s*iex\b/i, reason: "PowerShell 远程脚本执行必须人工确认" },
+  { re: /\b(npm|pnpm|yarn)\s+(install|add|i)\b[^\n]*\s(-g|--global)\b/i, reason: "全局安装依赖必须人工确认" },
+  { re: /\byarn\s+global\s+add\b/i, reason: "全局安装依赖必须人工确认" },
+  { re: /\bnpm\s+publish\b/i, reason: "发布包必须人工确认" },
+  { re: /\b(setx|export)\b[^\n]*(TOKEN|SECRET|KEY|PASSWORD)/i, reason: "修改密钥相关环境变量必须人工确认" },
+  { re: /\b(cat|type|Get-Content)\b[^\n]*(\.env|id_rsa|credentials|secrets?)/i, reason: "读取或暴露密钥文件必须人工确认" },
+];
+
+function withForcedConfirmationReason(
+  risk: StructuredToolRisk,
+  reason: string,
+): StructuredToolRisk {
+  return {
+    ...risk,
+    requiresConfirmation: true,
+    reasons: [reason, ...risk.reasons],
+  };
+}
+
+function readCommand(input: unknown): string | undefined {
+  return isRecord(input) ? readString(input.command) : undefined;
+}
+
+function isSensitivePath(path: string): boolean {
+  const normalized = path.replace(/\\/g, "/");
+  return /(^|\/)\.env(\.|$)/i.test(normalized) ||
+    /(^|\/)\.git(\/|$)/i.test(normalized) ||
+    /(^|\/)config\/.*\.json$/i.test(normalized) ||
+    /(id_rsa|credentials|secrets?|token|password|private[-_]?key)/i.test(normalized);
 }
