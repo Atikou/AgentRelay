@@ -2,13 +2,13 @@ import { randomUUID } from "node:crypto";
 
 import type { DatabaseManager } from "./DatabaseManager.js";
 import { estimateTokens } from "./DatabaseManager.js";
+export { MessageStore } from "./MessageStore.js";
+export { SessionStore } from "./SessionStore.js";
 import type {
   MemoryRecord,
   MemoryScope,
   MemoryType,
-  MessageRecord,
   ProjectRecord,
-  SessionRecord,
   StructuredSummary,
   SummaryRecord,
   SummaryType,
@@ -26,162 +26,6 @@ function parseSummary(content: string): StructuredSummary {
     return JSON.parse(content) as StructuredSummary;
   } catch {
     return { current_goal: content };
-  }
-}
-
-export class SessionStore {
-  constructor(private readonly db: DatabaseManager) {}
-
-  create(title = "新会话", projectId?: string): SessionRecord {
-    const id = randomUUID();
-    const ts = nowIso();
-    this.db.connection
-      .prepare(
-        `INSERT INTO sessions(id, title, status, project_id, created_at, updated_at)
-         VALUES (?, ?, 'active', ?, ?, ?)`,
-      )
-      .run(id, title, projectId ?? null, ts, ts);
-    return this.get(id)!;
-  }
-
-  get(id: string): SessionRecord | null {
-    const row = this.db.connection
-      .prepare(`SELECT * FROM sessions WHERE id=?`)
-      .get(id) as Record<string, unknown> | undefined;
-    return row ? mapSession(row) : null;
-  }
-
-  list(limit = 50): SessionRecord[] {
-    const rows = this.db.connection
-      .prepare(`SELECT * FROM sessions ORDER BY updated_at DESC LIMIT ?`)
-      .all(limit) as Record<string, unknown>[];
-    return rows.map(mapSession);
-  }
-
-  touch(id: string, lastMessageId?: string): void {
-    this.db.connection
-      .prepare(`UPDATE sessions SET updated_at=?, last_message_id=COALESCE(?, last_message_id) WHERE id=?`)
-      .run(nowIso(), lastMessageId ?? null, id);
-  }
-
-  setActiveTask(sessionId: string, taskId: string | null): void {
-    this.db.connection
-      .prepare(`UPDATE sessions SET active_task_id=?, updated_at=? WHERE id=?`)
-      .run(taskId, nowIso(), sessionId);
-  }
-}
-
-export class MessageStore {
-  constructor(private readonly db: DatabaseManager) {}
-
-  append(sessionId: string, role: string, content: string): MessageRecord {
-    const id = randomUUID();
-    const ts = nowIso();
-    const tokens = estimateTokens(content);
-    this.db.connection
-      .prepare(
-        `INSERT INTO messages(id, session_id, role, content, token_estimate, created_at)
-         VALUES (?, ?, ?, ?, ?, ?)`,
-      )
-      .run(id, sessionId, role, content, tokens, ts);
-    this.db.upsertFts("messages_fts", id, content);
-    return {
-      id,
-      sessionId,
-      role,
-      content,
-      tokenEstimate: tokens,
-      isSummarized: false,
-      createdAt: ts,
-    };
-  }
-
-  markSummarized(messageIds: string[], summaryId: string): void {
-    if (messageIds.length === 0) return;
-    const stmt = this.db.connection.prepare(
-      `UPDATE messages SET is_summarized=1, summary_id=? WHERE id=?`,
-    );
-    for (const id of messageIds) {
-      stmt.run(summaryId, id);
-    }
-  }
-
-  listBySession(sessionId: string, limit = 500): MessageRecord[] {
-    const rows = this.db.connection
-      .prepare(
-        `SELECT * FROM messages WHERE session_id=? ORDER BY created_at ASC LIMIT ?`,
-      )
-      .all(sessionId, limit) as Record<string, unknown>[];
-    return rows.map(mapMessage);
-  }
-
-  listRecent(sessionId: string, count: number): MessageRecord[] {
-    const rows = this.db.connection
-      .prepare(
-        `SELECT * FROM (
-           SELECT * FROM messages WHERE session_id=? ORDER BY created_at DESC LIMIT ?
-         ) ORDER BY created_at ASC`,
-      )
-      .all(sessionId, count) as Record<string, unknown>[];
-    return rows.map(mapMessage);
-  }
-
-  countInSession(sessionId: string): number {
-    const row = this.db.connection
-      .prepare(`SELECT COUNT(*) AS c FROM messages WHERE session_id=?`)
-      .get(sessionId) as { c: number };
-    return row.c;
-  }
-
-  getRange(sessionId: string, startId: string, endId: string): MessageRecord[] {
-    const rows = this.db.connection
-      .prepare(
-        `SELECT * FROM messages
-         WHERE session_id=? AND created_at >= (SELECT created_at FROM messages WHERE id=?)
-           AND created_at <= (SELECT created_at FROM messages WHERE id=?)
-         ORDER BY created_at ASC`,
-      )
-      .all(sessionId, startId, endId) as Record<string, unknown>[];
-    return rows.map(mapMessage);
-  }
-
-  getUnsummarized(sessionId: string, summarizedEndId?: string): MessageRecord[] {
-    const rows = this.db.connection
-      .prepare(
-        `SELECT * FROM messages WHERE session_id=? AND is_summarized=0 ORDER BY created_at ASC`,
-      )
-      .all(sessionId) as Record<string, unknown>[];
-    const unsummarized = rows.map(mapMessage);
-    if (!summarizedEndId) return unsummarized;
-    const row = this.db.connection
-      .prepare(`SELECT created_at FROM messages WHERE id=?`)
-      .get(summarizedEndId) as { created_at: string } | undefined;
-    if (!row) return unsummarized;
-    return unsummarized.filter((m) => m.createdAt > row.created_at);
-  }
-
-  getRecentUnsummarized(sessionId: string, limit: number): MessageRecord[] {
-    const rows = this.db.connection
-      .prepare(
-        `SELECT * FROM (
-           SELECT * FROM messages WHERE session_id=? AND is_summarized=0
-           ORDER BY created_at DESC LIMIT ?
-         ) ORDER BY created_at ASC`,
-      )
-      .all(sessionId, limit) as Record<string, unknown>[];
-    return rows.map(mapMessage);
-  }
-
-  listRecentByRole(sessionId: string, role: string, limit: number): MessageRecord[] {
-    const rows = this.db.connection
-      .prepare(
-        `SELECT * FROM (
-           SELECT * FROM messages WHERE session_id=? AND role=?
-           ORDER BY created_at DESC LIMIT ?
-         ) ORDER BY created_at ASC`,
-      )
-      .all(sessionId, role, limit) as Record<string, unknown>[];
-    return rows.map(mapMessage);
   }
 }
 
@@ -456,32 +300,6 @@ function dedupeMemories(memories: MemoryRecord[]): MemoryRecord[] {
     out.push(memory);
   }
   return out;
-}
-
-function mapSession(row: Record<string, unknown>): SessionRecord {
-  return {
-    id: String(row.id),
-    title: String(row.title),
-    status: row.status === "archived" ? "archived" : "active",
-    projectId: row.project_id ? String(row.project_id) : undefined,
-    lastMessageId: row.last_message_id ? String(row.last_message_id) : undefined,
-    activeTaskId: row.active_task_id ? String(row.active_task_id) : undefined,
-    createdAt: String(row.created_at),
-    updatedAt: String(row.updated_at),
-  };
-}
-
-function mapMessage(row: Record<string, unknown>): MessageRecord {
-  return {
-    id: String(row.id),
-    sessionId: String(row.session_id),
-    role: String(row.role),
-    content: String(row.content),
-    tokenEstimate: Number(row.token_estimate ?? 0),
-    isSummarized: Number(row.is_summarized ?? 0) === 1,
-    summaryId: row.summary_id ? String(row.summary_id) : undefined,
-    createdAt: String(row.created_at),
-  };
 }
 
 function mapSummary(row: Record<string, unknown>): SummaryRecord {
