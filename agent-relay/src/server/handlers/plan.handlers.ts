@@ -1,6 +1,7 @@
 import type { AppContext } from "../../app/createAppContext.js";
 import type { ApiResult } from "../../orchestrator/Orchestrator.js";
 import { Planner } from "../../agent/Planner.js";
+import { PlanCompileWorkflow } from "../../agent/PlanCompileWorkflow.js";
 import { PlanReportWorkflow } from "../../agent/PlanReportWorkflow.js";
 import { PlanValidationError } from "../../plan/index.js";
 import { detectPlanReportRequest } from "../../plan/planIntent.js";
@@ -152,24 +153,11 @@ export async function handlePlanCompile(app: AppContext, userVisiblePlanId: stri
     return { status: 400, body: { error: "confirmedTodoIds 不能为空" } };
   }
   try {
-    const draft = app.planService.compileUserVisiblePlan({
+    return new PlanCompileWorkflow({ planService: app.planService }).run({
       userVisiblePlanId,
       confirmedTodoIds,
       sessionId: payload.sessionId,
     });
-    return {
-      status: 200,
-      body: {
-        planId: draft.planId,
-        version: draft.version,
-        status: draft.status,
-        planHash: draft.planHash,
-        previewMarkdown: draft.previewMarkdown,
-        publicPlanJson: draft.publicPlanJson,
-        sourceUserVisiblePlanId: draft.sourceUserVisiblePlan.id,
-        warning: "编译结果为待审批 ExecutableTaskPlan 草案，仍需 approve 后才能 execute。",
-      },
-    };
   } catch (err) {
     if (err instanceof PlanValidationError) {
       const status = err.message.includes("不存在") ? 404 : 400;

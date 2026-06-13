@@ -318,7 +318,7 @@
       "post": {
         "tags": ["计划与任务"],
         "summary": "将 UserVisiblePlan 中已确认 Todo 编译为内部执行计划草案",
-        "description": "编译结果仍为 awaiting_approval 的 InternalTaskPlan，不会自动执行；执行前必须 approve。",
+        "description": "通过 PlanCompileWorkflow 将已确认 UserVisibleTodo 编译为 awaiting_approval 的 InternalTaskPlan 草案，不会自动执行；执行前必须 approve。",
         "operationId": "compileUserVisiblePlan",
         "parameters": [{ "name": "userVisiblePlanId", "in": "path", "required": true, "schema": { "type": "string" } }],
         "requestBody": {

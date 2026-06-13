@@ -926,6 +926,31 @@
       }
     },
     {
+      "id": "m1-agent-plan-compile-workflow-api-spec",
+      "title": "API 规范登记 PlanCompileWorkflow",
+      "purpose": "确认 /api/plans/{userVisiblePlanId}/compile 已声明通过 PlanCompileWorkflow 将确认 Todo 编译为 awaiting_approval InternalTaskPlan。",
+      "method": "GET",
+      "path": "/api/api-spec.json",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyContains": ["PlanCompileWorkflow", "awaiting_approval", "InternalTaskPlan"]
+      }
+    },
+    {
+      "id": "m1-agent-plan-compile-empty-confirmed-todos",
+      "title": "计划编译空 confirmedTodoIds 返回 400",
+      "purpose": "确认 /api/plans/:id/compile 在进入 PlanCompileWorkflow 前仍拒绝空 confirmedTodoIds，避免生成空内部执行计划。",
+      "method": "POST",
+      "path": "/api/plans/uvp_missing/compile",
+      "input": { "confirmedTodoIds": [] },
+      "expect": {
+        "status": 400,
+        "bodyHasKeys": ["error"],
+        "bodyContains": ["confirmedTodoIds"]
+      }
+    },
+    {
       "id": "m1-agent-run-verify-safe-command",
       "title": "verifyWorkflow 执行白名单安全命令",
       "purpose": "确认统一 Agent 入口在验证意图中识别 node --version，并在 autoRun 与 shell 预算允许时先执行 shell_run 收集输出。",

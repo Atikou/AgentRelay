@@ -74,6 +74,7 @@
 - [x] `planWorkflow` 用户可见计划报告进入工作流层：`PlanReportWorkflow` 调用只读 Agent 生成 Markdown 并通过 `PlanService.saveUserVisiblePlan` 保存，HTTP handler 只做参数校验与模型选择。
 
 - [x] 已审批计划执行进入工作流层：`TaskExecutionWorkflow` 统一封装执行与 resume 的 `TaskRunner` / `ToolStepExecutor` / `DryRunExecutor` 装配，Orchestrator 保留 Run/Task 持久化、回滚与 fallback。
+- [x] `planWorkflow` 编译阶段进入工作流层：`PlanCompileWorkflow` 将已确认 `UserVisibleTodo` 编译为 awaiting_approval `InternalTaskPlan` 草案，仍需 approve 后 execute。
 
 ## 5. 子 Agent 派生
 

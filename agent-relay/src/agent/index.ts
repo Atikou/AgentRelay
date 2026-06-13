@@ -35,6 +35,11 @@ export {
   type PlanReportWorkflowOptions,
 } from "./PlanReportWorkflow.js";
 export {
+  PlanCompileWorkflow,
+  type PlanCompileWorkflowInput,
+  type PlanCompileWorkflowOptions,
+} from "./PlanCompileWorkflow.js";
+export {
   TaskExecutionWorkflow,
   type TaskExecutionWorkflowOptions,
   type TaskExecutionWorkflowRunInput,
