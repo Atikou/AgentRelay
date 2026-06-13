@@ -4,6 +4,8 @@ import type { ToolRegistry } from "../tools/ToolRegistry.js";
 import type { ToolPermission } from "./permissions.js";
 import type { AgentToolStep } from "./toolStep.js";
 import type { AgentRunMode, RunBudget } from "./RunPolicy.js";
+import type { BudgetManager } from "./BudgetManager.js";
+import { countSuccessfulPermissionUsage } from "./BudgetManager.js";
 import {
   PLAN_WORKFLOW_STEP_IDS,
   type PlanWorkflowStepId,
@@ -14,6 +16,7 @@ export interface PlanWorkflowOptions {
   workspaceRoot: string;
   allowedPermissions: ToolPermission[];
   budget: RunBudget;
+  budgetManager?: BudgetManager;
   trace?: TraceLogger;
   contextManager?: ContextManager;
   sessionId?: string;
@@ -53,11 +56,17 @@ export class PlanWorkflow {
     const completed = new Set(resume?.completedStepIds ?? []);
     const steps: AgentToolStep[] = [...priorSteps];
 
-    const maxNewSteps = Math.min(
-      WORKFLOW_TOOLS.length - completed.size,
-      this.options.budget.maxToolCalls,
-      this.options.budget.maxReadCalls,
-    );
+    const pendingCount = WORKFLOW_TOOLS.length - completed.size;
+    const maxNewSteps = this.options.budgetManager
+      ? this.options.budgetManager.remainingWorkflowSteps(steps, pendingCount)
+      : Math.min(
+          pendingCount,
+          Math.max(0, this.options.budget.maxToolCalls - steps.length),
+          Math.max(
+            0,
+            this.options.budget.maxReadCalls - countSuccessfulPermissionUsage(steps).readCalls,
+          ),
+        );
     if (maxNewSteps <= 0 && steps.length === 0) return undefined;
     if (maxNewSteps <= 0 && steps.length > 0) return buildResult(steps);
 

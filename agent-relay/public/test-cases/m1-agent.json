@@ -241,6 +241,20 @@
       }
     },
     {
+      "id": "m1-agent-budget-manager-capability",
+      "title": "GET /api/config 暴露 budgetManager",
+      "purpose": "确认 capabilities 声明 BudgetManager 已落地，客户端可探测分项预算管理能力。",
+      "method": "GET",
+      "path": "/api/config",
+      "input": {},
+      "expect": {
+        "status": 200,
+        "bodyPaths": {
+          "capabilities.budgetManager": true
+        }
+      }
+    },
+    {
       "id": "m1-agent-tool-result-layers-capability",
       "title": "GET /api/config 暴露 toolResultLayers",
       "purpose": "确认 capabilities 声明工具结果三层 trace 已落地，便于客户端区分 raw/model/user 展示。",

@@ -22,6 +22,10 @@ import {
 import { assessPermissionDeniedRisk, assessToolRisk } from "../policy/ToolRiskAssessment.js";
 import type { AgentToolStep } from "./toolStep.js";
 import {
+  BudgetManager,
+  renderBudget,
+} from "./BudgetManager.js";
+import {
   resolveRunPolicy,
   type AgentExecutionMeta,
   type AgentRunMode,
@@ -29,7 +33,6 @@ import {
   type LocationExecutionMeta,
   type RunBudget,
   type RunBudgetKey,
-  type RunBudgetUsage,
   type RunPolicy,
 } from "./RunPolicy.js";
 import type { RunStateStore } from "../orchestrator/RunStateStore.js";
@@ -135,9 +138,8 @@ type AgentAction = ToolAction | FinalAction;
  */
 export class AgentLoop {
   private readonly allowed: ToolPermission[];
-  private readonly budget: RunBudget;
+  private readonly budgetManager: BudgetManager;
   private readonly policy: RunPolicy;
-  private runStartedAt = 0;
   private modelTurnMetrics: AgentModelTurnMetric[] = [];
 
   constructor(private readonly options: AgentLoopOptions) {
@@ -159,11 +161,15 @@ export class AgentLoop {
       strictUserGrant: options.allowedPermissions != null,
     });
     this.allowed = resolved.allowed;
-    this.budget = this.policy.budget;
+    this.budgetManager = new BudgetManager(this.policy.budget, this.policy.suggestedBudget);
+  }
+
+  private get budget(): RunBudget {
+    return this.budgetManager.budget;
   }
 
   async run(userMessage: string, system?: string): Promise<AgentRunResult> {
-    this.runStartedAt = Date.now();
+    this.budgetManager.markRunStarted();
     this.modelTurnMetrics = [];
     const isResume = Boolean(this.options.resumeState);
     const effectiveGoal = isResume ? this.options.resumeState!.goal : userMessage;
@@ -225,7 +231,7 @@ export class AgentLoop {
 
     let modelTurns = 0;
     while (modelTurns < this.budget.maxModelTurns) {
-      const runtimeExhausted = this.findRuntimeBudgetExhaustion();
+      const runtimeExhausted = this.budgetManager.findRuntimeExhaustion();
       if (runtimeExhausted) {
         return await this.finishRun({
           answer: this.buildPartialFinalAnswer(steps, runtimeExhausted),
@@ -322,7 +328,12 @@ export class AgentLoop {
         thought: action.thought,
         inputPreview: redactPreview(action.input ?? {}, 500),
       });
-      const toolBudgetExhausted = this.findToolBudgetExhaustion(action, steps);
+      const tool = this.options.registry.get(action.tool);
+      const toolBudgetExhausted = this.budgetManager.findToolExhaustion({
+        toolPermission: tool?.permission,
+        permissionAllowed: tool ? this.allowed.includes(tool.permission) : false,
+        steps,
+      });
       if (toolBudgetExhausted) {
         const step = this.buildBudgetBlockedStep(action, iteration, toolBudgetExhausted, toolCallId);
         steps.push(step);
@@ -348,7 +359,7 @@ export class AgentLoop {
       }
       injectNotifications();
 
-      const postToolRuntimeExhausted = this.findRuntimeBudgetExhaustion();
+      const postToolRuntimeExhausted = this.budgetManager.findRuntimeExhaustion();
       if (postToolRuntimeExhausted) {
         return await this.finishRun({
           answer: this.buildPartialFinalAnswer(steps, postToolRuntimeExhausted),
@@ -448,6 +459,7 @@ export class AgentLoop {
       workspaceRoot: this.options.workspaceRoot,
       allowedPermissions: this.allowed,
       budget: this.budget,
+      budgetManager: this.budgetManager,
       trace: this.options.trace,
       contextManager: this.options.contextManager,
       sessionId: this.options.sessionId,
@@ -555,28 +567,6 @@ export class AgentLoop {
     };
   }
 
-  private findRuntimeBudgetExhaustion(): RunBudgetKey | undefined {
-    if (Date.now() - this.runStartedAt >= this.budget.maxRuntimeMs) return "maxRuntimeMs";
-    return undefined;
-  }
-
-  private findToolBudgetExhaustion(action: ToolAction, steps: AgentToolStep[]): RunBudgetKey | undefined {
-    if (steps.length >= this.budget.maxToolCalls) return "maxToolCalls";
-    const tool = this.options.registry.get(action.tool);
-    if (!tool) return undefined;
-    if (!this.allowed.includes(tool.permission)) return undefined;
-    const usage = this.countSuccessfulPermissionUsage(steps);
-    if (tool.permission === "read" && usage.readCalls >= this.budget.maxReadCalls) return "maxReadCalls";
-    if (
-      (tool.permission === "write" || tool.permission === "dangerous") &&
-      usage.writeCalls >= this.budget.maxWriteCalls
-    ) {
-      return "maxWriteCalls";
-    }
-    if (tool.permission === "shell" && usage.shellCalls >= this.budget.maxShellCalls) return "maxShellCalls";
-    return undefined;
-  }
-
   private buildBudgetBlockedStep(
     action: ToolAction,
     iteration: number,
@@ -645,7 +635,7 @@ export class AgentLoop {
     stopReason: AgentStopReason;
     budgetExhausted?: RunBudgetKey;
   }): AgentExecutionMeta {
-    const usage = this.buildBudgetUsage(input.steps, input.iterations);
+    const usage = this.budgetManager.buildUsage(input.steps, input.iterations);
     const needsMoreBudget = input.stopReason === "budget_exhausted";
     return {
       mode: this.policy.mode,
@@ -661,7 +651,9 @@ export class AgentLoop {
       stopReason: input.stopReason,
       needsMoreBudget,
       location: this.buildLocationMeta(input.steps),
-      suggestedBudget: needsMoreBudget ? this.buildSuggestedBudget(input.budgetExhausted) : undefined,
+      suggestedBudget: needsMoreBudget
+        ? this.budgetManager.buildSuggestedBudget(input.budgetExhausted)
+        : undefined,
     };
   }
 
@@ -710,38 +702,6 @@ export class AgentLoop {
       needsContinue,
       confidence,
     };
-  }
-
-  private buildBudgetUsage(steps: AgentToolStep[], modelTurns: number): RunBudgetUsage {
-    const permissionUsage = this.countSuccessfulPermissionUsage(steps);
-    return {
-      modelTurns,
-      toolCalls: steps.length,
-      readCalls: permissionUsage.readCalls,
-      writeCalls: permissionUsage.writeCalls,
-      shellCalls: permissionUsage.shellCalls,
-      runtimeMs: Math.max(0, Date.now() - this.runStartedAt),
-    };
-  }
-
-  private countSuccessfulPermissionUsage(steps: AgentToolStep[]): Pick<
-    RunBudgetUsage,
-    "readCalls" | "writeCalls" | "shellCalls"
-  > {
-    const successful = steps.filter((s) => s.ok);
-    return {
-      readCalls: successful.filter((s) => s.permission === "read").length,
-      writeCalls: successful.filter((s) => s.permission === "write" || s.permission === "dangerous").length,
-      shellCalls: successful.filter((s) => s.permission === "shell").length,
-    };
-  }
-
-  private buildSuggestedBudget(exhausted?: RunBudgetKey): RunBudget {
-    const suggested = { ...this.policy.suggestedBudget };
-    if (exhausted) {
-      suggested[exhausted] = Math.max(suggested[exhausted], this.budget[exhausted] * 2);
-    }
-    return suggested;
   }
 
   private writeAgentDecisionTrace(event: {
@@ -850,10 +810,10 @@ export class AgentLoop {
     const blockedSteps = steps.filter((s) => s.blocked);
     const failedSteps = steps.filter((s) => !s.ok && !s.blocked);
     const modified = okSteps.filter((s) => s.permission === "write" || s.permission === "dangerous");
-    const suggested = this.buildSuggestedBudget(budgetExhausted);
+    const suggested = this.budgetManager.buildSuggestedBudget(budgetExhausted);
 
     const lines = [
-      `已达到当前运行预算（${budgetExhausted}=${this.budget[budgetExhausted]}），我已停止继续调用模型或工具，并基于已有信息做部分收尾。`,
+      this.budgetManager.formatExhaustedLine(budgetExhausted),
       "",
       okSteps.length
         ? `已完成：${okSteps.map((s) => `${s.tool}#${s.iteration}`).join("、")}。`
@@ -919,17 +879,6 @@ function readPathItems(value: unknown): string[] {
       return undefined;
     })
     .filter((item): item is string => Boolean(item));
-}
-
-function renderBudget(budget: RunBudget): string {
-  return [
-    `maxModelTurns=${budget.maxModelTurns}`,
-    `maxToolCalls=${budget.maxToolCalls}`,
-    `maxReadCalls=${budget.maxReadCalls}`,
-    `maxWriteCalls=${budget.maxWriteCalls}`,
-    `maxShellCalls=${budget.maxShellCalls}`,
-    `maxRuntimeMs=${budget.maxRuntimeMs}`,
-  ].join(", ");
 }
 
 /** 将安全点消费的通知格式化为可回灌给模型的用户消息。 */

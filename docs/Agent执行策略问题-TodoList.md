@@ -21,7 +21,7 @@
 ## 0b. 根因（§2）
 
 - [x] 非单纯单一循环次数问题，缺 Mode→Policy→Budget→Finalization 完整链路
-- [ ] BudgetManager 仍缺；RunStateStore 已落地；PlanWorkflow 第一版已落地
+- [x] BudgetManager 已抽独立类；RunStateStore 已落地；PlanWorkflow 第一版已落地
 
 ## 完成度概览
 
@@ -34,7 +34,7 @@
 | 验收测试 §7 | 4 | 0 | 1 | 5 |
 | **合计** | **12** | **2** | **3** | **17** |
 
-**结论**：报告 P0（executionMeta、部分收尾、计划模式写拦截）已落地；`project_scan` 已作为相关文件定位工具落地；PlanWorkflow 第一版已接入 AgentLoop；RunStateStore 续跑与工具结果三层 trace 已落地；仍缺独立 BudgetManager 类。
+**结论**：报告 P0（executionMeta、部分收尾、计划模式写拦截）已落地；PlanWorkflow、RunStateStore、ToolResultLayers、BudgetManager 已落地；仍缺独立 RunPolicyManager 类。
 
 ---
 
@@ -81,7 +81,7 @@
 | 模块 | 状态 | 代码位置 |
 | --- | --- | --- |
 | RunPolicyManager | [~] | `RunPolicy.ts`（函数式，非 Manager 类） |
-| BudgetManager | [~] | 未抽独立类；分项预算已由 `RunPolicy` + `AgentLoop` 强制 |
+| BudgetManager | [x] | `BudgetManager.ts`；AgentLoop / PlanWorkflow 分项硬限制 |
 | ExecutionMetaBuilder | [x] | `AgentLoop.buildExecutionMeta()` |
 | Finalizer | [~] | `buildPartialFinalAnswer` 内联，非独立 `Finalizer` 类 |
 | PlanWorkflow | [x] | `src/agent/PlanWorkflow.ts` |
@@ -260,7 +260,7 @@
 | 模块 | 状态 |
 | --- | --- |
 | RunPolicyManager | [~] `resolveRunPolicy` |
-| BudgetManager | [~] 分项预算已强制，尚未抽独立类 |
+| BudgetManager | [x] `BudgetManager.ts` |
 | executionMeta | [x] |
 | partial final answer | [x] |
 | PlanWorkflow | [x] |
@@ -273,7 +273,7 @@
 ```text
 用户输入 → IntentRouter(inferRunMode) ✅
   → RunPolicy(resolveRunPolicy) ✅
-  → BudgetManager ❌
+  → BudgetManager ✅
   → ToolPermissionManager ✅
   → WorkflowPlanner/PlanWorkflow ✅
   → AgentLoop ✅
