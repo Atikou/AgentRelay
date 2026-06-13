@@ -174,7 +174,7 @@
 ## 11. 状态机与任务编排
 
 - [x] 设计 Agent 主状态机。（`AgentLoop`：模型→解析→工具→回灌→迭代/终止）
-- [x] 统一入口下暴露内部意图、工作流与用户侧权限策略元信息，并在测试台展示当前内部处理状态。（`IntentRouter`：`intent` / `modeSource` → `WorkflowRouter`：`workflowType` / 执行器标识 → `RunPolicy`：`permissionPolicy` → `executionMeta` → Agent 结果卡）
+- [x] 统一入口下暴露内部意图、工作流与用户侧权限策略元信息，并在测试台展示当前内部处理状态。（`IntentRouter`：`intent` / `modeSource` → `WorkflowRouter`：`workflowType` / 执行器标识 / answer-summarize-search 只读上限 → `RunPolicy`：`permissionPolicy` → `executionMeta` → Agent 结果卡）
 - [x] 设计任务状态机。（`TaskRunner`：pending/running/blocked/completed/failed/cancelled）
 - [x] 设计后台线程状态机。（running / completed / failed / cancelled）
 - [x] 设计子 Agent 生命周期。（completed/failed/timeout + batch 汇总）

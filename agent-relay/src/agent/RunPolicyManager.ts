@@ -1,6 +1,7 @@
 import { type ToolPermission } from "./permissions.js";
 import { BudgetManager } from "./BudgetManager.js";
 import { defaultIntentRouter } from "./IntentRouter.js";
+import { defaultWorkflowRouter } from "./WorkflowRouter.js";
 import {
   parseRunModeValue,
   parseUserPermissionPolicyValue,
@@ -114,6 +115,11 @@ export class RunPolicyManager {
       intent: route.intent,
       autoConfirm: input.autoConfirm === true,
     });
+    const workflowRoute = defaultWorkflowRouter.routeIntent(route.intent);
+    const hasWorkflowInput = Boolean(input.message?.trim()) || input.taskType != null;
+    const allowedPermissions = hasWorkflowInput && workflowRoute.enforceReadOnlyTools
+      ? ["read"] satisfies ToolPermission[]
+      : permissionsForPolicy(permissionPolicy);
 
     return {
       mode,
@@ -123,7 +129,7 @@ export class RunPolicyManager {
       permissionPolicy,
       permissionPolicySource: explicitPermissionPolicy ? "explicit" : "inferred",
       budget,
-      allowedPermissions: permissionsForPolicy(permissionPolicy),
+      allowedPermissions,
       requireFinalAnswer: true,
       allowPartialAnswer: true,
       suggestedBudget,

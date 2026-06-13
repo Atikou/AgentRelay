@@ -1669,7 +1669,7 @@
           },
           "workflowType": {
             "type": "string",
-            "description": "由 WorkflowRouter 根据 intent 映射的内部工作流类型，用于 UI 状态展示与审计。",
+            "description": "由 WorkflowRouter 根据 intent 映射的内部工作流类型，用于 UI 状态展示与审计。answerWorkflow/summarizeWorkflow/searchWorkflow 会强制工具层只读。",
             "enum": ["answerWorkflow", "planWorkflow", "editWorkflow", "runWorkflow", "debugWorkflow", "reviewWorkflow", "verifyWorkflow", "summarizeWorkflow", "searchWorkflow", "refactorWorkflow", "generateFileWorkflow"]
           },
           "permissionPolicy": {

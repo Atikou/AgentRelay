@@ -64,6 +64,24 @@ test("resolve 的允许权限由 permissionPolicy 决定而不是 mode", () => {
   assert.deepEqual(debugReadOnly.allowedPermissions, ["read"]);
 });
 
+test("answer/summarize/search 工作流即使显式自动策略也保持只读工具上限", () => {
+  const answer = defaultRunPolicyManager.resolve({
+    message: "你好，回答一个问题",
+    requestedPermissionPolicy: "autoRun",
+  });
+  assert.equal(answer.intent, "answer");
+  assert.equal(answer.permissionPolicy, "autoRun");
+  assert.deepEqual(answer.allowedPermissions, ["read"]);
+
+  const search = defaultRunPolicyManager.resolve({
+    message: "查找 AgentLoop 在哪里",
+    requestedPermissionPolicy: "autoRun",
+  });
+  assert.equal(search.intent, "search");
+  assert.equal(search.permissionPolicy, "autoRun");
+  assert.deepEqual(search.allowedPermissions, ["read"]);
+});
+
 test("resolve 支持 budget 覆盖", () => {
   const policy = defaultRunPolicyManager.resolve({
     requestedMode: "plan",

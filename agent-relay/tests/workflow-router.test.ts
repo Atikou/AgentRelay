@@ -17,72 +17,84 @@ const expected: Record<AgentIntentType, {
   workflowType: string;
   executor: string;
   readonlyOnly: boolean;
+  enforceReadOnlyTools: boolean;
   sideEffectKind: string;
 }> = {
   answer: {
     workflowType: "answerWorkflow",
     executor: "answerExecutor",
     readonlyOnly: true,
+    enforceReadOnlyTools: true,
     sideEffectKind: "none",
   },
   plan: {
     workflowType: "planWorkflow",
     executor: "planExecutor",
     readonlyOnly: true,
+    enforceReadOnlyTools: false,
     sideEffectKind: "none",
   },
   edit: {
     workflowType: "editWorkflow",
     executor: "editExecutor",
     readonlyOnly: false,
+    enforceReadOnlyTools: false,
     sideEffectKind: "write",
   },
   run: {
     workflowType: "runWorkflow",
     executor: "runExecutor",
     readonlyOnly: false,
+    enforceReadOnlyTools: false,
     sideEffectKind: "shell",
   },
   debug: {
     workflowType: "debugWorkflow",
     executor: "debugExecutor",
     readonlyOnly: false,
+    enforceReadOnlyTools: false,
     sideEffectKind: "mixed",
   },
   review: {
     workflowType: "reviewWorkflow",
     executor: "reviewExecutor",
     readonlyOnly: true,
+    enforceReadOnlyTools: false,
     sideEffectKind: "none",
   },
   verify: {
     workflowType: "verifyWorkflow",
     executor: "verifyExecutor",
     readonlyOnly: false,
+    enforceReadOnlyTools: false,
     sideEffectKind: "shell",
   },
   summarize: {
     workflowType: "summarizeWorkflow",
     executor: "summarizeExecutor",
     readonlyOnly: true,
+    enforceReadOnlyTools: true,
     sideEffectKind: "none",
   },
   search: {
     workflowType: "searchWorkflow",
     executor: "searchExecutor",
     readonlyOnly: true,
+    enforceReadOnlyTools: true,
     sideEffectKind: "none",
   },
   refactor: {
     workflowType: "refactorWorkflow",
     executor: "refactorExecutor",
     readonlyOnly: false,
+    enforceReadOnlyTools: false,
     sideEffectKind: "write",
   },
   generate_file: {
     workflowType: "generateFileWorkflow",
     executor: "generateFileExecutor",
     readonlyOnly: false,
+    enforceReadOnlyTools: false,
     sideEffectKind: "write",
   },
 };
@@ -107,6 +119,13 @@ test("IntentRouter 使用 WorkflowRouter 输出 workflowType", () => {
   );
 });
 
+test("answer/summarize/search 工作流声明工具层强制只读", () => {
+  assert.equal(defaultWorkflowRouter.routeIntent("answer").enforceReadOnlyTools, true);
+  assert.equal(defaultWorkflowRouter.routeIntent("summarize").enforceReadOnlyTools, true);
+  assert.equal(defaultWorkflowRouter.routeIntent("search").enforceReadOnlyTools, true);
+  assert.equal(defaultWorkflowRouter.routeIntent("edit").enforceReadOnlyTools, false);
+});
+
 let passed = 0;
 let failed = 0;
 for (const { name, fn } of tests) {
@@ -122,4 +141,3 @@ for (const { name, fn } of tests) {
 }
 console.log(`\nworkflow-router: ${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);
-

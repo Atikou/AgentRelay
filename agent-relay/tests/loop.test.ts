@@ -96,6 +96,37 @@ test("开启自动确认时写工具可执行", async () => {
   assert.equal(await fs.readFile(path.join(sandbox, "w.txt"), "utf-8"), "hello");
 });
 
+test("searchWorkflow 即使显式 autoRun 也保持只读工具上限", async () => {
+  const chat = scriptedChat([
+    '{"action":"tool","tool":"write_file","input":{"path":"search-write.txt","content":"bad"},"thought":"不应写入"}',
+    '{"action":"final","answer":"已改为只读回答"}',
+  ]);
+  const loop = new AgentLoop({
+    chat,
+    registry: createDefaultRegistry(),
+    workspaceRoot: sandbox,
+    policy: resolveRunPolicy({
+      message: "查找 AgentLoop 在哪里",
+      requestedPermissionPolicy: "autoRun",
+      budget: {
+        maxModelTurns: 2,
+        maxToolCalls: 2,
+        maxReadCalls: 1,
+        maxWriteCalls: 1,
+        maxShellCalls: 1,
+        maxRuntimeMs: 60000,
+      },
+    }),
+  });
+  const res = await loop.run("查找 AgentLoop 在哪里");
+  assert.equal(res.executionMeta.intent, "search");
+  assert.equal(res.executionMeta.workflowType, "searchWorkflow");
+  assert.equal(res.executionMeta.permissionPolicy, "autoRun");
+  assert.equal(res.steps[0]!.blocked, true);
+  assert.equal(res.steps[0]!.permission, "write");
+  await assert.rejects(fs.access(path.join(sandbox, "search-write.txt")));
+});
+
 test("显式确认型权限策略进入 executionMeta 且不自动执行", async () => {
   const chat = scriptedChat([
     '{"action":"tool","tool":"write_file","input":{"path":"policy.txt","content":"bad"}}',

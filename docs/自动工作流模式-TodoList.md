@@ -30,7 +30,7 @@
 - [ ] `debugWorkflow`：报错分析、定位文件、最小修复、验证失败后继续迭代。
 - [ ] `refactorWorkflow`：强制先计划，分阶段修改，每阶段尽量可验证。
 - [ ] `runWorkflow` / `verifyWorkflow`：执行安全命令、收集输出、分析结果；无法执行时降级为静态检查并说明。
-- [ ] `answerWorkflow` / `summarizeWorkflow` / `searchWorkflow`：只读回答、总结、定位，不做副作用操作。
+- [x] `answerWorkflow` / `summarizeWorkflow` / `searchWorkflow`：只读回答、总结、定位，不做副作用操作。
 
 ## P3：隐式计划与状态管理
 

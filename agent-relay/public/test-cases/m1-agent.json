@@ -641,6 +641,46 @@
       }
     },
     {
+      "id": "m1-agent-search-workflow-readonly-ceiling",
+      "title": "searchWorkflow 显式 autoRun 仍保持只读",
+      "purpose": "确认搜索/定位工作流拥有工具层只读上限，即使调用方显式传入 autoRun，也不会把工作流扩权为可写或可执行命令。",
+      "method": "POST",
+      "path": "/api/agent",
+      "input": {
+        "message": "查找当前项目里 AgentLoop 在哪里，只返回当前工作流元信息。",
+        "permissionPolicy": "autoRun",
+        "persist": false,
+        "budget": {
+          "maxModelTurns": 1,
+          "maxToolCalls": 0,
+          "maxReadCalls": 0,
+          "maxWriteCalls": 0,
+          "maxShellCalls": 0,
+          "maxRuntimeMs": 60000
+        }
+      },
+      "expect": {
+        "status": 200,
+        "bodyPaths": {
+          "executionMeta.intent": "search",
+          "executionMeta.workflowType": "searchWorkflow",
+          "executionMeta.permissionPolicy": "autoRun"
+        }
+      }
+    },
+    {
+      "id": "m1-agent-readonly-workflow-api-spec",
+      "title": "API 规范说明只读工作流上限",
+      "purpose": "确认 OpenAPI 明确登记 answerWorkflow、summarizeWorkflow、searchWorkflow 会强制工具层只读，便于调用方理解自动策略不会覆盖该边界。",
+      "method": "GET",
+      "path": "/api/api-spec.json",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyContains": ["answerWorkflow/summarizeWorkflow/searchWorkflow", "强制工具层只读"]
+      }
+    },
+    {
       "id": "m1-agent-permission-guard-ui-meta",
       "title": "测试台执行元信息展示权限策略",
       "purpose": "确认测试台脚本会展示 executionMeta.permissionPolicy，便于排查 PermissionGuard 的 allow / needsConfirmation / deny 判定来源。",
