@@ -21,6 +21,7 @@
     "test:rule-only": "tsx tests/rule-only.test.ts",
     "test:draft-review": "tsx tests/draft-review.test.ts",
     "test:fallback-manager": "tsx tests/fallback-manager.test.ts",
+    "test:run-policy-manager": "tsx tests/run-policy-manager.test.ts",
     "test:budget-manager": "tsx tests/budget-manager.test.ts",
     "test:tool-result-layers": "tsx tests/tool-result-layers.test.ts",
     "test:run-state-store": "tsx tests/run-state-store.test.ts",

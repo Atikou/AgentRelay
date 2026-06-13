@@ -26,7 +26,7 @@ import {
   renderBudget,
 } from "./BudgetManager.js";
 import {
-  resolveRunPolicy,
+  defaultRunPolicyManager,
   type AgentExecutionMeta,
   type AgentRunMode,
   type AgentStopReason,
@@ -145,7 +145,7 @@ export class AgentLoop {
   constructor(private readonly options: AgentLoopOptions) {
     this.policy =
       options.policy ??
-      resolveRunPolicy({
+      defaultRunPolicyManager.resolve({
         requestedMode: options.mode,
         budget: options.budget,
         taskType: options.taskType,
@@ -161,7 +161,7 @@ export class AgentLoop {
       strictUserGrant: options.allowedPermissions != null,
     });
     this.allowed = resolved.allowed;
-    this.budgetManager = new BudgetManager(this.policy.budget, this.policy.suggestedBudget);
+    this.budgetManager = defaultRunPolicyManager.createBudgetManager(this.policy);
   }
 
   private get budget(): RunBudget {

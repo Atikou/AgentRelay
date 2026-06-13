@@ -34,7 +34,7 @@
 | 验收测试 §7 | 4 | 0 | 1 | 5 |
 | **合计** | **12** | **2** | **3** | **17** |
 
-**结论**：报告 P0（executionMeta、部分收尾、计划模式写拦截）已落地；PlanWorkflow、RunStateStore、ToolResultLayers、BudgetManager 已落地；仍缺独立 RunPolicyManager 类。
+**结论**：报告 P0（executionMeta、部分收尾、计划模式写拦截）已落地；PlanWorkflow、RunStateStore、ToolResultLayers、BudgetManager、RunPolicyManager 已落地。
 
 ---
 
@@ -42,7 +42,7 @@
 
 | 问题 | 状态 | 说明 |
 | --- | --- | --- |
-| 3.1 缺少 RunPolicy | [~] | `RunPolicy.ts` + `resolveRunPolicy` 已实现；无独立 `RunPolicyManager` 类 |
+| 3.1 缺少 RunPolicy | [x] | `RunPolicyManager` + `RunPolicy` 类型 |
 | 3.2 计划模式未落实执行层 | [x] | `MODE_PERMISSIONS.plan` 仅 read；`AgentLoop` 权限拦截 + 测试 |
 | 3.3 单一循环次数与 tool/model turns 混用 | [x] | `RunBudget` 拆分模型轮次、工具总数、读/写/shell 与运行时长，循环按分项预算阻断 |
 | 3.4 缺少 executionMeta | [x] | `AgentExecutionMeta` + API 返回 |
@@ -80,7 +80,7 @@
 
 | 模块 | 状态 | 代码位置 |
 | --- | --- | --- |
-| RunPolicyManager | [~] | `RunPolicy.ts`（函数式，非 Manager 类） |
+| RunPolicyManager | [x] | `RunPolicyManager.ts`；`resolveRunPolicy` 委托 `defaultRunPolicyManager` |
 | BudgetManager | [x] | `BudgetManager.ts`；AgentLoop / PlanWorkflow 分项硬限制 |
 | ExecutionMetaBuilder | [x] | `AgentLoop.buildExecutionMeta()` |
 | Finalizer | [~] | `buildPartialFinalAnswer` 内联，非独立 `Finalizer` 类 |
@@ -138,10 +138,10 @@
 - [x] 各模式默认 `RunBudget`
 - [x] 各模式 `allowedPermissions` 与 systemHint
 - [x] 从消息推断 plan 模式（「计划模式」「只读」等）
-- [ ] 独立 `RunPolicyManager` 类（当前为 `resolveRunPolicy` 函数）
+- [x] 独立 `RunPolicyManager` 类（`defaultRunPolicyManager.resolve`；`resolveRunPolicy` 保留兼容）
 - [x] `maxToolCalls` / `maxReadCalls` 等写入 RunPolicy 并在循环中强制
 
-**验收**：⚠️ 策略已有，独立 Manager 类未抽出
+**验收**：✅
 
 ---
 
@@ -259,7 +259,7 @@
 
 | 模块 | 状态 |
 | --- | --- |
-| RunPolicyManager | [~] `resolveRunPolicy` |
+| RunPolicyManager | [x] `RunPolicyManager.ts` |
 | BudgetManager | [x] `BudgetManager.ts` |
 | executionMeta | [x] |
 | partial final answer | [x] |
@@ -272,7 +272,7 @@
 
 ```text
 用户输入 → IntentRouter(inferRunMode) ✅
-  → RunPolicy(resolveRunPolicy) ✅
+  → RunPolicyManager ✅
   → BudgetManager ✅
   → ToolPermissionManager ✅
   → WorkflowPlanner/PlanWorkflow ✅

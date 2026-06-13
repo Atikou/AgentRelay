@@ -16,7 +16,7 @@ import { planFromTask } from "../agent/planFromTask.js";
 import { finalizePlan } from "../agent/taskGraph.js";
 import { aggregateTaskStatus } from "../agent/taskStatus.js";
 import { PlanSchema, type Plan } from "../agent/types.js";
-import { parseRunMode, resolveRunPolicy, type RunBudget } from "../agent/RunPolicy.js";
+import { defaultRunPolicyManager, type RunBudget } from "../agent/RunPolicy.js";
 
 import type { NotificationQueue } from "../background/NotificationQueue.js";
 
@@ -876,7 +876,7 @@ export class Orchestrator {
       return { status: 400, body: { error: taskTypeParsed.error } };
     }
 
-    const policy = resolveRunPolicy({
+    const policy = defaultRunPolicyManager.resolve({
       requestedMode: state.mode,
       budget: payload.budget,
       taskType: taskTypeParsed.taskType,
@@ -1417,10 +1417,10 @@ export class Orchestrator {
     if (!taskTypeParsed.ok) {
       return { error: { status: 400, body: { error: taskTypeParsed.error } } };
     }
-    if (payload.mode && !parseRunMode(payload.mode)) {
+    if (payload.mode && !defaultRunPolicyManager.parseMode(payload.mode)) {
       return { error: { status: 400, body: { error: "mode 必须是 chat/plan/implement/debug/review" } } };
     }
-    const policy = resolveRunPolicy({
+    const policy = defaultRunPolicyManager.resolve({
       requestedMode: payload.mode,
       budget: payload.budget,
       taskType: taskTypeParsed.taskType,

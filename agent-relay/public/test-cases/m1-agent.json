@@ -241,6 +241,20 @@
       }
     },
     {
+      "id": "m1-agent-run-policy-manager-capability",
+      "title": "GET /api/config 暴露 runPolicyManager",
+      "purpose": "确认 capabilities 声明 RunPolicyManager 已落地，客户端可探测模式/预算策略解析能力。",
+      "method": "GET",
+      "path": "/api/config",
+      "input": {},
+      "expect": {
+        "status": 200,
+        "bodyPaths": {
+          "capabilities.runPolicyManager": true
+        }
+      }
+    },
+    {
       "id": "m1-agent-budget-manager-capability",
       "title": "GET /api/config 暴露 budgetManager",
       "purpose": "确认 capabilities 声明 BudgetManager 已落地，客户端可探测分项预算管理能力。",
