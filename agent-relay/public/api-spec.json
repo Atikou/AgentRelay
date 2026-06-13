@@ -16,6 +16,7 @@
   ],
   "tags": [
     { "name": "配置与模型", "description": "Profile、路由策略与模型连通性" },
+    { "name": "模型与指标", "description": "模型路由日志、能力矩阵、运行统计与离线评测" },
     { "name": "对话与智能体", "description": "单次对话与 ReAct 自主循环" },
     { "name": "计划与任务", "description": "计划生成与任务状态机" },
     { "name": "工具", "description": "内置工具注册表与直接调用" },
@@ -30,7 +31,7 @@
   "x-tagGroups": [
     {
       "name": "入门",
-      "tags": ["配置与模型"]
+      "tags": ["配置与模型", "模型与指标"]
     },
     {
       "name": "Agent 能力",
@@ -48,7 +49,7 @@
   "paths": {
     "/api/config": {
       "get": {
-        "tags": ["配置与模型"],
+        "tags": ["配置与模型", "模型与指标"],
         "summary": "获取当前配置与能力清单",
         "operationId": "getConfig",
         "responses": {
@@ -65,7 +66,7 @@
     },
     "/api/models/check": {
       "get": {
-        "tags": ["配置与模型"],
+        "tags": ["配置与模型", "模型与指标"],
         "summary": "探测各模型客户端可用性",
         "operationId": "checkModels",
         "responses": {
@@ -85,7 +86,7 @@
     },
     "/api/models/catalog": {
       "get": {
-        "tags": ["配置与模型"],
+        "tags": ["配置与模型", "模型与指标"],
         "summary": "探测本地端点已安装模型目录",
         "description": "仅针对配置中 location=local 的客户端：Ollama 读 /api/tags，openai-compatible 读 /v1/models。不修改 config。",
         "operationId": "listModelCatalog",
@@ -112,7 +113,7 @@
     },
     "/api/metrics": {
       "get": {
-        "tags": ["配置与模型"],
+        "tags": ["配置与模型", "模型与指标"],
         "summary": "模型调用指标统计",
         "operationId": "getMetrics",
         "responses": {
@@ -512,6 +513,24 @@
         "responses": {
           "200": { "description": "路由日志列表或详情" },
           "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+    "/api/routing/profiles": {
+      "get": {
+        "tags": ["模型与指标"],
+        "summary": "ModelProfile 能力矩阵与覆盖快照（V5）",
+        "operationId": "routingCapabilityMatrix",
+        "description": "返回当前进程内全部 ModelProfile、任务类型能力矩阵、各 taskType 的 primary/draft/review 候选覆盖与 validationWarnings。只读，不修改 config。",
+        "responses": {
+          "200": {
+            "description": "能力矩阵快照",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/CapabilityMatrixSnapshot" }
+              }
+            }
+          }
         }
       }
     },
@@ -2006,6 +2025,16 @@
             }
           }
         ]
+      },
+      "CapabilityMatrixSnapshot": {
+        "type": "object",
+        "properties": {
+          "profiles": { "type": "array", "items": { "type": "object", "additionalProperties": true } },
+          "matrix": { "type": "array", "items": { "type": "object", "additionalProperties": true } },
+          "coverage": { "type": "array", "items": { "type": "object", "additionalProperties": true } },
+          "validationWarnings": { "type": "array", "items": { "type": "string" } }
+        },
+        "required": ["profiles", "matrix", "coverage", "validationWarnings"]
       },
       "RuntimeStatsSuggestion": {
         "type": "object",

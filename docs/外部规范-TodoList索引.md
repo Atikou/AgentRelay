@@ -24,7 +24,7 @@
 | `Agent_Execution_Policy_Issues_Report.md` | [Agent执行策略问题-TodoList](Agent执行策略问题-TodoList.md) | P0 ✅ / P1 主体 ✅ | executionMeta、partial 收尾、plan 写拦截、PlanWorkflow 第一版已完成；BudgetManager、RunStateStore、三层 trace 待补 |
 | `Agent_Model_Router_Rule_Config_Spec.md` | [模型路由规则配置-TodoList](模型路由规则配置-TodoList.md) | V1 ✅ | 规则路由 + 手动配置 + 启动 `validateModelProfiles` 已完成；路由 HTTP 查询待补 |
 | `Agent_Model_Router_Collaboration_Spec.md` | [模型路由协作-TodoList](模型路由协作-TodoList.md) | V1 ✅ | single_model + draft_review 已闭环；rule_only、DB 集成测试待补 |
-| `Agent_Model_Router_Auto_Upgrade_Roadmap.md` | [模型路由升级TodoList](模型路由升级TodoList.md) | **V4 下一步** | V2 FallbackManager 已完成；V3 启发式部分接入 |
+| `Agent_Model_Router_Auto_Upgrade_Roadmap.md` | [模型路由升级TodoList](模型路由升级TodoList.md) | **V8 下一步** | V2–V7 已完成（含 V5 能力矩阵）；V8 完整自动路由未开始 |
 | `Agent_Relevant_File_Location_Optimization_Spec.md` | [相关文件定位优化-TodoList](相关文件定位优化-TodoList.md) | P0/P1 主体 ✅ / P2 未开始 | project_scan、locate_relevant_files、context_pack、executionMeta.location 已落地；ProjectIndex、RunStateStore、symbol_search 待补 |
 | （架构审阅修复，非外部规范） | [修复TodoList（归档）](completed/修复TodoList.md) | ✅ 已结案 | P0–P3 已全部落地；原路径 [修复TodoList.md](修复TodoList.md) 为 stub |
 

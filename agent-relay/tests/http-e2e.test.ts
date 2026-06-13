@@ -90,6 +90,21 @@ test("GET /vendor/scalar-api-reference.js 可加载", async () => {
   assert.ok(text.includes("createApiReference"));
 });
 
+test("GET /api/routing/profiles 返回能力矩阵", async () => {
+  const res = await get("/api/routing/profiles");
+  assert.equal(res.status, 200);
+  const body = (await res.json()) as {
+    profiles: unknown[];
+    matrix: unknown[];
+    coverage: unknown[];
+    validationWarnings: unknown[];
+  };
+  assert.ok(Array.isArray(body.profiles));
+  assert.ok(body.matrix.length >= 10);
+  assert.ok(Array.isArray(body.coverage));
+  assert.ok(Array.isArray(body.validationWarnings));
+});
+
 test("GET /api/models/catalog 返回 entries 数组", async () => {
   const res = await get("/api/models/catalog");
   assert.equal(res.status, 200);

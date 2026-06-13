@@ -14,6 +14,22 @@ export {
 export { FallbackManager, MAX_FALLBACKS_PER_REQUEST } from "./fallback-manager.js";
 export { RouterModelEvaluator } from "./router-model-evaluator.js";
 export { AnswerEvaluator } from "./answer-evaluator.js";
+export {
+  TASK_CAPABILITY_MATRIX,
+  buildCapabilityMatrixSnapshot,
+  extractCapabilityFlags,
+  listProfilesForRole,
+  profileSatisfiesRequirements,
+  resolveEffectiveRequirements,
+  resolveRoleRequirements,
+  validateCapabilityMatrixCoverage,
+} from "./model-capabilities.js";
+export type {
+  CapabilityMatrixSnapshot,
+  ModelCapabilityFlags,
+  TaskCapabilityCoverage,
+  TaskCapabilityRequirement,
+} from "./model-capabilities.js";
 export { RuntimeStatsCollector } from "./runtime-stats.js";
 export type {
   RuntimeStatsSnapshot,

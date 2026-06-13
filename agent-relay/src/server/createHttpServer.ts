@@ -9,7 +9,7 @@ import {
   handleTaskDryRun,
   handleTaskRun,
 } from "./handlers/agent.handlers.js";
-import { handleRoutingEvalRun, handleRoutingEvalRuns, handleRoutingLogs, handleRoutingStats } from "./handlers/routing.handlers.js";
+import { handleRoutingEvalRun, handleRoutingEvalRuns, handleRoutingLogs, handleRoutingProfiles, handleRoutingStats } from "./handlers/routing.handlers.js";
 import { handleTaskGet, handleTaskResume, handleTasksList } from "./handlers/task.handlers.js";
 import {
   handleBackgroundCancel,
@@ -185,6 +185,11 @@ export function createHttpServer(app: AppContext, opts?: HttpServerOptions): Ser
         }
         if (pathname === "/api/routing/logs" && method === "GET") {
           const result = handleRoutingLogs(app, url);
+          sendJson(res, result.status, result.body);
+          return;
+        }
+        if (pathname === "/api/routing/profiles" && method === "GET") {
+          const result = handleRoutingProfiles(app);
           sendJson(res, result.status, result.body);
           return;
         }

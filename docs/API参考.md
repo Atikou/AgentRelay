@@ -314,9 +314,9 @@ GET /api/runs/{runId}
 | 对话与智能体 | `/api/chat`、`/api/agent`、`/api/agent/stream` | 单次对话、自主循环与 SSE 逐步推送 |
 
 | 计划与任务 | `/api/plan`、`/api/plans/*`、`/api/task/*`、`/api/tasks/*` | 计划报告/草案/审批/执行；`GET /api/tasks/:id` 查步骤状态；`POST /api/tasks/:id/resume` 重试/跳过/确认 |
-| 模型路由审计 | `/api/routing/logs` | 路由决策与 fallback 链只读查询 |
+| 模型路由审计 | `/api/routing/logs`、`/api/routing/profiles`、`/api/routing/stats`、`/api/routing/eval/*` | 路由日志、V5 能力矩阵、V6 运行统计、V7 离线评测 |
 
-| 编排与 Run | `/api/runs`、`/api/runs/{id}` | 统一编排执行记录 |
+| 编排与 Run | `/api/runs`、`/api/runs/{id}`、`/api/runs/{id}/report` | 统一编排执行记录与运行报告时间线 |
 
 | 工具 | `/api/tools`、`/api/tools/run` | 工具注册表与直接调用 |
 

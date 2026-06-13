@@ -2,7 +2,7 @@
 
 > 依据 `Agent_Model_Router_Auto_Upgrade_Roadmap.md` 对当前仓库扫描生成。  
 > **关联索引**：[外部规范-TodoList索引](外部规范-TodoList索引.md)  
-> **当前阶段：V7 EvalSetRunner 已落地 → 下一步 V8 前需评审，勿提前做完整自动路由。**  
+> **当前阶段：V5 ModelCapabilities 已落地 → 下一步 V8 前需评审，勿提前做完整自动路由。**  
 > 推进模型路由相关改动前，请先读 [模型路由与协作](模型路由与协作.md) 了解已实现能力；**不要一次性实现完整自动路由（V8）**。
 
 ---
@@ -11,7 +11,7 @@
 
 ### 阶段判定
 
-**V2 FallbackManager 核心已完成** → 下一目标 **V6：RuntimeStats**（V3/V4 已落地）
+**V2 FallbackManager 核心已完成** → 下一目标 **V8 完整自动路由**（V3–V7 已落地）
 
 ### 关键词扫描（`agent-relay/src`）
 
@@ -85,7 +85,7 @@
 | V2 | FallbackManager | ✅ 核心完成 |
 | V3 | RouterModelEvaluator | ✅ 启发式 + 高风险不覆盖 |
 | V4 | AnswerEvaluator | ✅ 规则版 fallback |
-| V5 | ModelProfile 能力矩阵 | 未开始 |
+| V5 | ModelProfile 能力矩阵 | ✅ |
 | V6 | RuntimeStats | ✅ 只读建议 API |
 | V7 | EvalSetRunner | ✅ 离线评测 API |
 | V8 | 完整自动路由 | 未开始 |
@@ -137,7 +137,7 @@
 
 - [x] V3 RouterModelEvaluator 运行时接入（高风险不覆盖）
 - [x] V4 AnswerEvaluator 运行时接入
-- [ ] V5 ModelCapabilities 能力矩阵
+- [x] V5 ModelCapabilities 能力矩阵
 - [x] V6 RuntimeStats（只建议，不改配置）
 - [x] V7 EvalSetRunner（离线评测 + model_eval_results）
 - [ ] V8 完整自动路由
@@ -276,7 +276,7 @@
 | --- | --- | --- |
 | V3 | RouterModelEvaluator + router_model_evaluations | [x] 启发式运行时接入 |
 | V4 | AnswerEvaluator 规则版 | [x] 已接入 ModelOrchestrator |
-| V5 | ModelCapabilities 能力矩阵 | [ ] |
+| V5 | ModelCapabilities 能力矩阵 | [x] |
 | V6 | RuntimeStats 指标回流（只建议不改配置） | [x] |
 | V7 | EvalSetRunner + model_eval_results | [x] |
 | V8 | ContextAnalyzer + 完整 DecisionEngine 多信号 | [ ] |

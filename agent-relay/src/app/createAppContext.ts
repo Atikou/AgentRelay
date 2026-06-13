@@ -42,6 +42,7 @@ import {
   EvalSetRunner,
   ModelEvalStore,
   validateModelProfiles,
+  validateCapabilityMatrixCoverage,
 } from "../model-router/index.js";
 import { recoverOnStartup, type StartupRecoverySummary } from "./startupRecovery.js";
 import { TraceLogger } from "../trace/TraceLogger.js";
@@ -84,6 +85,7 @@ export class AppContext {
   readonly fallbackLogStore: FallbackLogStore;
   readonly modelEvalStore: ModelEvalStore;
   readonly evalSetRunner: EvalSetRunner;
+  readonly modelProfileRegistry: ModelRegistry;
   readonly projectAllowedPermissions: ToolPermission[];
   readonly shellPolicy: ShellPolicy;
   readonly networkPolicy: NetworkPolicy;
@@ -117,6 +119,7 @@ export class AppContext {
     fallbackLogStore: FallbackLogStore;
     modelEvalStore: ModelEvalStore;
     evalSetRunner: EvalSetRunner;
+    modelProfileRegistry: ModelRegistry;
     defaultAgentChat: LoopChatFn;
     projectAllowedPermissions: ToolPermission[];
     shellPolicy: ShellPolicy;
@@ -149,6 +152,7 @@ export class AppContext {
     this.fallbackLogStore = opts.fallbackLogStore;
     this.modelEvalStore = opts.modelEvalStore;
     this.evalSetRunner = opts.evalSetRunner;
+    this.modelProfileRegistry = opts.modelProfileRegistry;
     this.defaultAgentChat = opts.defaultAgentChat;
     this.projectAllowedPermissions = opts.projectAllowedPermissions;
     this.shellPolicy = opts.shellPolicy;
@@ -229,6 +233,7 @@ export class AppContext {
         answerEvaluatorV4: true,
         runtimeStatsV6: true,
         evalSetRunnerV7: true,
+        modelCapabilitiesV5: true,
         costBudgetPerRun: true,
         ruleOnlyRouting: true,
         sqliteSchemaMigrations: true,
@@ -367,6 +372,9 @@ export function createAppContext(): AppContext {
   for (const msg of validateModelProfiles(modelProfiles)) {
     console.warn(`[model-router] 配置校验：${msg}`);
   }
+  for (const msg of validateCapabilityMatrixCoverage(modelProfiles)) {
+    console.warn(`[model-router] 能力矩阵覆盖：${msg}`);
+  }
   const profileRegistry = new ModelRegistry(modelProfiles);
   const routeLogStore = new RouteLogStore(contextManager.db.connection);
   const modelCallLogStore = new ModelCallLogStore(contextManager.db.connection);
@@ -495,6 +503,7 @@ export function createAppContext(): AppContext {
     fallbackLogStore,
     modelEvalStore,
     evalSetRunner,
+    modelProfileRegistry: profileRegistry,
     defaultAgentChat,
     projectAllowedPermissions,
     shellPolicy,

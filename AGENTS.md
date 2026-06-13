@@ -91,7 +91,7 @@ npm run serve          # 启动后端与测试台 http://localhost:18787
 
 **路由覆盖面（2026-06-13）**：`/api/chat`、`Planner`、`/api/agent`、子 Agent 默认经 `SmartModelRouter`；显式 `clientName` 仍走 `ModelRouter`。
 
-**V3 已落地**：`RouterModelEvaluator` 启发式接入 `DecisionEngine`（`source=evaluator`，高风险不覆盖）；**V4 已落地**：`AnswerEvaluator` 接入 `ModelOrchestrator` 答案质量 fallback；**V6 已落地**：`RuntimeStatsCollector` + `GET /api/routing/stats`；**V7 已落地**：`EvalSetRunner` + `POST /api/routing/eval/run` 离线评测。
+**V3 已落地**：`RouterModelEvaluator` 启发式接入 `DecisionEngine`（`source=evaluator`，高风险不覆盖）；**V4 已落地**：`AnswerEvaluator` 接入 `ModelOrchestrator` 答案质量 fallback；**V5 已落地**：`model-capabilities.ts` 任务能力矩阵 + `GET /api/routing/profiles`；**V6 已落地**：`RuntimeStatsCollector` + `GET /api/routing/stats`；**V7 已落地**：`EvalSetRunner` + `POST /api/routing/eval/run` 离线评测。
 
 **V2 已落地**：`FallbackManager` + `fallback_logs` + `strong_model_direct` 升级路径；`POST /api/chat` 可回传 `fallbackCount` / `fallbackLogIds`。
 

@@ -1,4 +1,8 @@
-import type { ModelProfile, RuleRouteResult, TaskType } from "./types.js";
+import {
+  listProfilesForRole,
+  resolveRoleRequirements,
+} from "./model-capabilities.js";
+import type { ModelProfile, RuleRouteResult } from "./types.js";
 
 const COST_ORDER: Record<ModelProfile["relativeCost"], number> = {
   free: 0,
@@ -6,19 +10,6 @@ const COST_ORDER: Record<ModelProfile["relativeCost"], number> = {
   medium: 2,
   high: 3,
 };
-
-const DRAFT_GENERAL_TYPES: TaskType[] = ["technical_qa", "simple_qa", "summary", "document_qa"];
-
-function taskAllowed(profile: ModelProfile, taskType: TaskType): boolean {
-  return profile.allowedTaskTypes.includes(taskType) || profile.allowedTaskTypes.includes("unknown");
-}
-
-function meetsRequirements(profile: ModelProfile, rule: RuleRouteResult): boolean {
-  if (rule.requireVision && !profile.supportsVision) return false;
-  if (rule.requireTools && !profile.supportsTools) return false;
-  if (rule.requireJsonMode && !profile.supportsJsonMode) return false;
-  return true;
-}
 
 function sortPrimary(a: ModelProfile, b: ModelProfile, requiredLevel: number): number {
   const levelDiff = Math.abs(a.defaultLevel - requiredLevel) - Math.abs(b.defaultLevel - requiredLevel);
@@ -55,21 +46,18 @@ export class ModelRegistry {
     );
   }
 
+  listAll(): ModelProfile[] {
+    return [...this.profiles];
+  }
+
   get(id: string): ModelProfile | undefined {
     return this.profiles.find((p) => p.id === id);
   }
 
   findPrimaryCandidates(rule: RuleRouteResult, localOnly?: boolean): ModelProfile[] {
-    return this.listEnabled(localOnly)
-      .filter(
-        (p) =>
-          p.canFinal &&
-          p.allowedRoles.includes("primary") &&
-          p.defaultLevel >= rule.requiredLevel &&
-          taskAllowed(p, rule.taskType) &&
-          meetsRequirements(p, rule),
-      )
-      .sort((a, b) => sortPrimary(a, b, rule.requiredLevel));
+    const requirement = resolveRoleRequirements(rule, "primary");
+    const candidates = listProfilesForRole(this.listEnabled(localOnly), rule, "primary");
+    return candidates.sort((a, b) => sortPrimary(a, b, requirement.minLevel));
   }
 
   findDraftCandidates(
@@ -78,29 +66,17 @@ export class ModelRegistry {
     contextTokenEstimate?: number,
   ): ModelProfile[] {
     const tokenNeed = contextTokenEstimate ?? 8000;
-    return this.listEnabled(localOnly)
-      .filter(
-        (p) =>
-          p.canDraft &&
-          p.allowedRoles.includes("draft") &&
-          (taskAllowed(p, rule.taskType) ||
-            DRAFT_GENERAL_TYPES.some((t) => p.allowedTaskTypes.includes(t))) &&
-          p.maxInputTokens >= tokenNeed,
-      )
-      .sort(sortDraft);
+    const candidates = listProfilesForRole(this.listEnabled(localOnly), rule, "draft", {
+      contextTokenEstimate: tokenNeed,
+      allowDraftGeneralTypes: true,
+    });
+    return candidates.sort(sortDraft);
   }
 
   findReviewCandidates(rule: RuleRouteResult, localOnly?: boolean): ModelProfile[] {
-    return this.listEnabled(localOnly)
-      .filter(
-        (p) =>
-          p.canReview &&
-          p.allowedRoles.includes("review") &&
-          p.defaultLevel >= rule.requiredLevel &&
-          taskAllowed(p, rule.taskType) &&
-          meetsRequirements(p, rule),
-      )
-      .sort((a, b) => sortReview(a, b, rule.requiredLevel));
+    const requirement = resolveRoleRequirements(rule, "review");
+    const candidates = listProfilesForRole(this.listEnabled(localOnly), rule, "review");
+    return candidates.sort((a, b) => sortReview(a, b, requirement.minLevel));
   }
 
   findFinalCandidates(rule: RuleRouteResult, localOnly?: boolean): ModelProfile[] {

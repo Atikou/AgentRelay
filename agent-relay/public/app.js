@@ -438,12 +438,22 @@ async function handleRoutingLogs() {
   evalBtn.className = "action-btn secondary";
   evalBtn.textContent = "离线评测";
 
+  const matrixBtn = document.createElement("button");
+  matrixBtn.className = "action-btn secondary";
+  matrixBtn.textContent = "能力矩阵";
+
   row.appendChild(limitInput);
   row.appendChild(sessionInput);
   row.appendChild(refreshBtn);
   row.appendChild(statsBtn);
   row.appendChild(evalBtn);
+  row.appendChild(matrixBtn);
   panel.appendChild(row);
+
+  const matrixBox = document.createElement("div");
+  matrixBox.className = "tool-result routing-matrix-box";
+  matrixBox.style.display = "none";
+  panel.appendChild(matrixBox);
 
   const statsBox = document.createElement("div");
   statsBox.className = "tool-result routing-stats-box";
@@ -555,6 +565,36 @@ async function handleRoutingLogs() {
     } catch (err) {
       evalBox.classList.add("err");
       evalBox.textContent = String(err.message || err);
+    }
+  });
+  matrixBtn.addEventListener("click", async () => {
+    matrixBox.style.display = "block";
+    matrixBox.classList.remove("err");
+    matrixBox.textContent = "加载能力矩阵中…";
+    try {
+      const data = await api("/api/routing/profiles");
+      const uncovered = (data.coverage || []).filter((c) => c.uncovered);
+      const warnings = (data.validationWarnings || [])
+        .map((w) => `<li>${escapeHtml(w)}</li>`)
+        .join("");
+      const rows = (data.coverage || [])
+        .map(
+          (c) =>
+            `<tr><td>${escapeHtml(c.taskType)}</td><td>L${c.minLevel}</td><td>${escapeHtml((c.primaryCandidates || []).join(", ") || "—")}</td><td>${c.uncovered ? "缺口" : "OK"}</td></tr>`,
+        )
+        .join("");
+      matrixBox.innerHTML = `
+        <div class="routing-stats-summary">
+          <span>模型 ${(data.profiles || []).length}</span>
+          <span>任务类型 ${(data.matrix || []).length}</span>
+          <span>缺口 ${uncovered.length}</span>
+        </div>
+        ${warnings ? `<ul class="routing-suggestion-list">${warnings}</ul>` : ""}
+        ${rows ? `<table class="model-table routing-stats-table"><thead><tr><th>任务</th><th>等级</th><th>primary</th><th>覆盖</th></tr></thead><tbody>${rows}</tbody></table>` : ""}
+        <details class="routing-stats-raw"><summary>原始 JSON</summary><pre>${escapeHtml(JSON.stringify(data, null, 2))}</pre></details>`;
+    } catch (err) {
+      matrixBox.classList.add("err");
+      matrixBox.textContent = String(err.message || err);
     }
   });
   addMessage("system", panel);

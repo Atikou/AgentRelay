@@ -270,6 +270,37 @@
       }
     },
     {
+      "id": "m2-routing-profiles-api",
+      "title": "GET /api/routing/profiles 返回能力矩阵",
+      "purpose": "确认 V5 ModelCapabilities 矩阵快照含 profiles、matrix、coverage 与 validationWarnings。",
+      "method": "GET",
+      "path": "/api/routing/profiles",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyHasKeys": ["profiles", "matrix", "coverage", "validationWarnings"],
+        "bodyPaths": {
+          "profiles": "array",
+          "matrix": "array",
+          "coverage": "array"
+        }
+      }
+    },
+    {
+      "id": "m2-config-model-capabilities-v5",
+      "title": "配置暴露 modelCapabilitiesV5 能力",
+      "purpose": "确认 V5 能力矩阵 API 已落地，capabilities 声明 modelCapabilitiesV5。",
+      "method": "GET",
+      "path": "/api/config",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyPaths": {
+          "capabilities.modelCapabilitiesV5": true
+        }
+      }
+    },
+    {
       "id": "m2-routing-stats-api",
       "title": "GET /api/routing/stats 返回运行统计",
       "purpose": "确认 V6 RuntimeStats 聚合 model_call_logs / fallback_logs / route_logs 并返回 suggestions 数组。",
