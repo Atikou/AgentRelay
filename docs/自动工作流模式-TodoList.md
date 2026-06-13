@@ -32,6 +32,8 @@
   - [x] 用户可读 Markdown 计划通过 `PlanReportWorkflow` 生成并保存为 `UserVisiblePlan`，不可直接执行。
   - [x] 内部计划 JSON 通过 `PlanCompileWorkflow` 从已确认 Todo 编译为 awaiting_approval `InternalTaskPlan` 草案，仍需 approve 后 execute。
 - [ ] `editWorkflow` / `generateFileWorkflow`：定位文件、生成修改方案、检查权限、执行修改、记录 diff。
+  - [x] 首轮前只读预定位：`WorkflowPlanner` 按 intent 选择 `edit_locate` / `generate_file_locate`，`WorkflowExecutor` 通过 `PlanWorkflow` 执行 `locate_relevant_files` → `context_pack`。
+  - [ ] 生成修改方案、检查权限、执行修改、记录 diff。
 - [ ] `debugWorkflow`：报错分析、定位文件、最小修复、验证失败后继续迭代。
 - [ ] `refactorWorkflow`：强制先计划，分阶段修改，每阶段尽量可验证。
 - [x] `runWorkflow` / `verifyWorkflow`：执行安全命令、收集输出、分析结果；无法执行时降级为静态检查并说明。（`RunVerifyWorkflow` 白名单执行 `node --version` / `npm run typecheck` / `npm test` 等安全命令；无匹配命令、无 shell 权限或预算不足时静态降级。）

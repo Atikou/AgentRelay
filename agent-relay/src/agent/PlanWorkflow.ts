@@ -7,6 +7,7 @@ import type { AgentRunMode, RunBudget } from "./RunPolicyTypes.js";
 import type { BudgetManager } from "./BudgetManager.js";
 import { countSuccessfulPermissionUsage } from "./BudgetManager.js";
 import type { RunStateLocationContext } from "../orchestrator/runStateLocation.js";
+import type { AgentIntentType } from "./IntentTypes.js";
 import {
   defaultWorkflowPlanner,
   type WorkflowPlan,
@@ -48,8 +49,9 @@ export class PlanWorkflow {
     goal: string,
     mode: AgentRunMode,
     resume?: PlanWorkflowResumeContext,
+    intent?: AgentIntentType,
   ): Promise<PlanWorkflowResult | undefined> {
-    const workflowPlan = resume?.workflowPlan ?? defaultWorkflowPlanner.plan(goal, mode);
+    const workflowPlan = resume?.workflowPlan ?? defaultWorkflowPlanner.plan(goal, mode, intent);
     if (!workflowPlan) return undefined;
     if (!this.options.allowedPermissions.includes("read")) return undefined;
 
@@ -121,9 +123,9 @@ export class PlanWorkflow {
                 }
               : undefined,
             locateBudget: {
-              maxSearchCalls: workflowPlan.id === "implement_locate" ? 4 : 3,
+              maxSearchCalls: workflowPlan.id === "plan_prescan" ? 3 : 4,
               maxListCalls: 1,
-              maxReadForLocationCalls: workflowPlan.id === "implement_locate" ? 3 : 2,
+              maxReadForLocationCalls: workflowPlan.id === "plan_prescan" ? 2 : 3,
               maxCandidateFiles: 16,
               maxPrimaryFiles: 8,
             },

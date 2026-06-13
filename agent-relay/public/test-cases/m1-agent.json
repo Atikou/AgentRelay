@@ -850,6 +850,66 @@
       }
     },
     {
+      "id": "m1-agent-edit-workflow-prelocate",
+      "title": "editWorkflow \u9996\u8f6e\u524d\u53ea\u8bfb\u9884\u5b9a\u4f4d",
+      "purpose": "\u786e\u8ba4\u4fee\u6539\u7c7b\u8bf7\u6c42\u8fdb\u5165 editWorkflow \u540e\uff0cWorkflowExecutor \u4f1a\u5728\u6a21\u578b\u9996\u8f6e\u524d\u5148\u6267\u884c locate_relevant_files + context_pack\uff0c\u4e0d\u76f4\u63a5\u5199\u6587\u4ef6\u3002",
+      "method": "POST",
+      "path": "/api/agent",
+      "input": {
+        "message": "\u4fee\u6539 src/agent/AgentLoop.ts \u7684\u63d0\u793a\u6587\u6848\uff0c\u5148\u5b9a\u4f4d\u76f8\u5173\u6587\u4ef6",
+        "permissionPolicy": "autoEdit",
+        "persist": false,
+        "budget": {
+          "maxModelTurns": 1,
+          "maxToolCalls": 2,
+          "maxReadCalls": 2,
+          "maxWriteCalls": 0,
+          "maxShellCalls": 0,
+          "maxRuntimeMs": 60000
+        }
+      },
+      "expect": {
+        "status": 200,
+        "bodyPaths": {
+          "executionMeta.intent": "edit",
+          "executionMeta.workflowType": "editWorkflow",
+          "steps.0.tool": "locate_relevant_files",
+          "steps.1.tool": "context_pack",
+          "executionMeta.usedWriteCalls": 0
+        }
+      }
+    },
+    {
+      "id": "m1-agent-generate-file-workflow-prelocate",
+      "title": "generateFileWorkflow \u9996\u8f6e\u524d\u53ea\u8bfb\u9884\u5b9a\u4f4d",
+      "purpose": "\u786e\u8ba4\u751f\u6210\u6587\u4ef6\u7c7b\u8bf7\u6c42\u8fdb\u5165 generateFileWorkflow \u540e\uff0c\u5148\u5b9a\u4f4d\u76ee\u6807\u76ee\u5f55\u4e0e\u9644\u8fd1\u7ea6\u5b9a\uff0c\u518d\u4ea4\u7ed9\u6a21\u578b\u751f\u6210\u65b9\u6848\u6216\u8865\u4e01\u3002",
+      "method": "POST",
+      "path": "/api/agent",
+      "input": {
+        "message": "\u751f\u6210\u6587\u4ef6 src/agent/NewWorkflow.ts\uff0c\u5148\u5b9a\u4f4d\u76f8\u5173\u7ea6\u5b9a",
+        "permissionPolicy": "autoEdit",
+        "persist": false,
+        "budget": {
+          "maxModelTurns": 1,
+          "maxToolCalls": 2,
+          "maxReadCalls": 2,
+          "maxWriteCalls": 0,
+          "maxShellCalls": 0,
+          "maxRuntimeMs": 60000
+        }
+      },
+      "expect": {
+        "status": 200,
+        "bodyPaths": {
+          "executionMeta.intent": "generate_file",
+          "executionMeta.workflowType": "generateFileWorkflow",
+          "steps.0.tool": "locate_relevant_files",
+          "steps.1.tool": "context_pack",
+          "executionMeta.usedWriteCalls": 0
+        }
+      }
+    },
+    {
       "id": "m1-agent-workflow-executor-api-spec",
       "title": "API 规范登记 WorkflowExecutor",
       "purpose": "确认 OpenAPI 说明模型首轮前确定性工作流由 WorkflowExecutor 统一调度，便于客户端理解预扫描和验证命令来源。",

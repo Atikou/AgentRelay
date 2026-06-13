@@ -42,7 +42,7 @@ test("route 实现类任务推断 editWorkflow 与 implement_locate", () => {
   assert.equal(route.mode, "implement");
   assert.equal(route.intent, "edit");
   assert.equal(route.workflowType, "editWorkflow");
-  assert.equal(route.workflowPlan?.id, "implement_locate");
+  assert.equal(route.workflowPlan?.id, "edit_locate");
   assert.deepEqual(route.workflowPlan?.steps, ["locate_relevant_files", "context_pack"]);
 });
 
@@ -59,6 +59,20 @@ test("inferIntent 区分 verify / run / refactor / summarize / generate_file", (
   assert.equal(defaultIntentRouter.route({ message: "先解耦这个模块" }).intent, "refactor");
   assert.equal(defaultIntentRouter.route({ message: "总结当前项目进度" }).intent, "summarize");
   assert.equal(defaultIntentRouter.route({ message: "生成文件 README 草稿" }).workflowType, "generateFileWorkflow");
+});
+
+test("inferIntent supports real UTF-8 Chinese edit and generate-file messages", () => {
+  const edit = defaultIntentRouter.route({
+    message: "\u4fee\u6539 src/agent/AgentLoop.ts \u7684\u63d0\u793a\u6587\u6848",
+  });
+  assert.equal(edit.intent, "edit");
+  assert.equal(edit.workflowPlan?.id, "edit_locate");
+
+  const generateFile = defaultIntentRouter.route({
+    message: "\u751f\u6210\u6587\u4ef6 src/agent/NewWorkflow.ts",
+  });
+  assert.equal(generateFile.intent, "generate_file");
+  assert.equal(generateFile.workflowPlan?.id, "generate_file_locate");
 });
 
 let passed = 0;

@@ -68,6 +68,88 @@ test("plan workflow is dispatched through WorkflowExecutor", async () => {
   assert.equal(contextPack.calls.length, 1);
 });
 
+test("edit workflow prelocates files through WorkflowExecutor", async () => {
+  const locate = createMockTool({
+    name: "locate_relevant_files",
+    permission: "read",
+    output: {
+      primaryFiles: [{ path: "src/agent/AgentLoop.ts", score: 0.9, reason: "target" }],
+      candidateFiles: [],
+      locateStats: {},
+    },
+  });
+  const contextPack = createMockTool({
+    name: "context_pack",
+    permission: "read",
+    output: { files: [{ path: "src/agent/AgentLoop.ts", content: "export class AgentLoop {}" }] },
+  });
+  const policy = resolveRunPolicy({
+    message: "修改 src/agent/AgentLoop.ts 的提示文案",
+    requestedPermissionPolicy: "autoEdit",
+  });
+  const executor = new WorkflowExecutor({
+    registry: createMockRegistry([locate, contextPack]),
+    workspaceRoot: sandbox,
+    allowedPermissions: policy.allowedPermissions,
+    budget: policy.budget,
+    budgetManager: defaultRunPolicyManager.createBudgetManager(policy),
+    policy,
+  });
+
+  const result = await executor.executeBeforeModel({
+    goal: "修改 src/agent/AgentLoop.ts 的提示文案",
+  });
+
+  assert.deepEqual(result.steps.map((step) => step.tool), [
+    "locate_relevant_files",
+    "context_pack",
+  ]);
+  assert.match(result.modelContexts[0]!, /editWorkflow read-only prelocation result/);
+  assert.equal(locate.calls.length, 1);
+  assert.equal(contextPack.calls.length, 1);
+});
+
+test("generate file workflow prelocates conventions through WorkflowExecutor", async () => {
+  const locate = createMockTool({
+    name: "locate_relevant_files",
+    permission: "read",
+    output: {
+      primaryFiles: [{ path: "src/agent/WorkflowPlanner.ts", score: 0.88, reason: "nearby" }],
+      candidateFiles: [],
+      locateStats: {},
+    },
+  });
+  const contextPack = createMockTool({
+    name: "context_pack",
+    permission: "read",
+    output: { files: [{ path: "src/agent/WorkflowPlanner.ts", content: "export class WorkflowPlanner {}" }] },
+  });
+  const policy = resolveRunPolicy({
+    message: "生成文件 src/agent/NewWorkflow.ts",
+    requestedPermissionPolicy: "autoEdit",
+  });
+  const executor = new WorkflowExecutor({
+    registry: createMockRegistry([locate, contextPack]),
+    workspaceRoot: sandbox,
+    allowedPermissions: policy.allowedPermissions,
+    budget: policy.budget,
+    budgetManager: defaultRunPolicyManager.createBudgetManager(policy),
+    policy,
+  });
+
+  const result = await executor.executeBeforeModel({
+    goal: "生成文件 src/agent/NewWorkflow.ts",
+  });
+
+  assert.deepEqual(result.steps.map((step) => step.tool), [
+    "locate_relevant_files",
+    "context_pack",
+  ]);
+  assert.match(result.modelContexts[0]!, /generateFileWorkflow read-only prelocation result/);
+  assert.equal(locate.calls.length, 1);
+  assert.equal(contextPack.calls.length, 1);
+});
+
 test("verify workflow is dispatched through WorkflowExecutor", async () => {
   const policy = resolveRunPolicy({
     message: "运行 node --version 验证环境",

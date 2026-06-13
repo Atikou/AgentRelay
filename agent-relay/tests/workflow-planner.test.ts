@@ -30,7 +30,18 @@ test("plan 模式非项目分析不触发工作流", () => {
 test("implement 模式代码修改选择 implement_locate 两步", () => {
   const plan = defaultWorkflowPlanner.plan("修改 AgentLoop.ts 中的预算逻辑", "implement");
   assert.ok(plan);
-  assert.equal(plan!.id, "implement_locate");
+  assert.equal(plan!.id, "edit_locate");
+  assert.deepEqual(plan!.steps, ["locate_relevant_files", "context_pack"]);
+});
+
+test("implement mode generate-file task chooses generate_file_locate", () => {
+  const plan = defaultWorkflowPlanner.plan(
+    "\u751f\u6210\u6587\u4ef6 src/agent/NewWorkflow.ts",
+    "implement",
+    "generate_file",
+  );
+  assert.ok(plan);
+  assert.equal(plan!.id, "generate_file_locate");
   assert.deepEqual(plan!.steps, ["locate_relevant_files", "context_pack"]);
 });
 

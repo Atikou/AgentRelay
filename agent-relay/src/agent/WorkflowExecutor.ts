@@ -62,7 +62,11 @@ export class WorkflowExecutor {
   ): Promise<{ steps: AgentToolStep[]; modelContext: string } | undefined> {
     const workflowPlan =
       input.isResume && input.resumeState
-        ? defaultWorkflowPlanner.plan(input.resumeState.goal, this.options.policy.mode) ?? undefined
+        ? defaultWorkflowPlanner.plan(
+            input.resumeState.goal,
+            this.options.policy.mode,
+            this.options.policy.intent,
+          ) ?? undefined
         : undefined;
     const resume: PlanWorkflowResumeContext | undefined =
       input.isResume && input.resumeState
@@ -85,7 +89,7 @@ export class WorkflowExecutor {
       sessionId: this.options.sessionId,
       taskId: this.options.taskId,
       requestId: this.options.requestId,
-    }).run(input.goal, this.options.policy.mode, resume);
+    }).run(input.goal, this.options.policy.mode, resume, this.options.policy.intent);
     if (!workflow) return undefined;
 
     const priorCount = input.isResume && input.resumeState
