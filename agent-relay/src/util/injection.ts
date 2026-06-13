@@ -13,6 +13,7 @@ const UNTRUSTED_TOOLS = new Set([
   "search_text",
   "list_files",
   "project_scan",
+  "project_index_update",
   "locate_relevant_files",
   "symbol_search",
   "context_pack",

@@ -235,11 +235,14 @@ export class ProjectIndex {
     extractDependencies?: boolean;
     summaries?: Map<string, string>;
     semanticIndexer?: ProjectSemanticIndexer;
+    /** 为 true 时即使 content_hash 未变也重算符号/依赖/语义索引。 */
+    forceResync?: boolean;
   }): Promise<ProjectIndexSyncResult> {
     const normalizedRoot = normalizeRoot(input.workspaceRoot);
     const indexedAt = new Date().toISOString();
     const extractSymbols = input.extractSymbols ?? true;
     const extractDependencies = input.extractDependencies ?? true;
+    const forceResync = input.forceResync ?? false;
     const incomingPaths = new Set(input.files.map((f) => f.path));
 
     const existingRows = this.db.connection
@@ -311,7 +314,8 @@ export class ProjectIndex {
     for (const file of input.files) {
       const priorHash = existingHashes.get(file.path);
       const hashChanged = priorHash !== file.contentHash;
-      if (!hashChanged && priorHash) {
+      const shouldResync = hashChanged || forceResync;
+      if (!shouldResync && priorHash) {
         skipped += 1;
         continue;
       }
@@ -332,8 +336,6 @@ export class ProjectIndex {
         indexedAt,
       );
       upserted += 1;
-
-      if (!hashChanged) continue;
 
       let symbols: ProjectSymbolRecord[] = [];
       if (extractSymbols && CODE_EXTENSIONS.has(file.extension)) {

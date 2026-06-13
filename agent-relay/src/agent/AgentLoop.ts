@@ -632,7 +632,7 @@ export class AgentLoop {
       '3. 已能回答用户时输出：{"action":"final","answer":"给用户的最终中文回答"}',
       "4. 一次只能调用一个工具；根据工具返回结果再决定下一步。",
       "5. 不要臆测文件内容或命令输出，先用工具查看再下结论。",
-      "6. 需要查找相关文件时，优先使用 project_scan / symbol_search / locate_relevant_files / context_pack；避免连续用 list_files、search_text、read_file 逐个试探。",
+      "6. 需要查找相关文件时，优先使用 project_scan / symbol_search / locate_relevant_files / context_pack；写入文件后可用 project_index_update 增量刷新索引；避免连续用 list_files、search_text、read_file 逐个试探。",
       "7. 已知类名/函数名时优先 symbol_search；locate_relevant_files 已返回 primaryFiles 时，优先用 context_pack 打包这些文件，再分析或修改。",
       this.policy.systemHint,
       extra ? `\n补充要求：${extra}` : "",
@@ -694,7 +694,7 @@ export class AgentLoop {
   }
 
   private buildLocationMeta(steps: AgentToolStep[]): LocationExecutionMeta | undefined {
-    const locationTools = new Set(["project_scan", "symbol_search", "locate_relevant_files", "context_pack"]);
+    const locationTools = new Set(["project_scan", "project_index_update", "symbol_search", "locate_relevant_files", "context_pack"]);
     const locationSteps = steps.filter((s) => locationTools.has(s.tool));
     const directSearchCalls = steps.filter((s) => s.tool === "search_text").length;
     const directListCalls = steps.filter((s) => s.tool === "list_files").length;

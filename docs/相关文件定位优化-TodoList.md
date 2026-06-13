@@ -158,7 +158,7 @@
 | `locate_relevant_files` | [x] | 生成 SearchPlan、候选排序、定位统计；含模块依赖图扩展与 LanceDB `semanticHits` |
 | `context_pack` | [x] | 多文件上下文打包 |
 | `symbol_search` | [x] | 优先查 ProjectIndex，回退文件系统符号提取 |
-| `project_index_update` | [ ] | 尚未实现（`project_scan` 已会增量写入索引） |
+| `project_index_update` | [x] | 增量刷新 ProjectIndex（paths、forceResync、符号/依赖/语义） |
 
 ---
 

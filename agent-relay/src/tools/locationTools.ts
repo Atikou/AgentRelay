@@ -129,6 +129,18 @@ const projectScanInputSchema = z.object({
   exclude: z.array(z.string()).default([]),
 });
 
+const projectIndexUpdateInputSchema = z.object({
+  projectId: z.string().default("default"),
+  root: z.string().default("."),
+  paths: z.array(z.string()).optional(),
+  maxDepth: z.number().int().min(1).max(10).default(8),
+  limit: z.number().int().positive().max(5000).default(2000),
+  exclude: z.array(z.string()).default([]),
+  forceResync: z.boolean().default(false),
+  extractSymbols: z.boolean().default(true),
+  extractDependencies: z.boolean().default(true),
+});
+
 const locateResumeContextSchema = z.object({
   visitedFiles: z.array(z.string()).default([]),
   visitedDirs: z.array(z.string()).default([]),
@@ -299,22 +311,91 @@ export const projectScanTool: Tool<
       truncated: files.truncated,
     };
     if (!ctx.projectIndex) return baseResult;
-    const sync = await ctx.projectIndex.syncFiles({
+    const indexResult = await syncProjectIndex(ctx, {
       projectId: "default",
-      workspaceRoot: ctx.workspaceRoot,
-      files: files.files.map(fileMetaToProjectRecord),
+      files: files.files,
       extractSymbols: true,
       extractDependencies: true,
-      semanticIndexer: ctx.projectSemanticIndexer,
     });
-    const stats = ctx.projectIndex.getStats("default", ctx.workspaceRoot);
+    if (!indexResult) return baseResult;
     return {
       ...baseResult,
       projectIndex: {
-        fileCount: stats.fileCount,
-        symbolCount: stats.symbolCount,
-        ...sync,
+        fileCount: indexResult.stats.fileCount,
+        symbolCount: indexResult.stats.symbolCount,
+        ...indexResult.sync,
       },
+    };
+  },
+};
+
+export const projectIndexUpdateTool: Tool<
+  typeof projectIndexUpdateInputSchema,
+  {
+    projectId: string;
+    root: string;
+    pathsFilter?: string[];
+    scannedFiles: number;
+    truncated: boolean;
+    forceResync: boolean;
+    indexStats: {
+      fileCount: number;
+      symbolCount: number;
+      lastIndexedAt?: string;
+    };
+    sync: {
+      upserted: number;
+      removed: number;
+      symbolsUpdated: number;
+      skipped: number;
+      dependenciesUpdated?: number;
+      exportsUpdated?: number;
+      semanticIndexed?: number;
+    };
+  }
+> = {
+  name: "project_index_update",
+  description:
+    "增量刷新 ProjectIndex（路径/mtime/hash、符号、import/export、LanceDB 语义向量）；适合写入文件后局部更新，无需完整 project_scan。",
+  permission: "read",
+  hasSideEffect: false,
+  timeoutMs: 30_000,
+  inputSchema: projectIndexUpdateInputSchema,
+  async execute(input, ctx) {
+    if (!ctx.projectIndex) {
+      throw new Error("ProjectIndex 未启用：需要 dataDir 与 DatabaseManager");
+    }
+    const extraIgnore = new Set(input.exclude);
+    const collected = await collectFilesForIndexUpdate(ctx, {
+      root: input.root,
+      paths: input.paths,
+      maxDepth: input.maxDepth,
+      limit: input.limit,
+      extraIgnore,
+    });
+    const indexResult = await syncProjectIndex(ctx, {
+      projectId: input.projectId,
+      files: collected.files,
+      forceResync: input.forceResync,
+      extractSymbols: input.extractSymbols,
+      extractDependencies: input.extractDependencies,
+    });
+    if (!indexResult) {
+      throw new Error("ProjectIndex 同步失败");
+    }
+    return {
+      projectId: input.projectId,
+      root: input.root,
+      pathsFilter: input.paths?.length ? input.paths.map(normalizeRelPath) : undefined,
+      scannedFiles: collected.files.length,
+      truncated: collected.truncated,
+      forceResync: input.forceResync,
+      indexStats: {
+        fileCount: indexResult.stats.fileCount,
+        symbolCount: indexResult.stats.symbolCount,
+        lastIndexedAt: indexResult.stats.lastIndexedAt,
+      },
+      sync: indexResult.sync,
     };
   },
 };
@@ -1109,6 +1190,128 @@ function isSearchPlanTaskType(value: unknown): value is SearchPlan["taskType"] {
     value === "documentation" ||
     value === "unknown"
   );
+}
+
+function normalizeRelPath(rel: string): string {
+  return rel.replace(/\\/g, "/").replace(/^\.\//, "");
+}
+
+async function projectFileMetaFromPath(
+  ctx: ToolContext,
+  rel: string,
+  stat: { size: number; mtime: Date; mtimeMs: number },
+): Promise<ProjectFileMeta | null> {
+  const pathRel = normalizeRelPath(rel);
+  const ext = path.extname(pathRel);
+  if (!TEXT_EXTENSIONS.has(ext) && !CONFIG_FILE_NAMES.has(path.posix.basename(pathRel))) {
+    return null;
+  }
+  return {
+    path: pathRel,
+    fileName: path.posix.basename(pathRel),
+    extension: ext,
+    sizeBytes: stat.size,
+    modifiedAt: stat.mtime.toISOString(),
+    mtimeMs: stat.mtimeMs,
+    language: languageFromExt(ext),
+    symbols: [],
+    imports: [],
+    exports: [],
+    tags: tagsForPath(pathRel),
+    hash: createHash("sha1").update(`${pathRel}:${stat.size}:${stat.mtimeMs}`).digest("hex"),
+  };
+}
+
+async function syncProjectIndex(
+  ctx: ToolContext,
+  input: {
+    projectId: string;
+    files: ProjectFileMeta[];
+    forceResync?: boolean;
+    extractSymbols?: boolean;
+    extractDependencies?: boolean;
+  },
+): Promise<
+  | {
+      stats: { fileCount: number; symbolCount: number; lastIndexedAt?: string };
+      sync: Awaited<ReturnType<ProjectIndex["syncFiles"]>>;
+    }
+  | undefined
+> {
+  if (!ctx.projectIndex) return undefined;
+  const sync = await ctx.projectIndex.syncFiles({
+    projectId: input.projectId,
+    workspaceRoot: ctx.workspaceRoot,
+    files: input.files.map(fileMetaToProjectRecord),
+    extractSymbols: input.extractSymbols ?? true,
+    extractDependencies: input.extractDependencies ?? true,
+    semanticIndexer: ctx.projectSemanticIndexer,
+    forceResync: input.forceResync,
+  });
+  const stats = ctx.projectIndex.getStats(input.projectId, ctx.workspaceRoot);
+  return { stats, sync };
+}
+
+async function collectFilesForIndexUpdate(
+  ctx: ToolContext,
+  options: {
+    root: string;
+    paths?: string[];
+    maxDepth: number;
+    limit: number;
+    extraIgnore?: Set<string>;
+  },
+): Promise<{ files: ProjectFileMeta[]; truncated: boolean }> {
+  if (!options.paths?.length) {
+    return collectProjectFiles(ctx, {
+      root: options.root,
+      maxDepth: options.maxDepth,
+      limit: options.limit,
+      extraIgnore: options.extraIgnore,
+      includeContent: false,
+    });
+  }
+
+  const byPath = new Map<string, ProjectFileMeta>();
+  let truncated = false;
+
+  for (const raw of options.paths) {
+    if (byPath.size >= options.limit) {
+      truncated = true;
+      break;
+    }
+    const rel = normalizeRelPath(raw);
+    const abs = resolveInsideWorkspace(ctx.workspaceRoot, rel);
+    let stat;
+    try {
+      stat = await fs.stat(abs);
+    } catch {
+      continue;
+    }
+    if (stat.isFile()) {
+      const meta = await projectFileMetaFromPath(ctx, rel, stat);
+      if (meta) byPath.set(meta.path, meta);
+      continue;
+    }
+    if (!stat.isDirectory()) continue;
+    const batch = await collectProjectFiles(ctx, {
+      root: rel,
+      maxDepth: options.maxDepth,
+      limit: Math.max(1, options.limit - byPath.size),
+      extraIgnore: options.extraIgnore,
+      includeContent: false,
+    });
+    truncated = truncated || batch.truncated;
+    for (const file of batch.files) {
+      byPath.set(file.path, file);
+      if (byPath.size >= options.limit) {
+        truncated = true;
+        break;
+      }
+    }
+  }
+
+  return { files: [...byPath.values()], truncated };
 }
 
 function fileMetaToProjectRecord(file: ProjectFileMeta): ProjectFileRecord {

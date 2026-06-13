@@ -45,6 +45,7 @@ const EXPECTED_TOOLS = [
   "git_status",
   "list_files",
   "locate_relevant_files",
+  "project_index_update",
   "project_scan",
   "read_file",
   "rollback_change",
@@ -398,6 +399,59 @@ test("locate_relevant_files 利用模块依赖图扩展相关文件", async () =
     dbm.close();
     r.setDefaultContext({ projectIndex: undefined });
   }
+});
+
+test("project_index_update 按 paths 增量刷新索引", async () => {
+  const { DatabaseManager } = await import("../src/context/DatabaseManager.js");
+  const { ProjectIndex } = await import("../src/context/ProjectIndex.js");
+  const dbm = new DatabaseManager(dataDir);
+  const projectIndex = new ProjectIndex(dbm);
+  const r = reg();
+  r.setDefaultContext({ projectIndex });
+  try {
+    await r.run(
+      "write_file",
+      { path: "src/index/A.ts", content: "export class Alpha {}\n", backup: false },
+      await ctx(),
+    );
+    const first = await r.run(
+      "project_index_update",
+      { paths: ["src/index/A.ts"], forceResync: true },
+      await ctx(),
+    );
+    assert.equal(first.ok, true);
+    const firstOut = (first as { output: { sync: { upserted: number }; indexStats: { fileCount: number } } }).output;
+    assert.ok(firstOut.sync.upserted >= 1);
+    assert.ok(firstOut.indexStats.fileCount >= 1);
+
+    await r.run(
+      "write_file",
+      { path: "src/index/A.ts", content: "export class Alpha { run() {} }\n", backup: false },
+      await ctx(),
+    );
+    const second = await r.run(
+      "project_index_update",
+      { paths: ["src/index/A.ts"] },
+      await ctx(),
+    );
+    assert.equal(second.ok, true);
+    const secondOut = (second as { output: { sync: { upserted: number; symbolsUpdated: number } } }).output;
+    assert.ok(secondOut.sync.upserted >= 1);
+    assert.ok(secondOut.sync.symbolsUpdated >= 1);
+
+    const hits = projectIndex.searchSymbols("default", sandbox, ["Alpha"]);
+    assert.ok(hits.some((h) => h.filePath === "src/index/A.ts"));
+  } finally {
+    dbm.close();
+    r.setDefaultContext({ projectIndex: undefined });
+  }
+});
+
+test("project_index_update 无 ProjectIndex 时失败", async () => {
+  const r = reg();
+  const res = await r.run("project_index_update", { paths: ["src/x.ts"] }, await ctx());
+  assert.equal(res.ok, false);
+  assert.match((res as { error: string }).error, /ProjectIndex/);
 });
 
 test("context_pack 一次性打包多个相关文件", async () => {

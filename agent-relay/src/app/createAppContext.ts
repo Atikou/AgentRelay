@@ -264,6 +264,7 @@ export class AppContext {
         projectSemanticLocate: true,
         moduleDependencyGraph: true,
         historyFileRecall: true,
+        projectIndexUpdate: true,
         costBudgetPerRun: true,
         ruleOnlyRouting: true,
         sqliteSchemaMigrations: true,

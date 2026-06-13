@@ -6,14 +6,14 @@
   "cases": [
     {
       "id": "m1-tools-list",
-      "title": "工具列表包含 15 个内置工具",
-      "purpose": "确认注册表暴露 read/list/search/write/patch/diff/backup/rollback/shell/git 与相关文件定位工具（含 symbol_search）。",
+      "title": "工具列表包含 16 个内置工具",
+      "purpose": "确认注册表暴露 read/list/search/write/patch/diff/backup/rollback/shell/git 与相关文件定位工具（含 symbol_search、project_index_update）。",
       "method": "GET",
       "path": "/api/tools",
       "input": null,
       "expect": {
         "status": 200,
-        "bodyPaths": { "tools.length": 15 },
+        "bodyPaths": { "tools.length": 16 },
         "bodyContainsNames": [
           "read_file",
           "write_file",
@@ -22,6 +22,7 @@
           "list_files",
           "search_text",
           "project_scan",
+          "project_index_update",
           "locate_relevant_files",
           "symbol_search",
           "context_pack",
@@ -85,7 +86,7 @@
       "input": null,
       "expect": {
         "status": 200,
-        "bodyPaths": { "tools.length": 15 },
+        "bodyPaths": { "tools.length": 16 },
         "bodyContainsNames": [
           "read_file",
           "write_file",
@@ -416,6 +417,53 @@
         "bodyPaths": {
           "capabilities.projectSemanticLocate": true,
           "capabilities.moduleDependencyGraph": true
+        }
+      }
+    },
+    {
+      "id": "m1-tools-project-index-update-paths",
+      "title": "project_index_update 按 paths 增量更新",
+      "purpose": "确认写入文件后可用 project_index_update 只刷新指定路径的 ProjectIndex，无需完整 project_scan。",
+      "method": "POST",
+      "path": "/api/tools/run",
+      "input": {
+        "name": "project_index_update",
+        "input": {
+          "paths": ["src/agent/AgentLoop.ts"],
+          "forceResync": false
+        }
+      },
+      "expect": {
+        "status": 200,
+        "bodyPaths": {
+          "ok": true,
+          "output.projectId": "default",
+          "output.indexStats.fileCount": "number",
+          "output.sync.upserted": "number"
+        }
+      }
+    },
+    {
+      "id": "m1-tools-project-index-update-force",
+      "title": "project_index_update forceResync 重算符号",
+      "purpose": "确认 forceResync 可在 mtime/hash 未变时仍刷新符号与依赖索引。",
+      "method": "POST",
+      "path": "/api/tools/run",
+      "input": {
+        "name": "project_index_update",
+        "input": {
+          "root": "src",
+          "maxDepth": 4,
+          "forceResync": true,
+          "extractSymbols": true
+        }
+      },
+      "expect": {
+        "status": 200,
+        "bodyPaths": {
+          "ok": true,
+          "output.forceResync": true,
+          "output.sync.symbolsUpdated": "number"
         }
       }
     },

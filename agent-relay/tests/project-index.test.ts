@@ -274,6 +274,56 @@ test("searchSymbolsQuery 支持 prefix 匹配", async () => {
   }
 });
 
+test("syncFiles forceResync 在 hash 未变时仍更新符号", async () => {
+  const { dataDir, root, cleanup } = tempWorkspace();
+  const dbm = new DatabaseManager(dataDir);
+  const index = new ProjectIndex(dbm);
+  try {
+    await index.syncFiles({
+      projectId: "default",
+      workspaceRoot: root,
+      files: [
+        {
+          path: "src/PlanCompiler.ts",
+          fileName: "PlanCompiler.ts",
+          extension: ".ts",
+          sizeBytes: 64,
+          modifiedAt: new Date().toISOString(),
+          mtimeMs: Date.now(),
+          contentHash: "hash-force",
+          language: "typescript",
+          tags: ["source"],
+        },
+      ],
+      extractSymbols: true,
+    });
+    const forced = await index.syncFiles({
+      projectId: "default",
+      workspaceRoot: root,
+      files: [
+        {
+          path: "src/PlanCompiler.ts",
+          fileName: "PlanCompiler.ts",
+          extension: ".ts",
+          sizeBytes: 64,
+          modifiedAt: new Date().toISOString(),
+          mtimeMs: Date.now(),
+          contentHash: "hash-force",
+          language: "typescript",
+          tags: ["source"],
+        },
+      ],
+      extractSymbols: true,
+      forceResync: true,
+    });
+    assert.equal(forced.skipped, 0);
+    assert.ok(forced.symbolsUpdated >= 1);
+  } finally {
+    dbm.close();
+    cleanup();
+  }
+});
+
 let passed = 0;
 let failed = 0;
 for (const { name, fn } of tests) {
