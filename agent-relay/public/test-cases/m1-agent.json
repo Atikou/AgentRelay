@@ -547,6 +547,48 @@
       }
     },
     {
+      "id": "m1-agent-permission-policy-decoupled-api-spec",
+      "title": "API 规范说明权限策略与 mode 解耦",
+      "purpose": "确认 OpenAPI 明确说明 mode 主要决定工作流、默认预算与提示语，工具权限由 permissionPolicy 推导。",
+      "method": "GET",
+      "path": "/api/api-spec.json",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyContains": ["工具权限由 permissionPolicy 推导", "mode 不再直接决定能否写文件或执行命令"]
+      }
+    },
+    {
+      "id": "m1-agent-plan-mode-explicit-auto-edit-meta",
+      "title": "plan mode 可显式声明 autoEdit 权限策略",
+      "purpose": "确认 mode=plan 与 permissionPolicy=autoEdit 可同时进入 executionMeta，验证模式选择与权限策略已拆分为两个可观测维度。",
+      "method": "POST",
+      "path": "/api/agent",
+      "input": {
+        "message": "计划模式下只返回权限策略元信息，不调用工具。",
+        "mode": "plan",
+        "permissionPolicy": "autoEdit",
+        "persist": false,
+        "budget": {
+          "maxModelTurns": 1,
+          "maxToolCalls": 0,
+          "maxReadCalls": 0,
+          "maxWriteCalls": 0,
+          "maxShellCalls": 0,
+          "maxRuntimeMs": 60000
+        }
+      },
+      "expect": {
+        "status": 200,
+        "bodyPaths": {
+          "executionMeta.mode": "plan",
+          "executionMeta.modeSource": "explicit",
+          "executionMeta.permissionPolicy": "autoEdit",
+          "executionMeta.permissionPolicySource": "explicit"
+        }
+      }
+    },
+    {
       "id": "m1-agent-permission-guard-ui-meta",
       "title": "测试台执行元信息展示权限策略",
       "purpose": "确认测试台脚本会展示 executionMeta.permissionPolicy，便于排查 PermissionGuard 的 allow / needsConfirmation / deny 判定来源。",

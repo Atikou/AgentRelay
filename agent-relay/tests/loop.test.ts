@@ -236,7 +236,8 @@ test("计划模式在执行层拒绝写工具，即使开启 autoConfirm", async
   assert.equal(res.executionMeta.workflowType, "planWorkflow");
   assert.equal(res.steps[0]!.blocked, true);
   assert.equal(res.steps[0]!.permission, "write");
-  assert.match(res.steps[0]!.error ?? "", /当前模式不允许/);
+  assert.match(res.steps[0]!.error ?? "", /maxWriteCalls/);
+  assert.equal(res.executionMeta.budgetExhausted, "maxWriteCalls");
   assert.equal(res.executionMeta.usedWriteCalls, 0);
   await assert.rejects(fs.access(path.join(sandbox, "plan-write.txt")));
 });
@@ -255,6 +256,36 @@ test("RunPolicy 会为计划模式使用只读权限与更高默认预算", asyn
   assert.equal(overridden.budget.maxModelTurns, 1);
   assert.equal(overridden.budget.maxReadCalls, 2);
   assert.equal(overridden.suggestedBudget.maxModelTurns, 16);
+});
+
+test("显式 permissionPolicy 可与 mode 解耦控制工具权限", async () => {
+  const chat = scriptedChat([
+    '{"action":"tool","tool":"write_file","input":{"path":"policy-decoupled.txt","content":"ok"},"thought":"验证显式权限策略"}',
+    '{"action":"final","answer":"已写入"}',
+  ]);
+  const loop = new AgentLoop({
+    chat,
+    registry: createDefaultRegistry(),
+    workspaceRoot: sandbox,
+    mode: "plan",
+    permissionPolicy: "autoEdit",
+    budget: {
+      maxModelTurns: 2,
+      maxToolCalls: 2,
+      maxReadCalls: 0,
+      maxWriteCalls: 1,
+      maxShellCalls: 0,
+      maxRuntimeMs: 60000,
+    },
+  });
+  const res = await loop.run("计划模式但显式允许自动修改一个文件");
+  assert.equal(res.executionMeta.mode, "plan");
+  assert.equal(res.executionMeta.permissionPolicy, "autoEdit");
+  assert.equal(res.steps[0]!.ok, true);
+  assert.equal(
+    await fs.readFile(path.join(sandbox, "policy-decoupled.txt"), "utf-8"),
+    "ok",
+  );
 });
 
 test("PlanWorkflow 在计划模式项目分析前预扫描并注入上下文", async () => {

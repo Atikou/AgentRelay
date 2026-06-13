@@ -1603,7 +1603,7 @@
           "mode": {
             "type": "string",
             "enum": ["chat", "plan", "implement", "debug", "review"],
-            "description": "运行模式；省略时根据用户消息推断。plan/review 会在执行层限制为只读权限。需要给用户展示 Markdown 计划报告时使用 mode=plan"
+            "description": "运行模式；省略时根据用户消息推断。mode 主要决定工作流、默认预算与提示语；工具权限由 permissionPolicy 推导。需要给用户展示 Markdown 计划报告时使用 mode=plan"
           },
           "taskType": {
             "type": "string",
@@ -1614,7 +1614,7 @@
           "permissionPolicy": {
             "type": "string",
             "enum": ["readOnly", "confirmBeforeEdit", "autoEdit", "confirmBeforeRun", "autoRun"],
-            "description": "用户侧权限策略元信息；本阶段用于解耦 mode 与权限意图，实际工具放行仍受现有权限上限、确认门和风险策略约束"
+            "description": "用户侧权限策略；RunPolicy 会由该字段推导工具权限，mode 不再直接决定能否写文件或执行命令。项目/角色/用户显式授权仍只能收窄，确认门和风险策略继续兜底"
           },
           "streamTokens": { "type": "boolean", "description": "SSE 流式推送模型 token 增量（/api/agent/stream）" },
           "persist": { "type": "boolean", "description": "是否持久化会话上下文，默认 true" },

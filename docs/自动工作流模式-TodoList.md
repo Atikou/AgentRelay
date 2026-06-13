@@ -16,7 +16,7 @@
 ## P1：权限策略与工作流解耦
 
 - [x] 引入用户侧权限策略枚举：`readOnly` / `confirmBeforeEdit` / `autoEdit` / `confirmBeforeRun` / `autoRun`。
-- [ ] 将权限策略与当前 `AgentRunMode` 解耦，避免用 mode 直接决定“能不能改文件/执行命令”。
+- [x] 将权限策略与当前 `AgentRunMode` 解耦，避免用 mode 直接决定“能不能改文件/执行命令”。
 - [x] 实现 `PermissionGuard`：根据 intent、权限策略、工具风险、用户显式限制给出 allow / needsConfirmation / deny。
 - [x] 确认文案结构化：将要做什么、影响哪些文件、是否执行命令、风险、等待用户确认。
 - [x] 高风险行为强制确认：删除大量文件、清空目录、提交/推送、上传私有代码、执行未知远程脚本、修改系统环境、安装全局依赖、泄露密钥。

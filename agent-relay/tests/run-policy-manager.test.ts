@@ -4,7 +4,6 @@
  */
 import assert from "node:assert/strict";
 
-import { MODE_PERMISSIONS } from "../src/agent/permissions.js";
 import { defaultRunPolicyManager, RunPolicyManager } from "../src/agent/RunPolicy.js";
 
 const tests: Array<{ name: string; fn: () => void }> = [];
@@ -41,8 +40,28 @@ test("resolve 计划模式使用只读权限与更高默认预算", () => {
   assert.equal(policy.budget.maxModelTurns, 16);
   assert.equal(policy.budget.maxWriteCalls, 0);
   assert.equal(policy.budget.maxShellCalls, 0);
-  assert.deepEqual(policy.allowedPermissions, MODE_PERMISSIONS.plan);
+  assert.deepEqual(policy.allowedPermissions, ["read"]);
   assert.match(policy.systemHint, /plan/);
+});
+
+test("resolve 的允许权限由 permissionPolicy 决定而不是 mode", () => {
+  const planAutoRun = defaultRunPolicyManager.resolve({
+    requestedMode: "plan",
+    requestedPermissionPolicy: "autoRun",
+    message: "只是在计划模式下验证显式权限策略",
+  });
+  assert.equal(planAutoRun.mode, "plan");
+  assert.equal(planAutoRun.permissionPolicy, "autoRun");
+  assert.deepEqual(planAutoRun.allowedPermissions, ["read", "write", "shell", "network", "dangerous"]);
+
+  const debugReadOnly = defaultRunPolicyManager.resolve({
+    requestedMode: "debug",
+    requestedPermissionPolicy: "readOnly",
+    message: "调试但只读",
+  });
+  assert.equal(debugReadOnly.mode, "debug");
+  assert.equal(debugReadOnly.permissionPolicy, "readOnly");
+  assert.deepEqual(debugReadOnly.allowedPermissions, ["read"]);
 });
 
 test("resolve 支持 budget 覆盖", () => {

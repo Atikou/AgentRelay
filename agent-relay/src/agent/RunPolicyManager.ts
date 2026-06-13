@@ -1,4 +1,4 @@
-import { MODE_PERMISSIONS, type ToolPermission } from "./permissions.js";
+import { type ToolPermission } from "./permissions.js";
 import { BudgetManager } from "./BudgetManager.js";
 import { defaultIntentRouter } from "./IntentRouter.js";
 import {
@@ -97,14 +97,6 @@ const MODE_SUGGESTED_BUDGETS: Record<AgentRunMode, RunBudget> = {
   },
 };
 
-const MODE_PERMISSIONS_BY_RUN_MODE: Record<AgentRunMode, ToolPermission[]> = {
-  chat: MODE_PERMISSIONS.task,
-  plan: MODE_PERMISSIONS.plan,
-  implement: MODE_PERMISSIONS.task,
-  debug: MODE_PERMISSIONS.task,
-  review: MODE_PERMISSIONS.plan,
-};
-
 /** 解析运行模式、分项预算与权限策略；与 `BudgetManager` 配对使用。 */
 export class RunPolicyManager {
   resolve(input: ResolveRunPolicyInput = {}): RunPolicy {
@@ -131,7 +123,7 @@ export class RunPolicyManager {
       permissionPolicy,
       permissionPolicySource: explicitPermissionPolicy ? "explicit" : "inferred",
       budget,
-      allowedPermissions: [...MODE_PERMISSIONS_BY_RUN_MODE[mode]],
+      allowedPermissions: permissionsForPolicy(permissionPolicy),
       requireFinalAnswer: true,
       allowPartialAnswer: true,
       suggestedBudget,
@@ -231,4 +223,17 @@ function inferPermissionPolicy(input: {
     return input.autoConfirm ? "autoRun" : "confirmBeforeRun";
   }
   return input.autoConfirm ? "autoEdit" : "confirmBeforeEdit";
+}
+
+function permissionsForPolicy(policy: UserPermissionPolicy): ToolPermission[] {
+  switch (policy) {
+    case "readOnly":
+      return ["read"];
+    case "confirmBeforeEdit":
+    case "autoEdit":
+      return ["read", "write"];
+    case "confirmBeforeRun":
+    case "autoRun":
+      return ["read", "write", "shell", "network", "dangerous"];
+  }
 }
