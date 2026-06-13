@@ -216,7 +216,7 @@ export class PlanWorkflow {
     if (!this.options.contextManager || !this.options.sessionId) return;
     this.options.contextManager.saveToolMessage(
       this.options.sessionId,
-      `PlanWorkflow 工具「${toolName}」执行结果（JSON）：\n${JSON.stringify(output)}`,
+      `内部预扫描步骤「${toolName}」执行结果（JSON）：\n${JSON.stringify(output)}`,
     );
   }
 }
@@ -243,6 +243,7 @@ function renderPlanWorkflowContext(steps: AgentToolStep[], workflowPlan: Workflo
   return [
     workflowPlan.contextHeader,
     workflowPlan.contextHint,
+    "说明：以下是内部预扫描步骤的结果；可调用工具名仅限每个小节标题中的真实工具名，不要把内部流程名或大写类名当作工具名调用。",
     ...blocks,
   ].join("\n\n");
 }

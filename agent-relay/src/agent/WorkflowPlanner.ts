@@ -61,7 +61,7 @@ export class WorkflowPlanner {
       id: "plan_prescan",
       reason: "计划/审阅模式下的项目分析请求，执行完整只读预扫描。",
       steps: ["project_scan", "locate_relevant_files", "context_pack"],
-      contextHeader: "计划/审阅模式预扫描结果（WorkflowPlanner → PlanWorkflow，只读、确定性执行）：",
+      contextHeader: "计划/审阅模式内部预扫描结果（只读、确定性执行）：",
       contextHint:
         "请优先基于这些结果生成最终计划或审阅结论；如果信息足够，请直接输出 final，不要重复执行同类扫描。",
     };
@@ -83,7 +83,7 @@ export class WorkflowPlanner {
       id: "implement_locate",
       reason: "实现/调试模式下的代码变更请求，先定位相关文件并打包上下文。",
       steps: ["locate_relevant_files", "context_pack"],
-      contextHeader: "实现/调试模式预定位结果（WorkflowPlanner → PlanWorkflow，只读、确定性执行）：",
+      contextHeader: "实现/调试模式内部预定位结果（只读、确定性执行）：",
       contextHint:
         "请优先基于已定位文件与 context_pack 结果进行修改或调试；避免重复 list_files/search_text 试探。",
     };

@@ -264,7 +264,8 @@ test("PlanWorkflow 在计划模式项目分析前预扫描并注入上下文", a
     "locate_relevant_files",
     "context_pack",
   ]);
-  assert.match(firstPrompt, /PlanWorkflow/);
+  assert.doesNotMatch(firstPrompt, /PlanWorkflow/);
+  assert.match(firstPrompt, /内部预扫描/);
   assert.match(firstPrompt, /请优先基于这些结果生成最终计划/);
   assert.ok(res.executionMeta.location);
   assert.ok(res.executionMeta.location.usedLocateSteps >= 1);
@@ -299,6 +300,37 @@ test("未知工具不会中断循环，可继续到 final", async () => {
   assert.equal(res.steps[0]!.ok, false);
   assert.equal(res.reachedLimit, false);
   assert.match(res.answer, /换个思路/);
+});
+
+test("未知内部流程名会提示模型改用真实工具", async () => {
+  let feedback = "";
+  const chat: LoopChatFn = async (req) => {
+    feedback = req.messages.at(-1)?.content ?? "";
+    if (req.messages.length === 2) {
+      return {
+        content: '{"action":"tool","tool":"PlanWorkflow","input":{"goal":"x"}}',
+        toolCalls: [],
+        clientName: "fake",
+        modelName: "fake",
+        location: "local",
+        latencyMs: 1,
+      };
+    }
+    return {
+      content: '{"action":"final","answer":"已改用最终回答"}',
+      toolCalls: [],
+      clientName: "fake",
+      modelName: "fake",
+      location: "local",
+      latencyMs: 1,
+    };
+  };
+  const loop = new AgentLoop({ chat, registry: createDefaultRegistry(), workspaceRoot: sandbox });
+  const res = await loop.run("测试内部流程名");
+  assert.equal(res.steps[0]!.tool, "PlanWorkflow");
+  assert.match(feedback, /不是可用工具列表中的工具名/);
+  assert.match(feedback, /不能作为 tool 字段调用/);
+  assert.equal(res.answer, "已改用最终回答");
 });
 
 test("解析失败也会写入 agent_decision trace", async () => {

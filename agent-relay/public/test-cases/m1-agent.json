@@ -130,7 +130,7 @@
     {
       "id": "m1-agent-plan-workflow-prescan",
       "title": "计划模式项目分析先预扫描",
-      "purpose": "确认计划模式遇到当前项目分析任务时，会在模型首轮前执行只读 PlanWorkflow，并把定位统计写入 executionMeta.location。",
+      "purpose": "确认计划模式遇到当前项目分析任务时，会在模型首轮前执行只读内部预扫描，并把定位统计写入 executionMeta.location。",
       "method": "POST",
       "path": "/api/agent",
       "input": {
@@ -226,7 +226,7 @@
     {
       "id": "m1-agent-location-exploration-meta",
       "title": "executionMeta.location 含 exploration 统计",
-      "purpose": "确认 PlanWorkflow 预扫描后 executionMeta.location 聚合 exploration 重复/增益统计。",
+      "purpose": "确认内部预扫描后 executionMeta.location 聚合 exploration 重复/增益统计。",
       "method": "POST",
       "path": "/api/agent",
       "input": {
@@ -325,7 +325,7 @@
     {
       "id": "m1-agent-plan-low-budget-runstate-pending",
       "title": "计划模式低预算耗尽返回 runState.pendingSteps",
-      "purpose": "验证预算耗尽时 runState 含 pendingSteps，续跑可继续 PlanWorkflow；location 在 locate 执行后写入。",
+      "purpose": "验证预算耗尽时 runState 含 pendingSteps，续跑可继续内部预扫描；location 在 locate 执行后写入。",
       "method": "POST",
       "path": "/api/agent",
       "input": {

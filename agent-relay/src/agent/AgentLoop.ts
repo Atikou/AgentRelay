@@ -635,6 +635,14 @@ export class AgentLoop {
       return `工具「${step.tool}」未执行：${step.error}。请改用其它只读工具，或直接给出 final 答案。`;
     }
     if (!step.ok) {
+      if (step.error?.startsWith("未知工具：")) {
+        return [
+          `工具「${step.tool}」执行失败：${step.error}。`,
+          "这不是可用工具列表中的工具名；请只从系统提示的可用工具列表选择真实工具。",
+          "内部流程名、编排类名或子 Agent 控制器不能作为 tool 字段调用。",
+          "如果已经可以回答，请直接输出 final；如果还需要信息，请改用 project_scan、locate_relevant_files、context_pack、read_file 等真实工具。",
+        ].join("");
+      }
       return `工具「${step.tool}」执行失败：${step.error}。请据此调整下一步。`;
     }
     const compacted = step.resultLayers?.modelVisible ?? step.output;
@@ -665,8 +673,9 @@ export class AgentLoop {
       '3. 已能回答用户时输出：{"action":"final","answer":"给用户的最终中文回答"}',
       "4. 一次只能调用一个工具；根据工具返回结果再决定下一步。",
       "5. 不要臆测文件内容或命令输出，先用工具查看再下结论。",
-      "6. 需要查找相关文件时，优先使用 project_scan / symbol_search / locate_relevant_files / context_pack；写入文件后可用 project_index_update 增量刷新索引；避免连续用 list_files、search_text、read_file 逐个试探。",
-      "7. 已知类名/函数名时优先 symbol_search；locate_relevant_files 已返回 primaryFiles 时，优先用 context_pack 打包这些文件，再分析或修改。",
+      "6. tool 字段只能填写上方“可用工具”列表中逐字出现的工具名；不要调用内部流程名、编排类名或子 Agent 控制器。",
+      "7. 需要查找相关文件时，优先使用 project_scan / symbol_search / locate_relevant_files / context_pack；写入文件后可用 project_index_update 增量刷新索引；避免连续用 list_files、search_text、read_file 逐个试探。",
+      "8. 已知类名/函数名时优先 symbol_search；locate_relevant_files 已返回 primaryFiles 时，优先用 context_pack 打包这些文件，再分析或修改。",
       this.policy.systemHint,
       extra ? `\n补充要求：${extra}` : "",
     ].join("\n");
