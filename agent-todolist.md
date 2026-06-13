@@ -73,6 +73,8 @@
 - [x] AgentStepPlan / UserVisiblePlan / InternalTaskPlan 三类计划分离；Executor 仅接受 approved planId + version（`AgentLoop` trace + `PlanStore` + `PlanCompiler` + `PlanValidator`）。
 - [x] `planWorkflow` 用户可见计划报告进入工作流层：`PlanReportWorkflow` 调用只读 Agent 生成 Markdown 并通过 `PlanService.saveUserVisiblePlan` 保存，HTTP handler 只做参数校验与模型选择。
 
+- [x] 已审批计划执行进入工作流层：`TaskExecutionWorkflow` 统一封装执行与 resume 的 `TaskRunner` / `ToolStepExecutor` / `DryRunExecutor` 装配，Orchestrator 保留 Run/Task 持久化、回滚与 fallback。
+
 ## 5. 子 Agent 派生
 
 - [x] 支持从主 Agent 派生子 Agent。（`/api/subagent/run` / `batch`）

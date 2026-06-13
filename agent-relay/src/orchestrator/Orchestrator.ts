@@ -8,11 +8,8 @@ import {
 import type { AgentToolStep } from "../agent/toolStep.js";
 import type { AgentStreamEvent } from "./AgentStream.js";
 
-import { DryRunExecutor, TaskRunner } from "../agent/TaskRunner.js";
-
-import { ToolStepExecutor } from "../agent/ToolStepExecutor.js";
-
 import { planFromTask } from "../agent/planFromTask.js";
+import { TaskExecutionWorkflow } from "../agent/TaskExecutionWorkflow.js";
 import { finalizePlan } from "../agent/taskGraph.js";
 import { aggregateTaskStatus } from "../agent/taskStatus.js";
 import { PlanSchema, type Plan } from "../agent/types.js";
@@ -674,50 +671,6 @@ export class Orchestrator {
 
 
 
-    const executor = dryRun
-
-      ? new DryRunExecutor()
-
-      : new ToolStepExecutor({
-
-          registry: this.deps.registry,
-
-          workspaceRoot: this.deps.workspaceRoot,
-
-          taskId: task.id,
-
-          sessionId,
-
-          requestId: run.id,
-
-          projectAllowedPermissions: this.deps.projectAllowedPermissions,
-
-        });
-
-
-
-    const runner = new TaskRunner(plan, {
-
-      executor,
-
-      autoConfirm: payload.autoConfirm ?? false,
-
-      projectAllowedPermissions: this.deps.projectAllowedPermissions,
-
-      onUpdate: (plan) => this.persistTaskPlan(task.id, plan),
-
-      trace: this.deps.trace,
-
-      runId: run.id,
-
-      taskId: task.id,
-
-      sessionId,
-
-    });
-
-
-
     try {
 
       this.deps.trace?.write({
@@ -734,7 +687,20 @@ export class Orchestrator {
 
       });
 
-      const executedPlan = await runner.run();
+      const executedPlan = await new TaskExecutionWorkflow({
+        registry: this.deps.registry,
+        workspaceRoot: this.deps.workspaceRoot,
+        projectAllowedPermissions: this.deps.projectAllowedPermissions,
+        trace: this.deps.trace,
+      }).run({
+        plan,
+        dryRun,
+        autoConfirm: payload.autoConfirm ?? false,
+        taskId: task.id,
+        sessionId,
+        runId: run.id,
+        onUpdate: (updated) => this.persistTaskPlan(task.id, updated),
+      });
 
       this.persistTaskPlan(task.id, executedPlan);
 
@@ -1740,28 +1706,6 @@ export class Orchestrator {
       goal: task.goal,
     });
 
-    const executor = dryRun
-      ? new DryRunExecutor()
-      : new ToolStepExecutor({
-          registry: this.deps.registry,
-          workspaceRoot: this.deps.workspaceRoot,
-          taskId,
-          sessionId,
-          requestId: run.id,
-          projectAllowedPermissions: this.deps.projectAllowedPermissions,
-        });
-
-    const runner = new TaskRunner(plan, {
-      executor,
-      autoConfirm: payload.autoConfirm ?? false,
-      projectAllowedPermissions: this.deps.projectAllowedPermissions,
-      onUpdate: (updated) => this.persistTaskPlan(taskId, updated),
-      trace: this.deps.trace,
-      runId: run.id,
-      taskId,
-      sessionId,
-    });
-
     try {
       this.deps.trace?.write({
         type: "run_start",
@@ -1773,10 +1717,22 @@ export class Orchestrator {
         resumeStepId: payload.stepId,
       });
 
-      const executedPlan = await runner.resume(
-        payload.action,
-        payload.stepId,
-      );
+      const executedPlan = await new TaskExecutionWorkflow({
+        registry: this.deps.registry,
+        workspaceRoot: this.deps.workspaceRoot,
+        projectAllowedPermissions: this.deps.projectAllowedPermissions,
+        trace: this.deps.trace,
+      }).resume({
+        plan,
+        dryRun,
+        autoConfirm: payload.autoConfirm ?? false,
+        taskId,
+        sessionId,
+        runId: run.id,
+        onUpdate: (updated) => this.persistTaskPlan(taskId, updated),
+        action: payload.action,
+        stepId: payload.stepId,
+      });
       this.persistTaskPlan(taskId, executedPlan);
 
       const taskStatus = aggregateTaskStatus(executedPlan.steps);

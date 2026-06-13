@@ -27,7 +27,7 @@
 - [ ] 将现有内部预扫描、PlanService、TaskRunner、验证命令组织到工作流层，而不是散落在 AgentLoop。
   - [x] 预模型确定性工作流统一进入 `WorkflowExecutor`：`PlanWorkflow` 预扫描与 `RunVerifyWorkflow` 安全命令不再由 `AgentLoop` 直接调度。
   - [x] `PlanService.saveUserVisiblePlan` 进入 `PlanReportWorkflow`：`/api/plans/analyze` 仅负责参数校验与模型选择。
-  - [ ] `TaskRunner` 继续收敛到工作流层入口。
+  - [x] `TaskRunner` 继续收敛到工作流层入口：新增 `TaskExecutionWorkflow` 统一封装已审批计划执行与 resume 的 `TaskRunner` / `ToolStepExecutor` / `DryRunExecutor` 装配。
 - [ ] `planWorkflow`：生成内部计划 JSON 与用户可读 Markdown 计划，不直接执行。
   - [x] 用户可读 Markdown 计划通过 `PlanReportWorkflow` 生成并保存为 `UserVisiblePlan`，不可直接执行。
   - [ ] 内部计划 JSON 仍需通过 compile 阶段从已确认 Todo 生成，后续继续收敛到 `planWorkflow`。

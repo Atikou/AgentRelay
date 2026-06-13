@@ -424,7 +424,7 @@
       "post": {
         "tags": ["计划与任务"],
         "summary": "执行已审批的 InternalTaskPlan（仅 planId + version）",
-        "description": "拒绝 body 中的 plan / publicPlanJson / internalPlan。",
+        "description": "拒绝 body 中的 plan / publicPlanJson / internalPlan。已审批计划执行进入 TaskExecutionWorkflow，再统一装配 TaskRunner、ToolStepExecutor 或 DryRunExecutor；Orchestrator 保留 Run/Task 持久化、回滚与 fallback。",
         "operationId": "executePlan",
         "parameters": [{ "name": "planId", "in": "path", "required": true, "schema": { "type": "string" } }],
         "requestBody": {
@@ -446,7 +446,7 @@
       "post": {
         "tags": ["计划与任务"],
         "summary": "任务模式干跑（不执行副作用）",
-        "description": "接受 planId+version（已存计划）或 legacy plan 对象（自动 ingest + 系统审批）。",
+        "description": "接受 planId+version（已存计划）或 legacy plan 对象（自动 ingest + 系统审批）。干跑同样进入 TaskExecutionWorkflow，但使用 DryRunExecutor，不产生副作用。",
         "operationId": "taskDryRun",
         "requestBody": { "content": { "application/json": { "schema": { "$ref": "#/components/schemas/TaskRunRequest" } } } },
         "responses": {

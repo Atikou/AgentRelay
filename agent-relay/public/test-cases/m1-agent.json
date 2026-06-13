@@ -874,6 +874,46 @@
       }
     },
     {
+      "id": "m1-agent-task-execution-workflow-api-spec",
+      "title": "API 规范登记 TaskExecutionWorkflow",
+      "purpose": "确认已审批计划执行和干跑的 API 说明都声明进入 TaskExecutionWorkflow，便于客户端理解 TaskRunner、ToolStepExecutor 与 DryRunExecutor 的来源。",
+      "method": "GET",
+      "path": "/api/api-spec.json",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyContains": ["TaskExecutionWorkflow", "TaskRunner", "DryRunExecutor"]
+      }
+    },
+    {
+      "id": "m1-agent-task-execution-workflow-dry-run",
+      "title": "TaskExecutionWorkflow 干跑 legacy plan",
+      "purpose": "确认 /api/task/dry-run 对 legacy plan 仍保持兼容，并通过工作流层使用 DryRunExecutor 执行，不产生副作用。",
+      "method": "POST",
+      "path": "/api/task/dry-run",
+      "input": {
+        "plan": {
+          "goal": "dry run through workflow",
+          "steps": [
+            {
+              "id": "read",
+              "title": "Inspect project",
+              "requiredPermissions": ["read"],
+              "status": "pending"
+            }
+          ]
+        }
+      },
+      "expect": {
+        "status": 200,
+        "bodyHasKeys": ["runId", "taskId", "plan"],
+        "bodyPaths": {
+          "plan.steps.0.status": "completed"
+        },
+        "bodyContains": ["dry-run"]
+      }
+    },
+    {
       "id": "m1-agent-plan-report-workflow-empty-goal",
       "title": "计划报告空 goal 仍由入口校验",
       "purpose": "确认 /api/plans/analyze 在进入 PlanReportWorkflow 前仍拒绝空 goal，保持原有 400 边界不变。",

@@ -358,6 +358,8 @@ GET /api/runs/{runId}
 
 AgentLoop 每轮模型动作会写入 `agent_decision` trace 事件；`/api/trace/replay` 会把它和工具审计事件一起返回，便于复盘模型为什么调用某个工具或为什么进入 final。
 
+已审批计划的执行与 `POST /api/tasks/:id/resume` 续跑会先进入 `TaskExecutionWorkflow`，再由其统一装配 `TaskRunner`、真实工具执行器 `ToolStepExecutor` 或干跑 `DryRunExecutor`。Orchestrator 仍负责 Run/Task 持久化、回滚与 fallback。
+
 TaskRunner 步骤与聚合任务状态变化会写入 `task_status_change` trace 事件；Orchestrator 创建的任务运行会带上 `runId`、`taskId`、`sessionId`，便于把任务状态、工具审计与运行记录对齐。
 
 工具调用会通过 `toolCallId` 串联：AgentLoop 的 `agent_decision` / `agent_tool`、TaskRunner 的 `task_step`、ToolRegistry 的 `tool_audit` 会共享同一调用 id。该能力可通过 `capabilities.toolCallTrace` 探测。
