@@ -1198,6 +1198,33 @@
       }
     },
     {
+      "id": "m1-agent-edit-execution-workflow-api-spec",
+      "title": "API 规范登记 EditExecutionWorkflow",
+      "purpose": "确认 OpenAPI 已说明写工具成功后会由 EditExecutionWorkflow 注入 execution phase，要求下一轮基于真实 diff 验证或总结。",
+      "method": "GET",
+      "path": "/api/api-spec.json",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyContains": ["EditExecutionWorkflow", "execution phase", "workflowDiffs", "最小验证"]
+      }
+    },
+    {
+      "id": "m1-agent-edit-execution-workflow-doc",
+      "title": "对话循环文档记录执行阶段上下文",
+      "purpose": "确认文档站已说明 EditExecutionWorkflow 不执行写入，只在写入成功后把真实 diff/changeId/path 作为下一轮验证或总结依据。",
+      "method": "GET",
+      "path": "/api/docs/content?slug=对话循环",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyPaths": {
+          "markdown": "string"
+        },
+        "bodyContains": ["EditExecutionWorkflow", "execution phase", "真实 diff", "最终总结"]
+      }
+    },
+    {
       "id": "m1-agent-unknown-client-still-force",
       "title": "未知 clientName 仍立即 404",
       "purpose": "确认 Smart 路由接入后，显式 clientName 校验行为不变，不会静默回退默认路由。",

@@ -457,6 +457,70 @@ test("editWorkflow injects proposal phase before model writes", async () => {
   assert.equal(res.executionMeta.usedWriteCalls, 0);
 });
 
+test("editWorkflow injects execution phase after write tool succeeds", async () => {
+  await fs.mkdir(path.join(sandbox, "src", "agent"), { recursive: true });
+  await fs.writeFile(
+    path.join(sandbox, "src", "agent", "AgentLoop.ts"),
+    "export class AgentLoop { run() { return 'old'; } }\n",
+    "utf-8",
+  );
+
+  let secondPrompt = "";
+  let turn = 0;
+  const chat: LoopChatFn = async (req) => {
+    turn += 1;
+    if (turn === 1) {
+      return {
+        content: JSON.stringify({
+          action: "tool",
+          tool: "write_file",
+          input: {
+            path: "src/agent/AgentLoop.ts",
+            content: "export class AgentLoop { run() { return 'new'; } }\n",
+          },
+          thought: "执行最小写入",
+        }),
+        toolCalls: [],
+        clientName: "fake",
+        modelName: "fake",
+        location: "local",
+        latencyMs: 1,
+      };
+    }
+    secondPrompt = req.messages.map((m) => m.content).join("\n");
+    return {
+      content: '{"action":"final","answer":"已修改并基于 diff 收尾"}',
+      toolCalls: [],
+      clientName: "fake",
+      modelName: "fake",
+      location: "local",
+      latencyMs: 1,
+    };
+  };
+  const loop = new AgentLoop({
+    chat,
+    registry: createDefaultRegistry(),
+    workspaceRoot: sandbox,
+    mode: "implement",
+    permissionPolicy: "autoEdit",
+  });
+
+  const res = await loop.run("修改 src/agent/AgentLoop.ts，把 old 改成 new");
+
+  assert.equal(res.executionMeta.intent, "edit");
+  assert.equal(res.steps.at(-1)?.tool, "write_file");
+  assert.equal(res.steps.at(-1)?.ok, true);
+  assert.equal(res.executionMeta.workflowDiffs?.[0]?.tool, "write_file");
+  assert.match(secondPrompt, /editWorkflow execution phase/);
+  assert.match(secondPrompt, /writeTool: write_file/);
+  assert.match(secondPrompt, /changeId:/);
+  assert.match(secondPrompt, /smallest useful verification/);
+  assert.equal(
+    await fs.readFile(path.join(sandbox, "src", "agent", "AgentLoop.ts"), "utf-8"),
+    "export class AgentLoop { run() { return 'new'; } }\n",
+  );
+});
+
 test("PlanWorkflow 不处理非项目分析型计划请求", async () => {
   assert.equal(shouldRunPlanWorkflow("计划模式中新建文件", "plan"), false);
   assert.equal(shouldRunPlanWorkflow("只读分析当前项目结构", "plan"), true);

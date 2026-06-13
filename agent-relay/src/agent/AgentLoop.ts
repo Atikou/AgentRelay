@@ -11,6 +11,7 @@ import type { AgentStepPlan } from "../plan/types.js";
 import { assertWithinCostBudget, sumModelTurnCost } from "../util/costBudget.js";
 import { wrapUntrustedToolOutput } from "../util/injection.js";
 import { redactPreview } from "../util/redact.js";
+import { EditExecutionWorkflow } from "./EditExecutionWorkflow.js";
 import { WorkflowExecutor } from "./WorkflowExecutor.js";
 import {
   buildToolResultLayers,
@@ -381,8 +382,15 @@ export class AgentLoop {
       this.options.onStep?.(step);
       const toolText = this.renderToolResult(step);
       messages.push({ role: "user", content: toolText });
+      const editExecutionContext = this.buildEditExecutionContext(step, effectiveGoal);
+      if (editExecutionContext) {
+        messages.push({ role: "user", content: editExecutionContext });
+      }
       if (ctx && sessionId) {
         ctx.saveToolMessage(sessionId, toolText);
+        if (editExecutionContext) {
+          ctx.saveToolMessage(sessionId, editExecutionContext);
+        }
       }
       injectNotifications();
 
@@ -500,6 +508,15 @@ export class AgentLoop {
       isResume,
       resumeState: this.options.resumeState,
     });
+  }
+
+  private buildEditExecutionContext(step: AgentToolStep, goal: string): string | undefined {
+    return new EditExecutionWorkflow()
+      .run({
+        goal,
+        intent: this.policy.intent,
+        step,
+      })?.modelContext;
   }
 
   private async runToolAction(

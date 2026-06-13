@@ -29,6 +29,11 @@ export {
   type EditProposalWorkflowResult,
 } from "./EditProposalWorkflow.js";
 export {
+  EditExecutionWorkflow,
+  type EditExecutionWorkflowInput,
+  type EditExecutionWorkflowResult,
+} from "./EditExecutionWorkflow.js";
+export {
   WorkflowExecutor,
   type WorkflowExecutionInput,
   type WorkflowExecutionResult,
