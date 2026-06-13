@@ -44,7 +44,7 @@
 - [x] V3：规则不确定时接入 `RouterModelEvaluator`，只作为建议，不直接覆盖高风险策略。
 - [x] V4：将 `AnswerEvaluator` 接入答案质量 fallback。
 - [x] V6：RuntimeStats 采集与只读建议 API（`GET /api/routing/stats`）。
-- [ ] V7：EvalSetRunner 运行时（类型已预留，全量评测未启用）。
+- [x] V7：EvalSetRunner 离线评测（`POST /api/routing/eval/run` + `model_eval_results`）。
 
 ## 当前推进顺序
 
@@ -55,7 +55,8 @@
 5. ~~P2 trace replay 过滤/导出~~ → **已完成**
 6. ~~V3 RouterModelEvaluator + V4 AnswerEvaluator 运行时接入~~ → **已完成**
 7. ~~V6 RuntimeStats~~ → **已完成**
-8. 下一小块建议：V7 EvalSetRunner 离线评测，或其它里程碑项
+8. ~~V7 EvalSetRunner 离线评测~~ → **已完成**
+9. P2 评估与自适应路由 **整节已完成**；下一里程碑见 `docs/模型路由升级TodoList.md`（V8 前不宜推进）
 
 ## 本轮状态
 
@@ -64,5 +65,6 @@
 - P2 运行报告时间线 **已完成**。
 - P2 trace replay 过滤/导出 **已完成**。
 - P2 V3/V4 评估路由运行时接入 **已完成**。
-- P2 V6 RuntimeStats **已完成**；V7 EvalSetRunner 类型已预留。
-- 下一小块建议：V7 EvalSetRunner 离线评测。
+- P2 V6 RuntimeStats **已完成**。
+- P2 V7 EvalSetRunner 离线评测 **已完成**。
+- P2 评估与自适应路由 **已全部完成**。

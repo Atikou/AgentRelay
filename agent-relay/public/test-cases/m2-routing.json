@@ -239,6 +239,37 @@
       }
     },
     {
+      "id": "m2-routing-eval-run",
+      "title": "POST /api/routing/eval/run 离线评测",
+      "purpose": "确认 V7 EvalSetRunner 可跑内置评测集并返回 passed/failed/results，不调用模型。",
+      "method": "POST",
+      "path": "/api/routing/eval/run",
+      "input": { "scope": "rule", "setName": "api-test" },
+      "expect": {
+        "status": 200,
+        "bodyHasKeys": ["runId", "total", "passed", "failed", "results", "scope"],
+        "bodyPaths": {
+          "scope": "rule",
+          "total": "number",
+          "results": "array"
+        }
+      }
+    },
+    {
+      "id": "m2-config-eval-set-v7",
+      "title": "配置暴露 evalSetRunnerV7 能力",
+      "purpose": "确认服务端声明 V7 离线评测已落地。",
+      "method": "GET",
+      "path": "/api/config",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyPaths": {
+          "capabilities.evalSetRunnerV7": true
+        }
+      }
+    },
+    {
       "id": "m2-routing-stats-api",
       "title": "GET /api/routing/stats 返回运行统计",
       "purpose": "确认 V6 RuntimeStats 聚合 model_call_logs / fallback_logs / route_logs 并返回 suggestions 数组。",

@@ -1,5 +1,6 @@
 import type { AppContext } from "../../app/createAppContext.js";
 import type { ApiResult } from "../../orchestrator/Orchestrator.js";
+import type { EvalSetCase, EvalSetScope } from "../../model-router/eval-set-runner.js";
 import { RuntimeStatsCollector } from "../../model-router/runtime-stats.js";
 
 export function handleRoutingLogs(app: AppContext, url: URL): ApiResult {
@@ -41,4 +42,46 @@ export function handleRoutingStats(app: AppContext, url: URL): ApiResult {
     status: 200,
     body: collector.snapshot({ routeLimit: limit }),
   };
+}
+
+export function handleRoutingEvalRuns(app: AppContext, url: URL): ApiResult {
+  const runId = url.searchParams.get("runId") ?? undefined;
+  const limit = Math.min(100, Math.max(1, Number(url.searchParams.get("limit") ?? "20") || 20));
+
+  if (runId) {
+    const detail = app.modelEvalStore.getRun(runId);
+    if (!detail) {
+      return { status: 404, body: { error: "评测运行记录不存在" } };
+    }
+    return { status: 200, body: detail };
+  }
+
+  return {
+    status: 200,
+    body: { runs: app.modelEvalStore.listRuns(limit) },
+  };
+}
+
+export function handleRoutingEvalRun(app: AppContext, body: unknown): ApiResult {
+  const payload = (body && typeof body === "object" ? body : {}) as Record<string, unknown>;
+  const scopeRaw = payload.scope;
+  const scope: EvalSetScope = scopeRaw === "smart" ? "smart" : "rule";
+  const setName = typeof payload.setName === "string" ? payload.setName.trim() : undefined;
+  const persist = payload.persist === false ? false : true;
+  const cases = Array.isArray(payload.cases) ? (payload.cases as EvalSetCase[]) : undefined;
+
+  try {
+    const summary = app.evalSetRunner.run({
+      scope,
+      setName,
+      cases,
+      persist,
+    });
+    return { status: 200, body: summary };
+  } catch (error) {
+    return {
+      status: 400,
+      body: { error: error instanceof Error ? error.message : String(error) },
+    };
+  }
 }

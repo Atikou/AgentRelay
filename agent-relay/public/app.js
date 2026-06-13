@@ -434,16 +434,26 @@ async function handleRoutingLogs() {
   statsBtn.className = "action-btn secondary";
   statsBtn.textContent = "运行统计";
 
+  const evalBtn = document.createElement("button");
+  evalBtn.className = "action-btn secondary";
+  evalBtn.textContent = "离线评测";
+
   row.appendChild(limitInput);
   row.appendChild(sessionInput);
   row.appendChild(refreshBtn);
   row.appendChild(statsBtn);
+  row.appendChild(evalBtn);
   panel.appendChild(row);
 
   const statsBox = document.createElement("div");
   statsBox.className = "tool-result routing-stats-box";
   statsBox.style.display = "none";
   panel.appendChild(statsBox);
+
+  const evalBox = document.createElement("div");
+  evalBox.className = "tool-result routing-eval-box";
+  evalBox.style.display = "none";
+  panel.appendChild(evalBox);
 
   const list = document.createElement("div");
   list.className = "tool-result routing-log-list";
@@ -520,6 +530,31 @@ async function handleRoutingLogs() {
     } catch (err) {
       statsBox.classList.add("err");
       statsBox.textContent = String(err.message || err);
+    }
+  });
+  evalBtn.addEventListener("click", async () => {
+    evalBox.style.display = "block";
+    evalBox.classList.remove("err");
+    evalBox.textContent = "运行离线评测中…";
+    try {
+      const data = await api("/api/routing/eval/run", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ scope: "rule", setName: "testbench-default" }),
+      });
+      const failed = (data.results || []).filter((r) => r.verdict === "fail");
+      evalBox.innerHTML = `
+        <div class="routing-stats-summary">
+          <span>通过 ${data.passed}/${data.total}</span>
+          <span>失败 ${data.failed}</span>
+          <span>跳过 ${data.skipped}</span>
+          <span>runId ${escapeHtml(data.runId)}</span>
+        </div>
+        ${failed.length ? `<pre class="routing-eval-failures">${escapeHtml(JSON.stringify(failed, null, 2))}</pre>` : "<p>全部通过。</p>"}
+        <details class="routing-stats-raw"><summary>完整结果</summary><pre>${escapeHtml(JSON.stringify(data, null, 2))}</pre></details>`;
+    } catch (err) {
+      evalBox.classList.add("err");
+      evalBox.textContent = String(err.message || err);
     }
   });
   addMessage("system", panel);

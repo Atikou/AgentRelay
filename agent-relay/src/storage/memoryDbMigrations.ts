@@ -2,9 +2,10 @@ import type { DatabaseSync } from "node:sqlite";
 
 import { hashRowId } from "./sqliteMigration.js";
 import { ensureRoutingTables } from "../model-router/route-stores.js";
+import { ensureEvalTables } from "../model-router/eval-set-store.js";
 import { addColumnIfMissing, type SqliteMigration } from "./sqliteMigration.js";
 
-export const MEMORY_DB_SCHEMA_VERSION = 7;
+export const MEMORY_DB_SCHEMA_VERSION = 8;
 
 function ensureFts(
   db: DatabaseSync,
@@ -322,6 +323,13 @@ export const MEMORY_DB_MIGRATIONS: readonly SqliteMigration[] = [
       ensureFts(db, "summaries_fts", "conversation_summaries", "id", ["content"]);
       ensureFts(db, "memories_fts", "memories", "id", ["value", "summary"]);
       ensureRoutingTables(db);
+    },
+  },
+  {
+    version: 8,
+    name: "model_eval_tables",
+    up(db) {
+      ensureEvalTables(db);
     },
   },
 ];

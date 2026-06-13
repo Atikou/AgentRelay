@@ -79,6 +79,12 @@ const MANUAL_APIS_BY_FEATURE = {
     { label: "GET /api/metrics", method: "GET", path: "/api/metrics", sample: null },
     { label: "GET /api/routing/stats", method: "GET", path: "/api/routing/stats?limit=100", sample: null },
     {
+      label: "POST /api/routing/eval/run",
+      method: "POST",
+      path: "/api/routing/eval/run",
+      sample: { scope: "rule", setName: "testbench" },
+    },
+    {
       label: "POST /api/chat · 指定客户端",
       method: "POST",
       path: "/api/chat",

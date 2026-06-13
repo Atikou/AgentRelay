@@ -22,7 +22,15 @@ export type {
   TaskTypeRuntimeMetric,
 } from "./runtime-stats.js";
 export { EvalSetRunner } from "./eval-set-runner.js";
-export type { EvalSetCase, EvalSetCaseResult, EvalSetRunSummary } from "./eval-set-runner.js";
+export { DEFAULT_ROUTING_EVAL_SET } from "./eval-set-defaults.js";
+export { ModelEvalStore, ensureEvalTables } from "./eval-set-store.js";
+export type {
+  EvalSetCase,
+  EvalSetCaseResult,
+  EvalSetRunSummary,
+  EvalSetScope,
+} from "./eval-set-runner.js";
+export type { ModelEvalRunRow, ModelEvalResultRow } from "./eval-set-store.js";
 export { buildRouterInputFromChat } from "./router-input.js";
 export { createModelChatFn } from "./create-model-chat.js";
 export {

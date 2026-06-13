@@ -9,7 +9,7 @@ import {
   handleTaskDryRun,
   handleTaskRun,
 } from "./handlers/agent.handlers.js";
-import { handleRoutingLogs, handleRoutingStats } from "./handlers/routing.handlers.js";
+import { handleRoutingEvalRun, handleRoutingEvalRuns, handleRoutingLogs, handleRoutingStats } from "./handlers/routing.handlers.js";
 import { handleTaskGet, handleTaskResume, handleTasksList } from "./handlers/task.handlers.js";
 import {
   handleBackgroundCancel,
@@ -190,6 +190,16 @@ export function createHttpServer(app: AppContext, opts?: HttpServerOptions): Ser
         }
         if (pathname === "/api/routing/stats" && method === "GET") {
           const result = handleRoutingStats(app, url);
+          sendJson(res, result.status, result.body);
+          return;
+        }
+        if (pathname === "/api/routing/eval/run" && method === "POST") {
+          const result = handleRoutingEvalRun(app, await readBody(req, maxBodyBytes));
+          sendJson(res, result.status, result.body);
+          return;
+        }
+        if (pathname === "/api/routing/eval/runs" && method === "GET") {
+          const result = handleRoutingEvalRuns(app, url);
           sendJson(res, result.status, result.body);
           return;
         }

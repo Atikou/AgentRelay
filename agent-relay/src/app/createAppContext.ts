@@ -39,6 +39,8 @@ import {
   SmartModelRouter,
   FallbackManager,
   FallbackLogStore,
+  EvalSetRunner,
+  ModelEvalStore,
   validateModelProfiles,
 } from "../model-router/index.js";
 import { recoverOnStartup, type StartupRecoverySummary } from "./startupRecovery.js";
@@ -80,6 +82,8 @@ export class AppContext {
   readonly modelCallLogStore: ModelCallLogStore;
   readonly collaborationRunStore: CollaborationRunStore;
   readonly fallbackLogStore: FallbackLogStore;
+  readonly modelEvalStore: ModelEvalStore;
+  readonly evalSetRunner: EvalSetRunner;
   readonly projectAllowedPermissions: ToolPermission[];
   readonly shellPolicy: ShellPolicy;
   readonly networkPolicy: NetworkPolicy;
@@ -111,6 +115,8 @@ export class AppContext {
     modelCallLogStore: ModelCallLogStore;
     collaborationRunStore: CollaborationRunStore;
     fallbackLogStore: FallbackLogStore;
+    modelEvalStore: ModelEvalStore;
+    evalSetRunner: EvalSetRunner;
     defaultAgentChat: LoopChatFn;
     projectAllowedPermissions: ToolPermission[];
     shellPolicy: ShellPolicy;
@@ -141,6 +147,8 @@ export class AppContext {
     this.modelCallLogStore = opts.modelCallLogStore;
     this.collaborationRunStore = opts.collaborationRunStore;
     this.fallbackLogStore = opts.fallbackLogStore;
+    this.modelEvalStore = opts.modelEvalStore;
+    this.evalSetRunner = opts.evalSetRunner;
     this.defaultAgentChat = opts.defaultAgentChat;
     this.projectAllowedPermissions = opts.projectAllowedPermissions;
     this.shellPolicy = opts.shellPolicy;
@@ -220,6 +228,7 @@ export class AppContext {
         routerEvaluatorV3: true,
         answerEvaluatorV4: true,
         runtimeStatsV6: true,
+        evalSetRunnerV7: true,
         costBudgetPerRun: true,
         ruleOnlyRouting: true,
         sqliteSchemaMigrations: true,
@@ -363,6 +372,8 @@ export function createAppContext(): AppContext {
   const modelCallLogStore = new ModelCallLogStore(contextManager.db.connection);
   const collaborationRunStore = new CollaborationRunStore(contextManager.db.connection);
   const fallbackLogStore = new FallbackLogStore(contextManager.db.connection);
+  const modelEvalStore = new ModelEvalStore(contextManager.db.connection);
+  const evalSetRunner = new EvalSetRunner(profileRegistry, modelEvalStore);
   const fallbackManager = new FallbackManager(profileRegistry);
   const smartModelRouter = new SmartModelRouter(profileRegistry, routeLogStore);
   const modelChatFn = createModelChatFn(clientMap, modelCallLogStore, trace);
@@ -482,6 +493,8 @@ export function createAppContext(): AppContext {
     modelCallLogStore,
     collaborationRunStore,
     fallbackLogStore,
+    modelEvalStore,
+    evalSetRunner,
     defaultAgentChat,
     projectAllowedPermissions,
     shellPolicy,

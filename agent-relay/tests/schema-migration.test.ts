@@ -31,7 +31,7 @@ function tempDataDir(): string {
   return mkdtempSync(path.join(tmpdir(), "ar-schema-"));
 }
 
-test("全新 memory.db 应用 v1–v7 并写入 schema_migrations", () => {
+test("全新 memory.db 应用 v1–v8 并写入 schema_migrations", () => {
   const dataDir = tempDataDir();
   try {
     const dbm = new DatabaseManager(dataDir);
@@ -39,7 +39,12 @@ test("全新 memory.db 应用 v1–v7 并写入 schema_migrations", () => {
     assert.equal(dbm.schemaInfo.userVersion, MEMORY_DB_SCHEMA_VERSION);
     assert.equal(dbm.schemaInfo.migrations.length, MEMORY_DB_MIGRATIONS.length);
     assert.equal(dbm.schemaInfo.migrations[0]?.name, "core_sessions_messages_memories");
-    assert.equal(dbm.schemaInfo.migrations.at(-1)?.name, "fts_and_routing_tables");
+    assert.equal(dbm.schemaInfo.migrations.at(-1)?.name, "model_eval_tables");
+
+    const evalTable = dbm.connection
+      .prepare(`SELECT name FROM sqlite_master WHERE type='table' AND name='model_eval_runs'`)
+      .get() as { name: string };
+    assert.equal(evalTable.name, "model_eval_runs");
 
     const row = dbm.connection
       .prepare(`SELECT name FROM sqlite_master WHERE type='table' AND name='schema_migrations'`)
