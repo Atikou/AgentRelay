@@ -35,6 +35,7 @@ export class SubAgentCoordinator {
           budget: options.budget,
           timeoutMs: options.timeoutMs,
           sensitive: options.sensitive,
+          dispatchDepth: options.dispatchDepth,
         }),
       ),
     );

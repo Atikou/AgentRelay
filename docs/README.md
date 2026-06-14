@@ -63,7 +63,7 @@ npm run docs:screenshots # 用无头浏览器截图到 docs/assets/
 
 ### 进行中的 TodoList
 
-- [自动工作流模式-TodoList](自动工作流模式-TodoList.md)：统一 Agent 入口、内部意图路由、权限策略与工作流解耦。
+- [自动工作流模式-TodoList（已归档）](completed/自动工作流模式-TodoList.md)：统一 Agent 入口、内部意图路由、权限策略与工作流解耦。
 
 - [外部规范-TodoList索引](外部规范-TodoList索引.md)：**6 份外部规范**对应的完成度清单总览。
 - [Agent执行策略问题-TodoList](Agent执行策略问题-TodoList.md)：RunPolicy / executionMeta / PlanWorkflow 等。

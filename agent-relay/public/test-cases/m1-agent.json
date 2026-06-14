@@ -1478,6 +1478,33 @@
         "status": 404,
         "bodyHasKeys": ["error"]
       }
+    },
+    {
+      "id": "m1-agent-tools-include-dispatch-subagent",
+      "title": "内置工具列表含 dispatch_subagent",
+      "purpose": "确认主 Agent 可通过 ToolRegistry 暴露 dispatch_subagent，用于在 /api/agent 循环内派生只读子 Agent。",
+      "method": "GET",
+      "path": "/api/tools",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyContains": ["dispatch_subagent", "code_review", "test_analyze"]
+      }
+    },
+    {
+      "id": "m1-agent-dispatch-subagent-doc",
+      "title": "子 Agent 文档记录主 Agent 调度工具",
+      "purpose": "确认文档站说明主 Agent 经 dispatch_subagent 派生子 Agent，且子 Agent 内不可递归派生。",
+      "method": "GET",
+      "path": "/api/docs/content?slug=子Agent",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyPaths": {
+          "markdown": "string"
+        },
+        "bodyContains": ["dispatch_subagent", "主 Agent", "递归派生"]
+      }
     }
   ]
 }

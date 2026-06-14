@@ -198,6 +198,7 @@ function buildSystemHint(mode: AgentRunMode): string {
     return [
       "当前运行模式：review（审阅/只读）。",
       "执行层只暴露 read 权限工具；请优先指出问题、风险和证据，不修改文件。",
+      "需要并行代码审查与测试分析视角时，可使用 dispatch_subagent（roles: code_review / test_analyze）。",
     ].join("\n");
   }
   if (mode === "debug") {

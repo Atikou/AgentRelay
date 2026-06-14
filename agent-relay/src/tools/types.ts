@@ -4,6 +4,7 @@ import type { ToolPermission } from "../agent/permissions.js";
 import type { ShellPolicy } from "../policy/ShellPolicy.js";
 import type { NetworkPolicy } from "../policy/NetworkPolicy.js";
 import type { StructuredToolRisk } from "../policy/ToolRiskAssessment.js";
+import type { SubAgentCoordinator } from "../subagent/SubAgentCoordinator.js";
 
 export type { ToolPermission };
 
@@ -33,6 +34,16 @@ export interface ToolContext {
   projectSemanticIndexer?: import("../context/ProjectSemanticIndexer.js").ProjectSemanticIndexer;
   /** 历史任务/项目记忆相关文件召回。 */
   historyFileRecaller?: import("../context/HistoryFileRecaller.js").HistoryFileRecaller;
+  /** 子 Agent 调度器（主 Agent dispatch_subagent 工具使用）。 */
+  subAgentCoordinator?: SubAgentCoordinator;
+  /** 子 Agent 派生深度；主 Agent 为 0，子 Agent 内递增。 */
+  subAgentDispatchDepth?: number;
+  /** dispatch_subagent 最大派生深度（来自 security.subagent.maxDispatchDepth）。 */
+  maxSubAgentDispatchDepth?: number;
+  /** 隐私模式：子 Agent 模型调用继承该标记。 */
+  sensitive?: boolean;
+  /** 项目级权限上限（子 Agent grantedPermissions 收敛）。 */
+  projectAllowedPermissions?: ToolPermission[];
 }
 
 /**

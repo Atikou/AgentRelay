@@ -340,6 +340,7 @@ export function createAppContext(): AppContext {
   const shellPolicy = createShellPolicy(config.security?.shell);
   const networkPolicy = createNetworkPolicy(config.security?.network);
   const projectAllowedPermissions = resolveProjectAllowedPermissions(config.security?.permissions);
+  const maxSubAgentDispatchDepth = config.security?.subagent?.maxDispatchDepth ?? 1;
 
   const clientMap = new Map<string, ModelClient>();
   const pricing = new Map<string, ClientPricing>();
@@ -476,6 +477,14 @@ export function createAppContext(): AppContext {
     workspaceRoot,
     trace,
     projectAllowedPermissions,
+    notificationQueue,
+    maxSubAgentDispatchDepth,
+  });
+
+  registry.setDefaultContext({
+    subAgentCoordinator,
+    projectAllowedPermissions,
+    maxSubAgentDispatchDepth,
   });
 
   const planStore = new PlanStore(contextManager.db);
@@ -514,12 +523,15 @@ export function createAppContext(): AppContext {
         workspaceRoot,
         trace,
         projectAllowedPermissions,
+        notificationQueue,
+        maxSubAgentDispatchDepth,
       }),
     smartModelRouter,
     modelOrchestrator,
     planService,
     maxCostUsdPerRun: config.security?.budget?.maxCostUsdPerRun,
     projectAllowedPermissions,
+    maxSubAgentDispatchDepth,
   });
   orchestratorHolder.current = orchestrator;
 

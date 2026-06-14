@@ -102,6 +102,15 @@ export const SecurityConfigSchema = z.object({
       maxCostUsdPerRun: z.number().positive().optional(),
     })
     .optional(),
+  subagent: z
+    .object({
+      /**
+       * dispatch_subagent 允许的最大派生深度（主 Agent 为 0）。
+       * 默认 1 = 仅主 Agent 可派生；不支持无限递归。
+       */
+      maxDispatchDepth: z.number().int().min(0).max(3).default(1),
+    })
+    .default({ maxDispatchDepth: 1 }),
 });
 export type SecurityConfig = z.infer<typeof SecurityConfigSchema>;
 

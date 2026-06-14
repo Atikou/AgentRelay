@@ -106,6 +106,9 @@ export interface OrchestratorDeps {
   /** 项目级权限上限，来自 config.security.permissions。 */
   projectAllowedPermissions: ToolPermission[];
 
+  /** 子 Agent 最大派生深度（security.subagent.maxDispatchDepth），默认 1。 */
+  maxSubAgentDispatchDepth?: number;
+
 }
 
 
@@ -921,6 +924,8 @@ export class Orchestrator {
       projectIndex: this.deps.projectIndex,
       resumeState: state,
       maxCostUsdPerRun: this.deps.maxCostUsdPerRun,
+      subAgentDispatchDepth: 0,
+      maxSubAgentDispatchDepth: this.deps.maxSubAgentDispatchDepth ?? 1,
     });
 
     const ctx = { message, sessionId, task, run: { id: runId }, loop };
@@ -1036,6 +1041,10 @@ export class Orchestrator {
       runId: run.id,
 
       requestId: run.id,
+
+      subAgentDispatchDepth: 0,
+
+      maxSubAgentDispatchDepth: this.deps.maxSubAgentDispatchDepth ?? 1,
 
     });
 
@@ -1484,6 +1493,8 @@ export class Orchestrator {
       onStep: callbacks?.onStep,
       onToken: callbacks?.onToken,
       maxCostUsdPerRun: this.deps.maxCostUsdPerRun,
+      subAgentDispatchDepth: 0,
+      maxSubAgentDispatchDepth: this.deps.maxSubAgentDispatchDepth ?? 1,
     });
 
     return {

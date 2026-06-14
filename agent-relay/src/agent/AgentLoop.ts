@@ -6,6 +6,7 @@ import type { ModelTaskType } from "../model/taskType.js";
 import type { ChatMessage, ChatRequest, ModelResponse } from "../model/types.js";
 import type { AgentPromptStrategySummary, AgentRouterDecisionSummary, AgentRoutingMeta } from "../model-router/agent-routing-summary.js";
 import type { ToolRegistry } from "../tools/ToolRegistry.js";
+import { DISPATCH_SUBAGENT_TOOL_NAME } from "../tools/subagentTool.js";
 import type { TraceLogger } from "../trace/TraceLogger.js";
 import type { AgentStepPlan } from "../plan/types.js";
 import { assertWithinCostBudget, sumModelTurnCost } from "../util/costBudget.js";
@@ -123,6 +124,10 @@ export interface AgentLoopOptions {
   projectAllowedPermissions?: ToolPermission[];
   /** 子 Agent 角色上限（仅子 Agent 路径传入）。 */
   roleAllowedPermissions?: ToolPermission[];
+  /** 当前子 Agent 派生深度（主 Agent 为 0）。 */
+  subAgentDispatchDepth?: number;
+  /** dispatch_subagent 最大派生深度；默认 1，不支持无限递归。 */
+  maxSubAgentDispatchDepth?: number;
   /** 运行模式；未传时可由上层 RunPolicy 推断，默认 chat。 */
   mode?: AgentRunMode;
   /** 用户侧权限策略；本阶段仅用于元信息与后续 PermissionGuard 铺垫。 */
@@ -758,6 +763,13 @@ export class AgentLoop {
     if (!tool) {
       return { ...base, error: `未知工具：${action.tool}` };
     }
+    if (!this.isToolExposedToModel(action.tool)) {
+      return {
+        ...base,
+        permission: tool.permission,
+        error: `工具「${action.tool}」仅主 Agent 可用，当前上下文不可调用。`,
+      };
+    }
     const withPermission = { ...base, permission: tool.permission };
 
     const writeGate = assessWorkflowWriteGate({
@@ -854,6 +866,10 @@ export class AgentLoop {
       sessionId: this.options.sessionId,
       requestId: this.options.requestId ?? this.options.runId,
       toolCallId,
+      sensitive: this.options.sensitive,
+      subAgentDispatchDepth: this.options.subAgentDispatchDepth ?? 0,
+      maxSubAgentDispatchDepth: this.options.maxSubAgentDispatchDepth ?? 1,
+      projectAllowedPermissions: this.options.projectAllowedPermissions,
     });
 
     if (result.ok) {
@@ -938,7 +954,7 @@ export class AgentLoop {
   private buildSystemPrompt(extra?: string): string {
     const specs = this.options.registry
       .list()
-      .filter((t) => this.allowed.includes(t.permission))
+      .filter((t) => this.allowed.includes(t.permission) && this.isToolExposedToModel(t.name))
       .map((t) => {
         const side = t.hasSideEffect ? " [副作用]" : "";
         return `- ${t.name}(${t.inputHint ?? ""}) [权限:${t.permission}]${side}：${t.description}`;
@@ -957,12 +973,23 @@ export class AgentLoop {
       '3. 已能回答用户时输出：{"action":"final","answer":"给用户的最终中文回答"}',
       "4. 一次只能调用一个工具；根据工具返回结果再决定下一步。",
       "5. 不要臆测文件内容或命令输出，先用工具查看再下结论。",
-      "6. tool 字段只能填写上方“可用工具”列表中逐字出现的工具名；不要调用内部流程名、编排类名或子 Agent 控制器。",
-      "7. 需要查找相关文件时，优先使用 project_scan / symbol_search / locate_relevant_files / context_pack；写入文件后可用 project_index_update 增量刷新索引；避免连续用 list_files、search_text、read_file 逐个试探。",
-      "8. 已知类名/函数名时优先 symbol_search；locate_relevant_files 已返回 primaryFiles 时，优先用 context_pack 打包这些文件，再分析或修改。",
+      "6. tool 字段只能填写上方“可用工具”列表中逐字出现的工具名；不要调用内部流程名或编排类名。",
+      "7. 需要专项代码审查或测试分析视角时，使用 dispatch_subagent 派生只读子 Agent（roles: code_review / test_analyze）；子 Agent 结果在工具返回的 summary 与 aggregate 中。",
+      "8. 需要查找相关文件时，优先使用 project_scan / symbol_search / locate_relevant_files / context_pack；写入文件后可用 project_index_update 增量刷新索引；避免连续用 list_files、search_text、read_file 逐个试探。",
+      "9. 已知类名/函数名时优先 symbol_search；locate_relevant_files 已返回 primaryFiles 时，优先用 context_pack 打包这些文件，再分析或修改。",
       this.policy.systemHint,
       extra ? `\n补充要求：${extra}` : "",
     ].join("\n");
+  }
+
+  /** 子 Agent 内循环按派生深度门控 dispatch_subagent，不支持无限递归。 */
+  private isToolExposedToModel(toolName: string): boolean {
+    if (toolName === DISPATCH_SUBAGENT_TOOL_NAME) {
+      const depth = this.options.subAgentDispatchDepth ?? 0;
+      const max = this.options.maxSubAgentDispatchDepth ?? 1;
+      return depth < max;
+    }
+    return true;
   }
 
   private buildExecutionMeta(input: {

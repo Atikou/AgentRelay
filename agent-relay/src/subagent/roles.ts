@@ -55,6 +55,31 @@ export const SUB_AGENT_ROLES: Record<SubAgentRoleId, SubAgentRoleDefinition> = {
       "严格遵守 ReAct JSON 协议，尽快给出 final 答案。",
     ].join("\n"),
   },
+  patch_worker: {
+    id: "patch_worker",
+    title: "补丁执行",
+    description: "在父 Agent 显式授权 write 时执行最小文件修改（apply_patch/write_file），不执行 shell。",
+    allowedPermissions: ["read", "write"],
+    defaultBudget: {
+      maxModelTurns: 12,
+      maxToolCalls: 16,
+      maxReadCalls: 12,
+      maxWriteCalls: 6,
+      maxShellCalls: 0,
+      maxRuntimeMs: 240_000,
+    },
+    defaultTimeoutMs: 240_000,
+    singleShotWhenPreloaded: false,
+    requiresExplicitGrant: true,
+    requiredGrantIncludes: ["write"],
+    systemPrompt: [
+      "你是 PatchWorkerAgent，在父 Agent 已授权 write 时执行最小文件修改。",
+      "只能使用 read 与 write 类工具（apply_patch 优先于 write_file）；禁止 shell、网络与 dispatch_subagent。",
+      "修改前先用 read_file 确认现状；每次只改与任务相关的最小范围。",
+      "输出应说明修改了哪些文件、changeId/diff 摘要与建议父 Agent 做的验证。",
+      "严格遵守 ReAct JSON 协议，尽快给出 final 答案。",
+    ].join("\n"),
+  },
 };
 
 export function getSubAgentRole(id: SubAgentRoleId): SubAgentRoleDefinition {
@@ -73,6 +98,16 @@ export function resolveGrantedPermissions(
   requested?: ToolPermission[],
   projectAllowed: ToolPermission[] = ALL_PERMISSIONS,
 ): ToolPermission[] {
+  if (role.requiresExplicitGrant && (!requested || requested.length === 0)) {
+    throw new Error(`角色「${role.title}」须由父 Agent 显式授予 grantedPermissions`);
+  }
+  if (role.requiredGrantIncludes?.length && requested) {
+    for (const perm of role.requiredGrantIncludes) {
+      if (!requested.includes(perm)) {
+        throw new Error(`角色「${role.title}」的 grantedPermissions 须包含 ${perm}`);
+      }
+    }
+  }
   if (requested) {
     assertUserGrantWithinCeiling(requested, role.allowedPermissions, `角色「${role.title}」`);
   }

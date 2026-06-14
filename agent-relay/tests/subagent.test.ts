@@ -10,13 +10,8 @@ import path from "node:path";
 import type { LoopChatFn } from "../src/agent/AgentLoop.js";
 import type { ModelResponse } from "../src/model/types.js";
 import { createDefaultRegistry } from "../src/tools/index.js";
-import {
-  SubAgentCoordinator,
-  SubAgentRunner,
-  aggregateSubAgentResultsStructured,
-  listSubAgentRoles,
-  resolveGrantedPermissions,
-} from "../src/subagent/index.js";
+import { SubAgentCoordinator, SubAgentRunner, aggregateSubAgentResultsStructured, listSubAgentRoles, resolveGrantedPermissions } from "../src/subagent/index.js";
+import { NotificationQueue } from "../src/background/NotificationQueue.js";
 import { SUB_AGENT_ROLES } from "../src/subagent/roles.js";
 import { extractFilePaths } from "../src/subagent/taskContext.js";
 
@@ -57,10 +52,12 @@ function slowChat(delayMs: number): LoopChatFn {
   };
 }
 
-test("listSubAgentRoles 包含两个只读角色", async () => {
+test("listSubAgentRoles 包含三个角色且 patch_worker 可写", async () => {
   const roles = listSubAgentRoles();
-  assert.equal(roles.length, 2);
-  assert.ok(roles.every((r) => r.allowedPermissions.join() === "read"));
+  assert.equal(roles.length, 3);
+  const readOnly = roles.filter((r) => r.id !== "patch_worker");
+  assert.ok(readOnly.every((r) => r.allowedPermissions.join() === "read"));
+  assert.deepEqual(SUB_AGENT_ROLES.patch_worker.allowedPermissions, ["read", "write"]);
   assert.ok(SUB_AGENT_ROLES.code_review.defaultBudget.maxModelTurns >= 10);
   assert.equal(SUB_AGENT_ROLES.code_review.defaultBudget.maxWriteCalls, 0);
 });
@@ -70,9 +67,46 @@ test("extractFilePaths 从任务描述提取路径", async () => {
   assert.deepEqual(paths, ["src/agent/AgentLoop.ts"]);
 });
 
-test("resolveGrantedPermissions 拒绝超出角色的权限", async () => {
+test("SubAgentRunner 完成后写入通知队列", async () => {
+  const journal = path.join(sandbox, "notifications.jsonl");
+  const queue = new NotificationQueue(journal);
+  const chat: LoopChatFn = async () => ({
+    content: '{"action":"final","answer":"完成"}',
+    toolCalls: [],
+    clientName: "fake",
+    modelName: "fake",
+    location: "local",
+    latencyMs: 1,
+  });
+  const runner = new SubAgentRunner({
+    chat,
+    registry: createDefaultRegistry(),
+    workspaceRoot: sandbox,
+    notificationQueue: queue,
+  });
+  await runner.run({
+    role: "test_analyze",
+    task: "分析日志",
+    parentTaskId: "parent-notify",
+  });
+  const pending = queue.listPending();
+  assert.equal(pending.length, 1);
+  assert.equal(pending[0]!.source, "subagent");
+  assert.equal(pending[0]!.taskId, "parent-notify");
+  assert.match(pending[0]!.message, /test_analyze/);
+});
+
+test("resolveGrantedPermissions 只读角色拒绝 write", async () => {
   const role = SUB_AGENT_ROLES.code_review;
   assert.throws(() => resolveGrantedPermissions(role, ["write"]), /超出允许范围/);
+});
+
+test("resolveGrantedPermissions patch_worker 须显式授予", async () => {
+  const role = SUB_AGENT_ROLES.patch_worker;
+  assert.throws(() => resolveGrantedPermissions(role), /显式授予/);
+  assert.throws(() => resolveGrantedPermissions(role, ["read"]), /须包含 write/);
+  const granted = resolveGrantedPermissions(role, ["read", "write"]);
+  assert.deepEqual(granted, ["read", "write"]);
 });
 
 test("SubAgentRunner 预读 ts 文件走单次审查（无需 JSON）", async () => {

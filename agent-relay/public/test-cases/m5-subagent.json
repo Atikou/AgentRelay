@@ -6,15 +6,15 @@
   "cases": [
     {
       "id": "m5-roles-list",
-      "title": "子 Agent 角色列表含两个只读角色",
-      "purpose": "确认 GET /api/subagent/roles 暴露 code_review 与 test_analyze，且权限均为 read。",
+      "title": "子 Agent 角色列表含三个角色",
+      "purpose": "确认 GET /api/subagent/roles 暴露 code_review、test_analyze 与 patch_worker。",
       "method": "GET",
       "path": "/api/subagent/roles",
       "input": null,
       "expect": {
         "status": 200,
         "bodyHasKeys": ["roles"],
-        "bodyPaths": { "roles.length": 2 }
+        "bodyPaths": { "roles.length": 3 }
       }
     },
     {
@@ -123,6 +123,60 @@
       "expect": {
         "status": 404,
         "bodyHasKeys": ["error"]
+      }
+    },
+    {
+      "id": "m5-dispatch-subagent-tool-listed",
+      "title": "GET /api/tools 含 dispatch_subagent",
+      "purpose": "确认主 Agent 与子 Agent 共用注册表时，dispatch_subagent 作为内置工具对外暴露。",
+      "method": "GET",
+      "path": "/api/tools",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyContains": ["dispatch_subagent"]
+      }
+    },
+    {
+      "id": "m5-dispatch-subagent-doc-loop",
+      "title": "对话循环文档记录 dispatch_subagent",
+      "purpose": "确认对话循环文档说明主 Agent 在 ReAct 循环内可调用 dispatch_subagent 派生只读子 Agent。",
+      "method": "GET",
+      "path": "/api/docs/content?slug=对话循环",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyPaths": {
+          "markdown": "string"
+        },
+        "bodyContains": ["dispatch_subagent", "子 Agent"]
+      }
+    },
+    {
+      "id": "m5-roles-include-patch-worker",
+      "title": "GET /api/subagent/roles 含 patch_worker",
+      "purpose": "确认写权限子 Agent 角色 patch_worker 已暴露且 allowedPermissions 含 read+write。",
+      "method": "GET",
+      "path": "/api/subagent/roles",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyContains": ["patch_worker", "read", "write"]
+      }
+    },
+    {
+      "id": "m5-subagent-notification-doc",
+      "title": "子 Agent 文档记录完成通知",
+      "purpose": "确认文档说明子 Agent 完成后写入 NotificationQueue（source=subagent）供主 Agent 安全点消费。",
+      "method": "GET",
+      "path": "/api/docs/content?slug=子Agent",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyPaths": {
+          "markdown": "string"
+        },
+        "bodyContains": ["NotificationQueue", "subagent", "maxDispatchDepth"]
       }
     }
   ]

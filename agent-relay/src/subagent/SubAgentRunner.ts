@@ -5,7 +5,9 @@ import { AgentLoop, type LoopChatFn } from "../agent/AgentLoop.js";
 import type { ToolPermission } from "../agent/permissions.js";
 import type { ToolRegistry } from "../tools/ToolRegistry.js";
 import type { TraceLogger } from "../trace/TraceLogger.js";
+import type { NotificationQueue } from "../background/NotificationQueue.js";
 import { getSubAgentRole, resolveGrantedPermissions } from "./roles.js";
+import { enqueueSubAgentCompletionNotification } from "./notifyCompletion.js";
 import { runSingleShotReview } from "./singleShot.js";
 import { hasSuccessfulPreload, preloadReferencedFiles } from "./taskContext.js";
 import type {
@@ -25,6 +27,9 @@ export interface SubAgentRunnerDeps {
   workspaceRoot: string;
   trace?: TraceLogger;
   projectAllowedPermissions?: ToolPermission[];
+  notificationQueue?: NotificationQueue;
+  /** dispatch_subagent 最大派生深度，默认 1（不支持无限递归）。 */
+  maxSubAgentDispatchDepth?: number;
 }
 
 /** 运行单个子 Agent：独立上下文、受限权限、超时与 trace。 */
@@ -78,7 +83,7 @@ export class SubAgentRunner {
           durationMs,
           iterations: 1,
         });
-        return {
+        return this.finishRun({
           id,
           role: options.role,
           parentTaskId,
@@ -88,12 +93,12 @@ export class SubAgentRunner {
           iterations: 1,
           durationMs,
           grantedPermissions: granted,
-        };
+        });
       } catch (err) {
         const msg = String(err);
         if (msg.includes("超时")) {
           const durationMs = Math.round(performance.now() - start);
-          return {
+          return this.finishRun({
             id,
             role: options.role,
             parentTaskId,
@@ -104,7 +109,7 @@ export class SubAgentRunner {
             durationMs,
             grantedPermissions: granted,
             error: msg,
-          };
+          });
         }
         // 单次模式失败则回退 ReAct 循环
       }
@@ -126,6 +131,10 @@ export class SubAgentRunner {
       .filter(Boolean)
       .join("\n");
 
+    const dispatchDepth = options.dispatchDepth ?? 0;
+    const canAutoWrite =
+      granted.includes("write") && role.allowedPermissions.includes("write");
+
     const loop = new AgentLoop({
       chat: this.deps.chat,
       registry: this.deps.registry,
@@ -134,9 +143,11 @@ export class SubAgentRunner {
       roleAllowedPermissions: role.allowedPermissions,
       allowedPermissions: options.grantedPermissions,
       budget,
-      autoConfirm: false,
+      autoConfirm: canAutoWrite,
       sensitive: options.sensitive,
       trace: this.deps.trace,
+      subAgentDispatchDepth: dispatchDepth,
+      maxSubAgentDispatchDepth: this.deps.maxSubAgentDispatchDepth ?? 1,
     });
 
     let status: SubAgentStatus = "completed";
@@ -176,7 +187,7 @@ export class SubAgentRunner {
       iterations,
     });
 
-    return {
+    return this.finishRun({
       id,
       role: options.role,
       parentTaskId,
@@ -187,7 +198,21 @@ export class SubAgentRunner {
       durationMs,
       grantedPermissions: granted,
       error,
-    };
+    });
+  }
+
+  private finishRun(result: SubAgentRunResult): SubAgentRunResult {
+    if (this.deps.notificationQueue) {
+      enqueueSubAgentCompletionNotification(this.deps.notificationQueue, {
+        subAgentId: result.id,
+        role: result.role,
+        parentTaskId: result.parentTaskId,
+        status: result.status,
+        answer: result.answer,
+        error: result.error,
+      });
+    }
+    return result;
   }
 }
 

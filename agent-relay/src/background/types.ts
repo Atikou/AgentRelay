@@ -39,7 +39,7 @@ export interface BackgroundTaskRecord {
 
 export type NotificationLevel = "info" | "warn" | "error";
 export type NotificationPriority = "low" | "normal" | "high";
-export type NotificationSource = "background_task" | "system" | "scheduler";
+export type NotificationSource = "background_task" | "system" | "scheduler" | "subagent";
 
 export interface AgentNotification {
   id: string;

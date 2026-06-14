@@ -22,6 +22,7 @@ import {
   symbolSearchTool,
 } from "./locationTools.js";
 import { shellRunTool } from "./shellTool.js";
+import { dispatchSubagentTool } from "./subagentTool.js";
 import { ToolStorage } from "./storage/ToolStorage.js";
 import { ToolRegistry } from "./ToolRegistry.js";
 
@@ -41,6 +42,7 @@ export {
 export { gitStatusTool, gitDiffTool } from "./gitTools.js";
 export { projectScanTool, projectIndexUpdateTool, locateRelevantFilesTool, contextPackTool, symbolSearchTool } from "./locationTools.js";
 export { shellRunTool } from "./shellTool.js";
+export { dispatchSubagentTool, DISPATCH_SUBAGENT_TOOL_NAME } from "./subagentTool.js";
 export { ToolStorage } from "./storage/ToolStorage.js";
 export { ToolRegistry, type RegistryRunContext } from "./ToolRegistry.js";
 export {
@@ -70,6 +72,7 @@ export const BUILTIN_TOOLS = [
   locateRelevantFilesTool,
   contextPackTool,
   symbolSearchTool,
+  dispatchSubagentTool,
 ];
 
 export interface CreateRegistryOptions {

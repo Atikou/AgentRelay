@@ -2336,7 +2336,7 @@
         "type": "object",
         "properties": {
           "id": { "type": "string" },
-          "source": { "type": "string", "enum": ["background_task", "system", "scheduler"] },
+          "source": { "type": "string", "enum": ["background_task", "system", "scheduler", "subagent"] },
           "level": { "type": "string" },
           "message": { "type": "string" },
           "timestamp": { "type": "string", "format": "date-time" },
