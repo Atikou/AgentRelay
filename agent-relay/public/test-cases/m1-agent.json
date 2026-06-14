@@ -1252,6 +1252,33 @@
       }
     },
     {
+      "id": "m1-agent-edit-auto-verification-workflow-api-spec",
+      "title": "API 规范登记自动读回验证",
+      "purpose": "确认 OpenAPI 已说明写工具返回目标路径后，会由 EditAutoVerificationWorkflow 规划只读 read_file 自动读回验证，且仍走权限和预算链路。",
+      "method": "GET",
+      "path": "/api/api-spec.json",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyContains": ["EditAutoVerificationWorkflow", "read_file", "自动读回", "workflowVerifications"]
+      }
+    },
+    {
+      "id": "m1-agent-edit-auto-verification-workflow-doc",
+      "title": "对话循环文档记录自动读回验证",
+      "purpose": "确认文档站已说明 EditAutoVerificationWorkflow 会在写入后规划只读 read_file，并由 AgentLoop 通过既有权限、预算与工具链路执行。",
+      "method": "GET",
+      "path": "/api/docs/content?slug=对话循环",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyPaths": {
+          "markdown": "string"
+        },
+        "bodyContains": ["EditAutoVerificationWorkflow", "read_file", "自动读回", "权限、预算与工具链路"]
+      }
+    },
+    {
       "id": "m1-agent-unknown-client-still-force",
       "title": "未知 clientName 仍立即 404",
       "purpose": "确认 Smart 路由接入后，显式 clientName 校验行为不变，不会静默回退默认路由。",

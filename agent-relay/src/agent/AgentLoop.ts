@@ -11,6 +11,7 @@ import type { AgentStepPlan } from "../plan/types.js";
 import { assertWithinCostBudget, sumModelTurnCost } from "../util/costBudget.js";
 import { wrapUntrustedToolOutput } from "../util/injection.js";
 import { redactPreview } from "../util/redact.js";
+import { EditAutoVerificationWorkflow } from "./EditAutoVerificationWorkflow.js";
 import { EditExecutionWorkflow } from "./EditExecutionWorkflow.js";
 import { EditVerificationWorkflow } from "./EditVerificationWorkflow.js";
 import { WorkflowExecutor } from "./WorkflowExecutor.js";
@@ -382,24 +383,24 @@ export class AgentLoop {
       const step = await this.runToolAction(action, iteration, toolCallId);
       steps.push(step);
       this.options.onStep?.(step);
-      const toolText = this.renderToolResult(step);
-      messages.push({ role: "user", content: toolText });
-      const editExecutionContext = this.buildEditExecutionContext(step, effectiveGoal);
-      if (editExecutionContext) {
-        messages.push({ role: "user", content: editExecutionContext });
-      }
-      const editVerificationContext = this.buildEditVerificationContext(steps, step, effectiveGoal);
-      if (editVerificationContext) {
-        messages.push({ role: "user", content: editVerificationContext });
-      }
-      if (ctx && sessionId) {
-        ctx.saveToolMessage(sessionId, toolText);
-        if (editExecutionContext) {
-          ctx.saveToolMessage(sessionId, editExecutionContext);
-        }
-        if (editVerificationContext) {
-          ctx.saveToolMessage(sessionId, editVerificationContext);
-        }
+      this.recordToolStepMessages({
+        messages,
+        step,
+        steps,
+        goal: effectiveGoal,
+        sessionId,
+      });
+      const autoVerificationStep = await this.runEditAutoVerification(step, steps, iteration);
+      if (autoVerificationStep) {
+        steps.push(autoVerificationStep);
+        this.options.onStep?.(autoVerificationStep);
+        this.recordToolStepMessages({
+          messages,
+          step: autoVerificationStep,
+          steps,
+          goal: effectiveGoal,
+          sessionId,
+        });
       }
       injectNotifications();
 
@@ -540,6 +541,73 @@ export class AgentLoop {
         steps,
         currentStep,
       })?.modelContext;
+  }
+
+  private async runEditAutoVerification(
+    writeStep: AgentToolStep,
+    steps: AgentToolStep[],
+    iteration: number,
+  ): Promise<AgentToolStep | undefined> {
+    const planned = new EditAutoVerificationWorkflow().run({
+      intent: this.policy.intent,
+      step: writeStep,
+    });
+    if (!planned) return undefined;
+
+    const action: ToolAction = {
+      action: "tool",
+      tool: planned.tool,
+      input: planned.input,
+      thought: planned.thought,
+    };
+    const tool = this.options.registry.get(action.tool);
+    const budgetExhausted = this.budgetManager.findToolExhaustion({
+      toolPermission: tool?.permission,
+      permissionAllowed: tool ? this.allowed.includes(tool.permission) : false,
+      steps,
+    });
+    const toolCallId = this.makeToolCallId(iteration, `${action.tool}:auto-verify`);
+    if (budgetExhausted) {
+      return this.buildBudgetBlockedStep(action, iteration, budgetExhausted, toolCallId);
+    }
+    this.writeAgentDecisionTrace({
+      iteration,
+      action: "tool",
+      tool: action.tool,
+      toolCallId,
+      thought: action.thought,
+      inputPreview: redactPreview(action.input ?? {}, 500),
+    });
+    return await this.runToolAction(action, iteration, toolCallId);
+  }
+
+  private recordToolStepMessages(input: {
+    messages: ChatMessage[];
+    step: AgentToolStep;
+    steps: AgentToolStep[];
+    goal: string;
+    sessionId?: string;
+  }): void {
+    const toolText = this.renderToolResult(input.step);
+    input.messages.push({ role: "user", content: toolText });
+    const editExecutionContext = this.buildEditExecutionContext(input.step, input.goal);
+    if (editExecutionContext) {
+      input.messages.push({ role: "user", content: editExecutionContext });
+    }
+    const editVerificationContext = this.buildEditVerificationContext(input.steps, input.step, input.goal);
+    if (editVerificationContext) {
+      input.messages.push({ role: "user", content: editVerificationContext });
+    }
+    const ctx = this.options.contextManager;
+    if (ctx && input.sessionId) {
+      ctx.saveToolMessage(input.sessionId, toolText);
+      if (editExecutionContext) {
+        ctx.saveToolMessage(input.sessionId, editExecutionContext);
+      }
+      if (editVerificationContext) {
+        ctx.saveToolMessage(input.sessionId, editVerificationContext);
+      }
+    }
   }
 
   private async runToolAction(

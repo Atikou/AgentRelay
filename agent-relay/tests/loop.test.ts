@@ -508,10 +508,13 @@ test("editWorkflow injects execution phase after write tool succeeds", async () 
   const res = await loop.run("修改 src/agent/AgentLoop.ts，把 old 改成 new");
 
   assert.equal(res.executionMeta.intent, "edit");
-  assert.equal(res.steps.at(-1)?.tool, "write_file");
+  assert.equal(res.steps.at(-2)?.tool, "write_file");
+  assert.equal(res.steps.at(-1)?.tool, "read_file");
   assert.equal(res.steps.at(-1)?.ok, true);
   assert.equal(res.executionMeta.workflowDiffs?.[0]?.tool, "write_file");
+  assert.equal(res.executionMeta.workflowVerifications?.[0]?.verificationTool, "read_file");
   assert.match(secondPrompt, /editWorkflow execution phase/);
+  assert.match(secondPrompt, /editWorkflow verification phase/);
   assert.match(secondPrompt, /writeTool: write_file/);
   assert.match(secondPrompt, /changeId:/);
   assert.match(secondPrompt, /smallest useful verification/);
@@ -521,7 +524,7 @@ test("editWorkflow injects execution phase after write tool succeeds", async () 
   );
 });
 
-test("editWorkflow records verification phase after write is checked", async () => {
+test("editWorkflow automatically reads back written file for verification", async () => {
   await fs.mkdir(path.join(sandbox, "src", "agent"), { recursive: true });
   await fs.writeFile(
     path.join(sandbox, "src", "agent", "AgentLoop.ts"),
@@ -529,7 +532,7 @@ test("editWorkflow records verification phase after write is checked", async () 
     "utf-8",
   );
 
-  let thirdPrompt = "";
+  let secondPrompt = "";
   let turn = 0;
   const chat: LoopChatFn = async (req) => {
     turn += 1;
@@ -551,22 +554,7 @@ test("editWorkflow records verification phase after write is checked", async () 
         latencyMs: 1,
       };
     }
-    if (turn === 2) {
-      return {
-        content: JSON.stringify({
-          action: "tool",
-          tool: "read_file",
-          input: { path: "src/agent/AgentLoop.ts" },
-          thought: "读回验证",
-        }),
-        toolCalls: [],
-        clientName: "fake",
-        modelName: "fake",
-        location: "local",
-        latencyMs: 1,
-      };
-    }
-    thirdPrompt = req.messages.map((m) => m.content).join("\n");
+    secondPrompt = req.messages.map((m) => m.content).join("\n");
     return {
       content: '{"action":"final","answer":"已修改并验证通过"}',
       toolCalls: [],
@@ -594,14 +582,17 @@ test("editWorkflow records verification phase after write is checked", async () 
 
   const res = await loop.run("修改 src/agent/AgentLoop.ts，把 old 改成 new，并验证结果");
 
+  assert.equal(res.steps.at(-2)?.tool, "write_file");
+  assert.equal(res.steps.at(-1)?.tool, "read_file");
+  assert.deepEqual(res.steps.at(-1)?.input, { path: "src/agent/AgentLoop.ts" });
   assert.equal(res.executionMeta.workflowVerifications?.length, 1);
   assert.equal(res.executionMeta.workflowVerifications?.[0]?.workflowType, "editWorkflow");
   assert.equal(res.executionMeta.workflowVerifications?.[0]?.verificationTool, "read_file");
   assert.equal(res.executionMeta.workflowVerifications?.[0]?.ok, true);
   assert.match(res.executionMeta.workflowVerifications?.[0]?.outputPreview ?? "", /new/);
-  assert.match(thirdPrompt, /editWorkflow verification phase/);
-  assert.match(thirdPrompt, /verificationStatus: completed/);
-  assert.match(thirdPrompt, /changed files, changeId, and verification status/);
+  assert.match(secondPrompt, /editWorkflow verification phase/);
+  assert.match(secondPrompt, /verificationStatus: completed/);
+  assert.match(secondPrompt, /changed files, changeId, and verification status/);
   assert.equal(res.answer, "已修改并验证通过");
 });
 
