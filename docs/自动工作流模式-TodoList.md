@@ -31,7 +31,7 @@
 - [x] `planWorkflow`：生成内部计划 JSON 与用户可读 Markdown 计划，不直接执行。
   - [x] 用户可读 Markdown 计划通过 `PlanReportWorkflow` 生成并保存为 `UserVisiblePlan`，不可直接执行。
   - [x] 内部计划 JSON 通过 `PlanCompileWorkflow` 从已确认 Todo 编译为 awaiting_approval `InternalTaskPlan` 草案，仍需 approve 后 execute。
-- [ ] `editWorkflow` / `generateFileWorkflow`：定位文件、生成修改方案、检查权限、执行修改、记录 diff。
+  - [ ] `editWorkflow` / `generateFileWorkflow`：定位文件、生成修改方案、检查权限、执行修改、记录 diff。（真实写入仍由模型常规写工具触发；已具备写后验证与失败修正迭代，后续可继续收敛为更强的工作流闭环。）
   - [x] 首轮前只读预定位：`WorkflowPlanner` 按 intent 选择 `edit_locate` / `generate_file_locate`，`WorkflowExecutor` 通过 `PlanWorkflow` 执行 `locate_relevant_files` → `context_pack`。
   - [x] 写入前方案阶段：`EditProposalWorkflow` 注入 `targetFiles` / `changeSummary` / `permissionCheck` / `diffPlan` / `verificationPlan` 约束，要求模型先形成具体修改方案。
   - [x] 方案阶段可审计记录：`executionMeta.workflowProposals` 返回 `workflowType` / `phase` / `permissionPolicy` / `requiredFields` / `writeAllowedByPolicy` / `requiresConfirmationBeforeWrite`。
@@ -40,22 +40,32 @@
   - [x] 执行阶段上下文：`EditExecutionWorkflow` 在写工具成功后注入 execution phase，要求下一轮基于真实 diff 做最小验证或最终总结，避免重复写入。
   - [x] 自动读回验证：`EditAutoVerificationWorkflow` 在写工具成功且有目标路径时规划只读 `read_file`，由 `AgentLoop` 通过既有权限、预算与工具链自动读回刚写入文件。
   - [x] 验证阶段上下文与记录：`EditVerificationWorkflow` 观察写入后的 `read_file` / `diff_file` / `shell_run` 等验证工具结果，注入 verification phase，并在 `executionMeta.workflowVerifications` 记录验证工具、状态、错误与输出预览。
-  - [ ] 将执行修改阶段收敛为 edit/generate-file 工作流闭环（目前真实写入仍由模型通过常规写工具触发，并受 `PermissionGuard`、工具风险和预算约束；已具备写后自动读回验证，后续还需失败后的自动修正迭代与终止条件）。
-- [ ] `debugWorkflow`：报错分析、定位文件、最小修复、验证失败后继续迭代。
+  - [x] 验证失败后修正迭代与终止条件：`WorkflowCorrectionWorkflow` 按路径统计 attempt（默认最多 2 轮），注入 correction/termination phase，并在 `executionMeta.workflowCorrections` 记录 `limitReached`。
+  - [ ] 将执行修改阶段进一步收敛为 edit/generate-file 工作流闭环（当前写入仍由模型常规写工具触发，并受 PermissionGuard、工具风险与预算约束）。
+  - [ ] `debugWorkflow`：报错分析、定位文件、最小修复、验证失败后继续迭代。（修复写入仍由模型常规工具链触发；已共享 WorkflowCorrectionWorkflow 修正轮次与终止条件。）
   - [x] 首轮前只读定位：`WorkflowPlanner` 按 debug intent 选择 `debug_locate`，`WorkflowExecutor` 通过 `PlanWorkflow` 执行 `locate_relevant_files` → `context_pack`。
   - [x] 诊断分析阶段：`DebugAnalysisWorkflow` 注入 `errorSummary` / `suspectedFiles` / `rootCauseHypotheses` / `minimalFixPlan` / `verificationPlan` / `riskAndRollback` 约束，并在 `executionMeta.workflowDebugAnalyses` 返回可审计记录。
-  - [ ] 最小修复执行与验证失败后继续迭代（仍由模型常规工具链触发写入，后续需收敛失败修正次数与终止条件）。
-- [ ] `refactorWorkflow`：强制先计划，分阶段修改，每阶段尽量可验证。
+  - [x] 验证失败后修正迭代与终止条件：与 edit/generate-file 共用 `WorkflowCorrectionWorkflow`（`debugWorkflow` 类型、`executionMeta.workflowCorrections`）。
+  - [ ] 最小修复执行进一步收敛到 debug 工作流闭环（当前仍由模型常规写工具触发）。
+- [x] `refactorWorkflow`：强制先计划，分阶段修改，每阶段尽量可验证。
+  - [x] 首轮前只读预扫描：`WorkflowPlanner` 选择 `refactor_locate`（`project_scan` → `locate_relevant_files` → `context_pack`）。
+  - [x] 强制计划阶段：`RefactorPlanWorkflow` 注入 `scopeSummary` / `affectedModules` / `stagedChanges` / `perStageVerification` / `riskAndRollback`，并在 `executionMeta.workflowRefactorPlans` 返回可审计记录。
+  - [x] 分阶段写入后验证：复用 `EditExecutionWorkflow` / `EditAutoVerificationWorkflow` / `EditVerificationWorkflow` / `WorkflowCorrectionWorkflow`（`refactorWorkflow` 类型），要求每阶段验证后再进入下一阶段。
 - [x] `runWorkflow` / `verifyWorkflow`：执行安全命令、收集输出、分析结果；无法执行时降级为静态检查并说明。（`RunVerifyWorkflow` 白名单执行 `node --version` / `npm run typecheck` / `npm test` 等安全命令；无匹配命令、无 shell 权限或预算不足时静态降级。）
 - [x] `answerWorkflow` / `summarizeWorkflow` / `searchWorkflow`：只读回答、总结、定位，不做副作用操作。
 
 ## P3：隐式计划与状态管理
 
-- [ ] 复杂任务即使未显式要求计划，也生成内部轻量计划。
-- [ ] 内部计划不等于用户可见“计划模式”，只作为执行器稳定完成任务的步骤记录。
-- [ ] 定义统一任务状态：`idle` / `planning` / `waiting_confirmation` / `executing` / `verifying` / `completed` / `failed` / `cancelled`。
-- [ ] 扩展 Run/Task 记录：保存 `intent`、`workflowType`、`permissionPolicy`、内部计划、验证结果。
-- [ ] 支持同一会话中自动切换工作流：问答 → 计划 → 修改 → 验证。
+- [x] 复杂任务即使未显式要求计划，也生成内部轻量计划。
+  - [x] `ImplicitPlanWorkflow`：复杂副作用任务（edit/debug/generate_file/run/verify）注入 `goalSummary` / `internalSteps` / `successCriteria` / `stopConditions`；`executionMeta.workflowInternalPlans` 记录 `userVisiblePlanMode: false`。
+- [x] 内部计划不等于用户可见“计划模式”，只作为执行器稳定完成任务的步骤记录。
+  - [x] prompt 与元信息明确 `userVisiblePlanMode: false`，不写入 `/api/plans` 用户计划文档。
+- [x] 定义统一任务状态：`idle` / `planning` / `waiting_confirmation` / `executing` / `verifying` / `completed` / `failed` / `cancelled`。
+  - [x] `WorkflowTaskState.resolveWorkflowTaskState` 在 `executionMeta.workflowTaskState` 返回；测试台优先展示任务状态标签。
+- [x] 扩展 Run/Task 记录：保存 `intent`、`workflowType`、`permissionPolicy`、内部计划、验证结果。
+  - [x] `RunState` 续跑快照扩展 `intent` / `workflowType` / `permissionPolicy` / `workflowTaskState` / `workflowInternalPlans` / `workflowSwitch`；`resultJson.executionMeta` 已含验证/修正元信息。
+- [x] 支持同一会话中自动切换工作流：问答 → 计划 → 修改 → 验证。
+  - [x] `WorkflowSessionSwitch` + `WorkflowSessionStore`：按 `sessionId` 记录上一轮 `intent` / `workflowType` / `workflowTaskState`；新消息意图变化时注入切换上下文，并在 `executionMeta.workflowSwitch` 返回 `from/to` 记录。
 
 ## P4：UI 与用户体验
 

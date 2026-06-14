@@ -7,8 +7,8 @@ import os from "node:os";
 import path from "node:path";
 import { promises as fs } from "node:fs";
 
-import { resolveRunPolicy } from "../src/agent/RunPolicy.js";
-import { defaultRunPolicyManager } from "../src/agent/RunPolicy.js";
+import { shouldRunImplicitPlan } from "../src/agent/ImplicitPlanWorkflow.js";
+import { resolveRunPolicy, defaultRunPolicyManager } from "../src/agent/RunPolicy.js";
 import { WorkflowExecutor } from "../src/agent/WorkflowExecutor.js";
 import { createDefaultRegistry, createMockRegistry, createMockTool } from "../src/tools/index.js";
 
@@ -218,6 +218,105 @@ test("debug workflow prelocates and injects analysis phase", async () => {
   assert.equal(result.workflowProposals.length, 0);
   assert.equal(locate.calls.length, 1);
   assert.equal(contextPack.calls.length, 1);
+});
+
+test("refactor workflow prescan and injects staged plan phase", async () => {
+  const projectScan = createMockTool({
+    name: "project_scan",
+    permission: "read",
+    output: { sourceRoots: ["src"], importantFiles: ["package.json"] },
+  });
+  const locate = createMockTool({
+    name: "locate_relevant_files",
+    permission: "read",
+    output: {
+      primaryFiles: [
+        { path: "src/model-router/index.ts", score: 0.9, reason: "router" },
+        { path: "src/agent/index.ts", score: 0.85, reason: "agent" },
+      ],
+      candidateFiles: [],
+      locateStats: {},
+    },
+  });
+  const contextPack = createMockTool({
+    name: "context_pack",
+    permission: "read",
+    output: {
+      files: [
+        { path: "src/model-router/index.ts", content: "export * from './smart-model-router.js';" },
+      ],
+    },
+  });
+  const policy = resolveRunPolicy({
+    message: "先解耦 model-router 与 agent 模块，梳理当前项目依赖",
+    requestedPermissionPolicy: "autoEdit",
+  });
+  const executor = new WorkflowExecutor({
+    registry: createMockRegistry([projectScan, locate, contextPack]),
+    workspaceRoot: sandbox,
+    allowedPermissions: policy.allowedPermissions,
+    budget: policy.budget,
+    budgetManager: defaultRunPolicyManager.createBudgetManager(policy),
+    policy,
+  });
+
+  const result = await executor.executeBeforeModel({
+    goal: "先解耦 model-router 与 agent 模块，梳理当前项目依赖",
+  });
+
+  assert.deepEqual(result.steps.map((step) => step.tool), [
+    "project_scan",
+    "locate_relevant_files",
+    "context_pack",
+  ]);
+  assert.equal(result.modelContexts.length, 2);
+  assert.match(result.modelContexts[0]!, /refactorWorkflow read-only prescan result/);
+  assert.match(result.modelContexts[1]!, /refactorWorkflow plan phase/);
+  assert.match(result.modelContexts[1]!, /stagedChanges/);
+  assert.equal(result.workflowRefactorPlans.length, 1);
+  assert.equal(result.workflowRefactorPlans[0]!.workflowType, "refactorWorkflow");
+  assert.equal(result.workflowRefactorPlans[0]!.phase, "plan");
+  assert.equal(result.workflowProposals.length, 0);
+  assert.equal(result.workflowDebugAnalyses.length, 0);
+});
+
+test("complex edit workflow injects implicit internal plan", async () => {
+  const locate = createMockTool({
+    name: "locate_relevant_files",
+    permission: "read",
+    output: {
+      primaryFiles: [{ path: "src/agent/AgentLoop.ts", score: 0.9, reason: "target" }],
+      candidateFiles: [],
+      locateStats: {},
+    },
+  });
+  const contextPack = createMockTool({
+    name: "context_pack",
+    permission: "read",
+    output: { files: [{ path: "src/agent/AgentLoop.ts", content: "export class AgentLoop {}" }] },
+  });
+  const goal = "修改 AgentLoop 并补充测试，然后验证 typecheck 是否通过";
+  const policy = resolveRunPolicy({
+    message: goal,
+    requestedPermissionPolicy: "autoEdit",
+  });
+  assert.ok(shouldRunImplicitPlan(policy.intent, goal), `intent=${policy.intent}`);
+  const executor = new WorkflowExecutor({
+    registry: createMockRegistry([locate, contextPack]),
+    workspaceRoot: sandbox,
+    allowedPermissions: policy.allowedPermissions,
+    budget: policy.budget,
+    budgetManager: defaultRunPolicyManager.createBudgetManager(policy),
+    policy,
+  });
+
+  const result = await executor.executeBeforeModel({ goal });
+
+  assert.equal(result.workflowInternalPlans.length, 1);
+  assert.equal(result.workflowInternalPlans[0]!.phase, "implicit");
+  assert.equal(result.workflowInternalPlans[0]!.userVisiblePlanMode, false);
+  assert.match(result.modelContexts.find((ctx) => ctx.includes("implicit internal plan phase")) ?? "", /internalSteps/);
+  assert.equal(result.workflowProposals.length, 0);
 });
 
 test("edit proposal records confirmation-required permission checks", async () => {

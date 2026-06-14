@@ -1306,6 +1306,114 @@
       }
     },
     {
+      "id": "m1-agent-implicit-plan-api-spec",
+      "title": "API 规范登记隐式内部轻量计划",
+      "purpose": "确认 OpenAPI 已说明复杂任务会生成 ImplicitPlanWorkflow 内部计划，并在 executionMeta.workflowInternalPlans 标记 userVisiblePlanMode=false。",
+      "method": "GET",
+      "path": "/api/api-spec.json",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyContains": ["ImplicitPlanWorkflow", "workflowInternalPlans", "AgentWorkflowInternalPlan", "userVisiblePlanMode"]
+      }
+    },
+    {
+      "id": "m1-agent-workflow-task-state-doc",
+      "title": "对话循环文档记录统一任务状态",
+      "purpose": "确认文档站已说明 executionMeta.workflowTaskState 会返回 planning/executing/verifying 等统一任务状态。",
+      "method": "GET",
+      "path": "/api/docs/content?slug=对话循环",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyPaths": {
+          "markdown": "string"
+        },
+        "bodyContains": ["workflowTaskState", "waiting_confirmation", "ImplicitPlanWorkflow"]
+      }
+    },
+    {
+      "id": "m1-agent-workflow-switch-api-spec",
+      "title": "API 规范登记会话内工作流切换",
+      "purpose": "确认 OpenAPI 已说明同一会话后续消息意图变化时 executionMeta.workflowSwitch 会返回 from/to 工作流记录。",
+      "method": "GET",
+      "path": "/api/api-spec.json",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyContains": ["AgentWorkflowSwitch", "workflowSwitch", "fromWorkflowType", "toWorkflowType"]
+      }
+    },
+    {
+      "id": "m1-agent-workflow-switch-doc",
+      "title": "对话循环文档记录会话内工作流切换",
+      "purpose": "确认文档站已说明 WorkflowSessionSwitch 会在同一会话中自动检测 answer→edit 等工作流切换并注入模型上下文。",
+      "method": "GET",
+      "path": "/api/docs/content?slug=对话循环",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyPaths": {
+          "markdown": "string"
+        },
+        "bodyContains": ["workflowSwitch", "WorkflowSessionSwitch", "answerWorkflow"]
+      }
+    },
+    {
+      "id": "m1-agent-refactor-plan-workflow-api-spec",
+      "title": "API 规范登记 RefactorPlanWorkflow",
+      "purpose": "确认 OpenAPI 已声明 refactorWorkflow 会注入 plan phase，并通过 executionMeta.workflowRefactorPlans 返回分阶段重构契约。",
+      "method": "GET",
+      "path": "/api/api-spec.json",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyContains": ["RefactorPlanWorkflow", "workflowRefactorPlans", "AgentWorkflowRefactorPlan", "stagedChanges"]
+      }
+    },
+    {
+      "id": "m1-agent-refactor-plan-workflow-doc",
+      "title": "对话循环文档记录 refactorWorkflow 分阶段计划",
+      "purpose": "确认文档站已说明 refactorWorkflow 会先预扫描并注入 scopeSummary/stagedChanges/perStageVerification 等分阶段计划约束。",
+      "method": "GET",
+      "path": "/api/docs/content?slug=对话循环",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyPaths": {
+          "markdown": "string"
+        },
+        "bodyContains": ["RefactorPlanWorkflow", "refactorWorkflow", "workflowRefactorPlans", "stagedChanges"]
+      }
+    },
+    {
+      "id": "m1-agent-workflow-correction-api-spec",
+      "title": "API 规范登记验证失败修正迭代",
+      "purpose": "确认 OpenAPI 已说明验证失败时 WorkflowCorrectionWorkflow 会注入 correction/termination phase，并在 executionMeta.workflowCorrections 返回 attempt 与 limitReached。",
+      "method": "GET",
+      "path": "/api/api-spec.json",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyContains": ["WorkflowCorrectionWorkflow", "workflowCorrections", "AgentWorkflowCorrectionRecord", "termination phase"]
+      }
+    },
+    {
+      "id": "m1-agent-workflow-correction-doc",
+      "title": "对话循环文档记录验证失败修正迭代",
+      "purpose": "确认文档站已说明验证失败后会统计 correction attempt、注入 correction/termination phase，并写入 executionMeta.workflowCorrections。",
+      "method": "GET",
+      "path": "/api/docs/content?slug=对话循环",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyPaths": {
+          "markdown": "string"
+        },
+        "bodyContains": ["WorkflowCorrectionWorkflow", "workflowCorrections", "correction/termination", "最多 2 轮"]
+      }
+    },
+    {
       "id": "m1-agent-unknown-client-still-force",
       "title": "未知 clientName 仍立即 404",
       "purpose": "确认 Smart 路由接入后，显式 clientName 校验行为不变，不会静默回退默认路由。",

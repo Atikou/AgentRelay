@@ -21,7 +21,9 @@ export interface EditAutoVerificationWorkflowResult {
  */
 export class EditAutoVerificationWorkflow {
   run(input: EditAutoVerificationWorkflowInput): EditAutoVerificationWorkflowResult | undefined {
-    if (input.intent !== "edit" && input.intent !== "generate_file") return undefined;
+    if (input.intent !== "edit" && input.intent !== "generate_file" && input.intent !== "debug" && input.intent !== "refactor") {
+      return undefined;
+    }
     if (!input.step.ok || (input.step.tool !== "write_file" && input.step.tool !== "apply_patch")) {
       return undefined;
     }

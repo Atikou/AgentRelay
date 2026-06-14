@@ -15,7 +15,8 @@ export type AgentWorkflowId =
   | "implement_locate"
   | "edit_locate"
   | "debug_locate"
-  | "generate_file_locate";
+  | "generate_file_locate"
+  | "refactor_locate";
 
 export interface WorkflowPlan {
   id: AgentWorkflowId;
@@ -39,6 +40,8 @@ const GENERATE_FILE_UNICODE_RE =
   /(\u751f\u6210|\u521b\u5efa|\u65b0\u589e|\u5199).{0,20}\u6587\u4ef6|generate.*file|create.*file|new file/;
 const EDIT_UNICODE_RE =
   /\u4fee\u6539|\u66f4\u65b0|\u8c03\u6574|\u4fee\u590d|\u8865\u4e01|\u6539\u52a8|\u7f16\u8f91|fix|edit|update|patch|change/;
+const REFACTOR_UNICODE_RE =
+  /\u91cd\u6784|\u89e3\u8026|\u5faa\u73af\u5f15\u7528|\u5f3a\u4f9d\u8d56|\u67b6\u6784\u8c03\u6574|refactor/;
 const CODE_WORK_UNICODE_RE =
   /\u4fee\u6539|\u5b9e\u73b0|\u4fee\u590d|\u6dfb\u52a0|\u91cd\u6784|\u66f4\u65b0|\u7f16\u5199|\u8c03\u6574|fix|implement|refactor|add|update|patch|debug/;
 
@@ -80,6 +83,9 @@ export class WorkflowPlanner {
 
     const debugLocate = this.planDebugLocate(goal, mode, intent);
     if (debugLocate) return debugLocate;
+
+    const refactorLocate = this.planRefactorLocate(goal, mode, intent);
+    if (refactorLocate) return refactorLocate;
 
     const editLocate = this.planEditLocate(goal, mode, intent);
     if (editLocate) return editLocate;
@@ -130,6 +136,29 @@ export class WorkflowPlanner {
       contextHeader: "generateFileWorkflow read-only prelocation result:",
       contextHint:
         "Use the located files and context_pack result to infer naming, exports, tests, and documentation before creating a new file.",
+    };
+  }
+
+  private planRefactorLocate(
+    goal: string,
+    mode: AgentRunMode,
+    intent?: AgentIntentType,
+  ): WorkflowPlan | null {
+    if (mode !== "implement" && intent !== "refactor") return null;
+    const wantsRefactor =
+      intent === "refactor" ||
+      /重构|解耦|循环引用|强依赖|架构调整|refactor/.test(goal) ||
+      REFACTOR_UNICODE_RE.test(goal);
+    if (!wantsRefactor || !hasProjectScope(goal)) return null;
+
+    return {
+      id: "refactor_locate",
+      reason:
+        "refactorWorkflow read-only prescan: map project scope before staged refactor planning.",
+      steps: ["project_scan", "locate_relevant_files", "context_pack"],
+      contextHeader: "refactorWorkflow read-only prescan result:",
+      contextHint:
+        "Use scan and located context to draft a staged refactor plan before any write-capable action.",
     };
   }
 

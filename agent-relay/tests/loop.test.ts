@@ -10,6 +10,7 @@ import path from "node:path";
 import { AgentLoop, parseAction, type LoopChatFn } from "../src/agent/AgentLoop.js";
 import { shouldRunPlanWorkflow } from "../src/agent/PlanWorkflow.js";
 import { resolveRunPolicy } from "../src/agent/RunPolicy.js";
+import { defaultWorkflowSessionStore } from "../src/agent/WorkflowSessionSwitch.js";
 import type { NotificationQueue } from "../src/background/NotificationQueue.js";
 import type { ModelResponse } from "../src/model/types.js";
 import { readRecentTraceEvents } from "../src/trace/traceReader.js";
@@ -499,6 +500,125 @@ test("debugWorkflow injects analysis phase and execution meta before model turn"
   assert.equal(res.executionMeta.usedWriteCalls, 0);
 });
 
+test("refactorWorkflow injects prescan and staged plan before model turn", async () => {
+  let firstPrompt = "";
+  const chat: LoopChatFn = async (req) => {
+    firstPrompt = req.messages.map((m) => m.content).join("\n");
+    return {
+      content: '{"action":"final","answer":"已输出分阶段重构计划，尚未写入"}',
+      toolCalls: [],
+      clientName: "fake",
+      modelName: "fake",
+      location: "local",
+      latencyMs: 1,
+    };
+  };
+  const policy = resolveRunPolicy({
+    message: "先解耦 model-router 与 agent 模块，梳理当前项目依赖",
+    requestedPermissionPolicy: "autoEdit",
+  });
+  const loop = new AgentLoop({
+    chat,
+    registry: createDefaultRegistry(),
+    workspaceRoot: sandbox,
+    policy,
+  });
+
+  const res = await loop.run("先解耦 model-router 与 agent 模块，梳理当前项目依赖");
+
+  assert.equal(res.executionMeta.intent, "refactor");
+  assert.equal(res.executionMeta.workflowType, "refactorWorkflow");
+  assert.match(firstPrompt, /refactorWorkflow read-only prescan result/);
+  assert.match(firstPrompt, /refactorWorkflow plan phase/);
+  assert.match(firstPrompt, /stagedChanges/);
+  assert.match(firstPrompt, /perStageVerification/);
+  assert.equal(res.executionMeta.workflowRefactorPlans?.length, 1);
+  assert.equal(res.executionMeta.workflowRefactorPlans?.[0]?.phase, "plan");
+  assert.equal(res.executionMeta.workflowRefactorPlans?.[0]?.maxStages, 5);
+  assert.equal(res.executionMeta.usedWriteCalls, 0);
+});
+
+test("complex editWorkflow injects implicit internal plan and task state", async () => {
+  let firstPrompt = "";
+  const chat: LoopChatFn = async (req) => {
+    firstPrompt = req.messages.map((m) => m.content).join("\n");
+    return {
+      content: '{"action":"final","answer":"已整理内部步骤，尚未写入"}',
+      toolCalls: [],
+      clientName: "fake",
+      modelName: "fake",
+      location: "local",
+      latencyMs: 1,
+    };
+  };
+  const policy = resolveRunPolicy({
+    message: "修改 AgentLoop 模块，然后更新导出接口并补充文档说明",
+    requestedPermissionPolicy: "autoEdit",
+  });
+  const loop = new AgentLoop({
+    chat,
+    registry: createDefaultRegistry(),
+    workspaceRoot: sandbox,
+    policy,
+  });
+
+  const res = await loop.run("修改 AgentLoop 模块，然后更新导出接口并补充文档说明");
+
+  assert.equal(res.executionMeta.intent, "edit");
+  assert.match(firstPrompt, /implicit internal plan phase/);
+  assert.match(firstPrompt, /NOT user-visible plan mode/);
+  assert.equal(res.executionMeta.workflowInternalPlans?.length, 1);
+  assert.equal(res.executionMeta.workflowInternalPlans?.[0]?.userVisiblePlanMode, false);
+  assert.equal(res.executionMeta.workflowTaskState, "completed");
+});
+
+test("session auto-switches workflow from answer to edit on follow-up message", async () => {
+  const sessionId = "loop-session-workflow-switch";
+  defaultWorkflowSessionStore.clear(sessionId);
+
+  const answerChat = scriptedChat(['{"action":"final","answer":"本地编排后端"}']);
+  const answerLoop = new AgentLoop({
+    chat: answerChat,
+    registry: createDefaultRegistry(),
+    workspaceRoot: sandbox,
+    sessionId,
+  });
+  const answerRes = await answerLoop.run("这个项目用途是什么");
+  assert.equal(answerRes.executionMeta.intent, "answer");
+  assert.equal(answerRes.executionMeta.workflowSwitch, undefined);
+
+  let followUpPrompt = "";
+  const editChat: LoopChatFn = async (req) => {
+    followUpPrompt = req.messages.map((m) => m.content).join("\n");
+    return {
+      content: '{"action":"final","answer":"准备修改 README"}',
+      toolCalls: [],
+      clientName: "fake",
+      modelName: "fake",
+      location: "local",
+      latencyMs: 1,
+    };
+  };
+  const editLoop = new AgentLoop({
+    chat: editChat,
+    registry: createDefaultRegistry(),
+    workspaceRoot: sandbox,
+    sessionId,
+    autoConfirm: true,
+    policy: resolveRunPolicy({
+      message: "修改 README 简介，让说明更清楚",
+      requestedPermissionPolicy: "autoEdit",
+    }),
+  });
+  const editRes = await editLoop.run("修改 README 简介，让说明更清楚");
+
+  assert.equal(editRes.executionMeta.intent, "edit");
+  assert.equal(editRes.executionMeta.workflowSwitch?.switched, true);
+  assert.equal(editRes.executionMeta.workflowSwitch?.fromIntent, "answer");
+  assert.equal(editRes.executionMeta.workflowSwitch?.toIntent, "edit");
+  assert.match(followUpPrompt, /Workflow switched within session/);
+});
+
 test("editWorkflow injects execution phase after write tool succeeds", async () => {
   await fs.mkdir(path.join(sandbox, "src", "agent"), { recursive: true });
   await fs.writeFile(
@@ -636,6 +756,88 @@ test("editWorkflow automatically reads back written file for verification", asyn
   assert.match(secondPrompt, /verificationStatus: completed/);
   assert.match(secondPrompt, /changed files, changeId, and verification status/);
   assert.equal(res.answer, "已修改并验证通过");
+});
+
+test("editWorkflow injects correction phase after failed verification", async () => {
+  await fs.mkdir(path.join(sandbox, "src", "agent"), { recursive: true });
+  await fs.writeFile(
+    path.join(sandbox, "src", "agent", "AgentLoop.ts"),
+    "export class AgentLoop { run() { return 'old'; } }\n",
+    "utf-8",
+  );
+
+  let thirdPrompt = "";
+  let turn = 0;
+  const chat: LoopChatFn = async (req) => {
+    turn += 1;
+    if (turn === 1) {
+      return {
+        content: JSON.stringify({
+          action: "tool",
+          tool: "write_file",
+          input: {
+            path: "src/agent/AgentLoop.ts",
+            content: "export class AgentLoop { run() { return 'new'; } }\n",
+          },
+          thought: "执行最小写入",
+        }),
+        toolCalls: [],
+        clientName: "fake",
+        modelName: "fake",
+        location: "local",
+        latencyMs: 1,
+      };
+    }
+    if (turn === 2) {
+      return {
+        content: JSON.stringify({
+          action: "tool",
+          tool: "read_file",
+          input: { path: "src/agent/Missing.ts" },
+          thought: "再次读回验证",
+        }),
+        toolCalls: [],
+        clientName: "fake",
+        modelName: "fake",
+        location: "local",
+        latencyMs: 1,
+      };
+    }
+    thirdPrompt = req.messages.map((m) => m.content).join("\n");
+    return {
+      content: '{"action":"final","answer":"验证失败，已记录修正建议"}',
+      toolCalls: [],
+      clientName: "fake",
+      modelName: "fake",
+      location: "local",
+      latencyMs: 1,
+    };
+  };
+  const loop = new AgentLoop({
+    chat,
+    registry: createDefaultRegistry(),
+    workspaceRoot: sandbox,
+    mode: "implement",
+    permissionPolicy: "autoEdit",
+    budget: {
+      maxModelTurns: 5,
+      maxToolCalls: 10,
+      maxReadCalls: 8,
+      maxWriteCalls: 1,
+      maxShellCalls: 0,
+      maxRuntimeMs: 60000,
+    },
+  });
+
+  const res = await loop.run("修改 src/agent/AgentLoop.ts 并运行验证");
+
+  assert.equal(res.steps.some((s) => s.tool === "read_file" && !s.ok && s.iteration > 1), true);
+  assert.equal(res.executionMeta.workflowCorrections?.length, 1);
+  assert.equal(res.executionMeta.workflowCorrections?.[0]?.phase, "correction");
+  assert.equal(res.executionMeta.workflowCorrections?.[0]?.limitReached, false);
+  assert.match(thirdPrompt, /editWorkflow correction phase/);
+  assert.match(thirdPrompt, /correctionAttempt: 1\/2/);
+  assert.equal(res.answer, "验证失败，已记录修正建议");
 });
 
 test("PlanWorkflow 不处理非项目分析型计划请求", async () => {

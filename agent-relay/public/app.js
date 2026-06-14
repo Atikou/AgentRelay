@@ -29,6 +29,17 @@ const WORKFLOW_STATUS_LABELS = {
   generateFileWorkflow: "正在生成文件",
 };
 
+const TASK_STATE_LABELS = {
+  idle: "待命",
+  planning: "内部规划中",
+  waiting_confirmation: "等待确认",
+  executing: "执行中",
+  verifying: "验证中",
+  completed: "已完成",
+  failed: "失败",
+  cancelled: "已取消",
+};
+
 const INTENT_STATUS_LABELS = {
   answer: "问答",
   plan: "计划",
@@ -1211,6 +1222,14 @@ function renderConfirmationRequest(request) {
 }
 
 function getWorkflowStatusLabel(meta) {
+  if (meta.workflowSwitch?.switched) {
+    const from = meta.workflowSwitch.fromWorkflowType || meta.workflowSwitch.fromIntent;
+    const to = meta.workflowSwitch.toWorkflowType || meta.workflowSwitch.toIntent;
+    return `已切换：${from} → ${to}`;
+  }
+  if (meta.workflowTaskState && TASK_STATE_LABELS[meta.workflowTaskState]) {
+    return TASK_STATE_LABELS[meta.workflowTaskState];
+  }
   return WORKFLOW_STATUS_LABELS[meta.workflowType] || meta.workflowType || meta.intent || meta.mode || "";
 }
 
@@ -1219,6 +1238,10 @@ function renderWorkflowStatus(meta) {
   const label = getWorkflowStatusLabel(meta);
   if (!label) return "";
   const details = [
+    meta.workflowSwitch?.switched
+      ? `工作流切换：${meta.workflowSwitch.fromWorkflowType} → ${meta.workflowSwitch.toWorkflowType}`
+      : "",
+    meta.workflowTaskState ? `任务状态：${TASK_STATE_LABELS[meta.workflowTaskState] || meta.workflowTaskState}` : "",
     meta.intent ? `意图：${INTENT_STATUS_LABELS[meta.intent] || meta.intent}` : "",
     meta.permissionPolicy ? `权限：${meta.permissionPolicy}` : "",
     meta.mode ? `模式：${meta.mode}` : "",

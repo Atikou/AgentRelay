@@ -22,7 +22,7 @@ export interface EditVerificationWorkflowResult {
  */
 export class EditVerificationWorkflow {
   run(input: EditVerificationWorkflowInput): EditVerificationWorkflowResult | undefined {
-    if (input.intent !== "edit" && input.intent !== "generate_file") return undefined;
+    if (!supportsWriteVerifyIntent(input.intent)) return undefined;
     if (!isVerificationTool(input.currentStep.tool)) return undefined;
 
     const writeStep = findNearestPriorWrite(input.steps, input.currentStep);
@@ -40,7 +40,7 @@ export class EditVerificationWorkflow {
   }
 
   collect(intent: AgentIntentType, steps: AgentToolStep[]): AgentWorkflowVerificationRecord[] {
-    if (intent !== "edit" && intent !== "generate_file") return [];
+    if (!supportsWriteVerifyIntent(intent)) return [];
     const records: AgentWorkflowVerificationRecord[] = [];
     for (const step of steps) {
       if (!isVerificationTool(step.tool)) continue;
@@ -53,7 +53,7 @@ export class EditVerificationWorkflow {
 }
 
 interface RecordInput {
-  intent: Extract<AgentIntentType, "edit" | "generate_file">;
+  intent: Extract<AgentIntentType, "edit" | "generate_file" | "debug" | "refactor">;
   writeStep: AgentToolStep;
   verificationStep: AgentToolStep;
 }
@@ -64,7 +64,7 @@ function buildVerificationRecord(input: RecordInput): AgentWorkflowVerificationR
     ? input.verificationStep.resultLayers?.raw ?? input.verificationStep.resultLayers?.modelVisible ?? input.verificationStep.output
     : input.verificationStep.error;
   return {
-    workflowType: input.intent === "generate_file" ? "generateFileWorkflow" : "editWorkflow",
+    workflowType: workflowTypeForIntent(input.intent),
     writeToolCallId: input.writeStep.toolCallId,
     writeTool: input.writeStep.tool as "write_file" | "apply_patch",
     path: readString(writeRaw.path),
@@ -135,4 +135,17 @@ function previewValue(value: unknown, maxChars = 1_500): string | undefined {
   const text = typeof value === "string" ? value : JSON.stringify(value);
   if (!text) return undefined;
   return text.length <= maxChars ? text : `${text.slice(0, maxChars)}\n... (verification output truncated)`;
+}
+
+function supportsWriteVerifyIntent(intent: AgentIntentType): intent is Extract<AgentIntentType, "edit" | "generate_file" | "debug" | "refactor"> {
+  return intent === "edit" || intent === "generate_file" || intent === "debug" || intent === "refactor";
+}
+
+function workflowTypeForIntent(
+  intent: Extract<AgentIntentType, "edit" | "generate_file" | "debug" | "refactor">,
+): AgentWorkflowVerificationRecord["workflowType"] {
+  if (intent === "generate_file") return "generateFileWorkflow";
+  if (intent === "debug") return "debugWorkflow";
+  if (intent === "refactor") return "refactorWorkflow";
+  return "editWorkflow";
 }

@@ -4,12 +4,16 @@ import type { TraceLogger } from "../trace/TraceLogger.js";
 import type { ToolRegistry } from "../tools/ToolRegistry.js";
 import type { BudgetManager } from "./BudgetManager.js";
 import type { ToolPermission } from "./permissions.js";
+import { ImplicitPlanWorkflow } from "./ImplicitPlanWorkflow.js";
+import { RefactorPlanWorkflow } from "./RefactorPlanWorkflow.js";
 import { DebugAnalysisWorkflow } from "./DebugAnalysisWorkflow.js";
 import { EditProposalWorkflow } from "./EditProposalWorkflow.js";
 import { PlanWorkflow, type PlanWorkflowResumeContext } from "./PlanWorkflow.js";
 import type {
   AgentWorkflowDebugAnalysis,
+  AgentWorkflowInternalPlan,
   AgentWorkflowProposal,
+  AgentWorkflowRefactorPlan,
   RunPolicy,
   RunBudget,
 } from "./RunPolicyTypes.js";
@@ -42,6 +46,8 @@ export interface WorkflowExecutionResult {
   modelContexts: string[];
   workflowProposals: AgentWorkflowProposal[];
   workflowDebugAnalyses: AgentWorkflowDebugAnalysis[];
+  workflowRefactorPlans: AgentWorkflowRefactorPlan[];
+  workflowInternalPlans: AgentWorkflowInternalPlan[];
 }
 
 export class WorkflowExecutor {
@@ -52,6 +58,8 @@ export class WorkflowExecutor {
     const modelContexts: string[] = [];
     const workflowProposals: AgentWorkflowProposal[] = [];
     const workflowDebugAnalyses: AgentWorkflowDebugAnalysis[] = [];
+    const workflowRefactorPlans: AgentWorkflowRefactorPlan[] = [];
+    const workflowInternalPlans: AgentWorkflowInternalPlan[] = [];
 
     const planResult = await this.runPlanWorkflow(input);
     if (planResult) {
@@ -63,6 +71,18 @@ export class WorkflowExecutor {
     if (debugAnalysisResult) {
       modelContexts.push(debugAnalysisResult.modelContext);
       workflowDebugAnalyses.push(debugAnalysisResult.analysis);
+    }
+
+    const refactorPlanResult = this.runRefactorPlanWorkflow(input.goal);
+    if (refactorPlanResult) {
+      modelContexts.push(refactorPlanResult.modelContext);
+      workflowRefactorPlans.push(refactorPlanResult.plan);
+    }
+
+    const implicitPlanResult = this.runImplicitPlanWorkflow(input.goal);
+    if (implicitPlanResult) {
+      modelContexts.push(implicitPlanResult.modelContext);
+      workflowInternalPlans.push(implicitPlanResult.plan);
     }
 
     const editProposalResult = this.runEditProposalWorkflow(input.goal);
@@ -77,7 +97,7 @@ export class WorkflowExecutor {
       modelContexts.push(runVerifyResult.modelContext);
     }
 
-    return { steps, modelContexts, workflowProposals, workflowDebugAnalyses };
+    return { steps, modelContexts, workflowProposals, workflowDebugAnalyses, workflowRefactorPlans, workflowInternalPlans };
   }
 
   private async runPlanWorkflow(
@@ -158,6 +178,23 @@ export class WorkflowExecutor {
     return new DebugAnalysisWorkflow().run({
       goal,
       intent: this.options.policy.intent,
+      permissionPolicy: this.options.policy.permissionPolicy,
+    });
+  }
+
+  private runRefactorPlanWorkflow(goal: string) {
+    return new RefactorPlanWorkflow().run({
+      goal,
+      intent: this.options.policy.intent,
+      permissionPolicy: this.options.policy.permissionPolicy,
+    });
+  }
+
+  private runImplicitPlanWorkflow(goal: string) {
+    return new ImplicitPlanWorkflow().run({
+      goal,
+      intent: this.options.policy.intent,
+      workflowType: this.options.policy.workflowType,
       permissionPolicy: this.options.policy.permissionPolicy,
     });
   }

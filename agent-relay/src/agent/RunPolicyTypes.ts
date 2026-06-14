@@ -96,7 +96,10 @@ export interface AgentWorkflowDiffRecord {
 }
 
 export interface AgentWorkflowVerificationRecord {
-  workflowType: Extract<AgentWorkflowType, "editWorkflow" | "generateFileWorkflow">;
+  workflowType: Extract<
+    AgentWorkflowType,
+    "editWorkflow" | "generateFileWorkflow" | "debugWorkflow" | "refactorWorkflow"
+  >;
   writeToolCallId?: string;
   writeTool: "write_file" | "apply_patch";
   path?: string;
@@ -107,6 +110,23 @@ export interface AgentWorkflowVerificationRecord {
   blocked?: boolean;
   error?: string;
   outputPreview?: string;
+}
+
+export interface AgentWorkflowCorrectionRecord {
+  workflowType: Extract<
+    AgentWorkflowType,
+    "editWorkflow" | "generateFileWorkflow" | "debugWorkflow" | "refactorWorkflow"
+  >;
+  phase: "correction" | "termination";
+  path?: string;
+  changeId?: string;
+  writeToolCallId?: string;
+  verificationToolCallId?: string;
+  verificationTool: string;
+  attempt: number;
+  maxAttempts: number;
+  limitReached: boolean;
+  verificationError?: string;
 }
 
 export interface AgentWorkflowDebugAnalysis {
@@ -121,6 +141,52 @@ export interface AgentWorkflowDebugAnalysis {
   requiresConfirmationBeforeWrite: boolean;
 }
 
+export interface AgentWorkflowRefactorPlan {
+  workflowType: Extract<AgentWorkflowType, "refactorWorkflow">;
+  phase: "plan";
+  goal: string;
+  intent: Extract<AgentIntentType, "refactor">;
+  permissionPolicy: UserPermissionPolicy;
+  requiredFields: string[];
+  maxStages: number;
+  suggestedTools: string[];
+  writeAllowedByPolicy: boolean;
+  requiresConfirmationBeforeWrite: boolean;
+}
+
+export interface AgentWorkflowInternalPlan {
+  workflowType: AgentWorkflowType;
+  phase: "implicit";
+  goal: string;
+  intent: AgentIntentType;
+  permissionPolicy: UserPermissionPolicy;
+  requiredFields: string[];
+  complexitySignals: string[];
+  /** 明确区分：内部轻量计划，不是用户可见计划模式。 */
+  userVisiblePlanMode: false;
+  maxSteps: number;
+}
+
+export type AgentWorkflowTaskState =
+  | "idle"
+  | "planning"
+  | "waiting_confirmation"
+  | "executing"
+  | "verifying"
+  | "completed"
+  | "failed"
+  | "cancelled";
+
+export interface AgentWorkflowSwitch {
+  switched: true;
+  fromIntent: AgentIntentType;
+  toIntent: AgentIntentType;
+  fromWorkflowType: AgentWorkflowType;
+  toWorkflowType: AgentWorkflowType;
+  fromTaskState?: AgentWorkflowTaskState;
+  sequence: number;
+}
+
 export interface AgentExecutionMeta {
   mode: AgentRunMode;
   modeSource?: "explicit" | "inferred";
@@ -131,7 +197,12 @@ export interface AgentExecutionMeta {
   workflowProposals?: AgentWorkflowProposal[];
   workflowDiffs?: AgentWorkflowDiffRecord[];
   workflowVerifications?: AgentWorkflowVerificationRecord[];
+  workflowCorrections?: AgentWorkflowCorrectionRecord[];
   workflowDebugAnalyses?: AgentWorkflowDebugAnalysis[];
+  workflowRefactorPlans?: AgentWorkflowRefactorPlan[];
+  workflowInternalPlans?: AgentWorkflowInternalPlan[];
+  workflowTaskState?: AgentWorkflowTaskState;
+  workflowSwitch?: AgentWorkflowSwitch;
   budget: RunBudget;
   usage: RunBudgetUsage;
   budgetExhausted?: RunBudgetKey;

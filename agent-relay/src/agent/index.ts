@@ -24,6 +24,33 @@ export {
   type WorkflowRouteResult,
 } from "./WorkflowRouter.js";
 export {
+  ImplicitPlanWorkflow,
+  assessTaskComplexity,
+  shouldRunImplicitPlan,
+  IMPLICIT_PLAN_MAX_STEPS,
+  type ImplicitPlanWorkflowInput,
+  type ImplicitPlanWorkflowResult,
+} from "./ImplicitPlanWorkflow.js";
+export {
+  resolveWorkflowTaskState,
+  hasPlanningPhaseArtifacts,
+  type ResolveWorkflowTaskStateInput,
+} from "./WorkflowTaskState.js";
+export {
+  WorkflowSessionStore,
+  defaultWorkflowSessionStore,
+  resolveWorkflowSwitch,
+  renderWorkflowSwitchContext,
+  type WorkflowSessionSnapshot,
+  type ResolveWorkflowSwitchInput,
+} from "./WorkflowSessionSwitch.js";
+export {
+  RefactorPlanWorkflow,
+  REFACTOR_PLAN_MAX_STAGES,
+  type RefactorPlanWorkflowInput,
+  type RefactorPlanWorkflowResult,
+} from "./RefactorPlanWorkflow.js";
+export {
   DebugAnalysisWorkflow,
   type DebugAnalysisWorkflowInput,
   type DebugAnalysisWorkflowResult,
@@ -48,6 +75,12 @@ export {
   type EditVerificationWorkflowInput,
   type EditVerificationWorkflowResult,
 } from "./EditVerificationWorkflow.js";
+export {
+  WorkflowCorrectionWorkflow,
+  MAX_WORKFLOW_CORRECTION_ATTEMPTS,
+  type WorkflowCorrectionWorkflowInput,
+  type WorkflowCorrectionWorkflowResult,
+} from "./WorkflowCorrectionWorkflow.js";
 export {
   WorkflowExecutor,
   type WorkflowExecutionInput,

@@ -3,9 +3,14 @@ import type {
   AgentExecutionMeta,
   AgentRunMode,
   AgentStopReason,
+  AgentWorkflowInternalPlan,
+  AgentWorkflowSwitch,
+  AgentWorkflowTaskState,
   RunBudgetKey,
   RunBudgetUsage,
+  UserPermissionPolicy,
 } from "../agent/RunPolicyTypes.js";
+import type { AgentIntentType, AgentWorkflowType } from "../agent/IntentTypes.js";
 import type { AgentToolStep } from "../agent/toolStep.js";
 import type { AgentWorkflowId } from "../agent/WorkflowPlanner.js";
 import type { WorkflowToolName } from "../agent/WorkflowPlanner.js";
@@ -52,6 +57,12 @@ export interface RunState {
   updatedAt: string;
   /** 定位进度：searchPlan / visitedFiles / candidateFiles 等，续跑时注入 locate。 */
   location?: RunStateLocationContext;
+  intent?: AgentIntentType;
+  workflowType?: AgentWorkflowType;
+  permissionPolicy?: UserPermissionPolicy;
+  workflowTaskState?: AgentWorkflowTaskState;
+  workflowInternalPlans?: AgentWorkflowInternalPlan[];
+  workflowSwitch?: AgentWorkflowSwitch;
 }
 
 export function extractCompletedWorkflowSteps(
@@ -143,7 +154,11 @@ export function buildRunStateFromAgentRun(input: {
   projectIndexStats?: { fileCount: number; symbolCount: number };
 }): RunState | null {
   if (input.executionMeta.stopReason !== "budget_exhausted") return null;
-  const workflow = defaultWorkflowPlanner.plan(input.goal, input.mode);
+  const workflow = defaultWorkflowPlanner.plan(
+    input.goal,
+    input.mode,
+    input.executionMeta.intent,
+  );
   if (!workflow) return null;
 
   const completedSteps = extractCompletedWorkflowSteps(input.steps, workflow.steps);
@@ -174,5 +189,11 @@ export function buildRunStateFromAgentRun(input: {
     budgetExhausted: input.executionMeta.budgetExhausted,
     updatedAt: now,
     location,
+    intent: input.executionMeta.intent,
+    workflowType: input.executionMeta.workflowType,
+    permissionPolicy: input.executionMeta.permissionPolicy,
+    workflowTaskState: input.executionMeta.workflowTaskState,
+    workflowInternalPlans: input.executionMeta.workflowInternalPlans,
+    workflowSwitch: input.executionMeta.workflowSwitch,
   };
 }

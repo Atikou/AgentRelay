@@ -57,6 +57,18 @@ test("debug mode chooses debug_locate before generic implementation locate", () 
   assert.match(plan!.contextHeader, /debugWorkflow/);
 });
 
+test("implement mode refactor task chooses refactor_locate prescan", () => {
+  const plan = defaultWorkflowPlanner.plan(
+    "先解耦 model-router 与 agent 模块，梳理当前项目依赖",
+    "implement",
+    "refactor",
+  );
+  assert.ok(plan);
+  assert.equal(plan!.id, "refactor_locate");
+  assert.deepEqual(plan!.steps, ["project_scan", "locate_relevant_files", "context_pack"]);
+  assert.match(plan!.contextHeader, /refactorWorkflow/);
+});
+
 test("chat 模式不触发预扫描工作流", () => {
   assert.equal(defaultWorkflowPlanner.plan("分析当前项目路由模块", "chat"), null);
   assert.equal(shouldRunAgentWorkflow("分析当前项目路由模块", "chat"), false);

@@ -19,7 +19,14 @@ export interface EditExecutionWorkflowResult {
  */
 export class EditExecutionWorkflow {
   run(input: EditExecutionWorkflowInput): EditExecutionWorkflowResult | undefined {
-    if (input.intent !== "edit" && input.intent !== "generate_file") return undefined;
+    if (
+      input.intent !== "edit" &&
+      input.intent !== "generate_file" &&
+      input.intent !== "debug" &&
+      input.intent !== "refactor"
+    ) {
+      return undefined;
+    }
     if (!input.step.ok || (input.step.tool !== "write_file" && input.step.tool !== "apply_patch")) {
       return undefined;
     }
@@ -28,7 +35,14 @@ export class EditExecutionWorkflow {
     return {
       modelContext: renderEditExecutionContext({
         goal: input.goal,
-        workflowType: input.intent === "generate_file" ? "generateFileWorkflow" : "editWorkflow",
+        workflowType:
+          input.intent === "generate_file"
+            ? "generateFileWorkflow"
+            : input.intent === "debug"
+              ? "debugWorkflow"
+              : input.intent === "refactor"
+                ? "refactorWorkflow"
+                : "editWorkflow",
         tool: input.step.tool,
         toolCallId: input.step.toolCallId,
         path: readString(raw.path),
@@ -42,7 +56,7 @@ export class EditExecutionWorkflow {
 
 interface RenderInput {
   goal: string;
-  workflowType: "editWorkflow" | "generateFileWorkflow";
+  workflowType: "editWorkflow" | "generateFileWorkflow" | "debugWorkflow" | "refactorWorkflow";
   tool: "write_file" | "apply_patch";
   toolCallId?: string;
   path?: string;
@@ -63,6 +77,9 @@ function renderEditExecutionContext(input: RenderInput): string {
     input.diff ? ["diff:", input.diff].join("\n") : undefined,
     "",
     "The write-capable tool has already executed. Do not repeat the same write unless the diff is incomplete or wrong.",
+    input.workflowType === "refactorWorkflow"
+      ? "This is a staged refactor: complete verification for the current stage before starting the next stagedChanges item."
+      : undefined,
     "Next, use the smallest useful verification step allowed by the current permission policy. If verification is unnecessary or unavailable, return final with changed files, changeId, and verification status.",
   ]
     .filter((line): line is string => typeof line === "string" && line.length > 0)

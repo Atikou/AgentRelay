@@ -14,7 +14,14 @@ import { redactPreview } from "../util/redact.js";
 import { EditAutoVerificationWorkflow } from "./EditAutoVerificationWorkflow.js";
 import { EditExecutionWorkflow } from "./EditExecutionWorkflow.js";
 import { EditVerificationWorkflow } from "./EditVerificationWorkflow.js";
+import { WorkflowCorrectionWorkflow } from "./WorkflowCorrectionWorkflow.js";
+import { hasPlanningPhaseArtifacts, resolveWorkflowTaskState } from "./WorkflowTaskState.js";
 import { WorkflowExecutor } from "./WorkflowExecutor.js";
+import {
+  defaultWorkflowSessionStore,
+  renderWorkflowSwitchContext,
+  resolveWorkflowSwitch,
+} from "./WorkflowSessionSwitch.js";
 import {
   buildToolResultLayers,
   clipModelToolJson,
@@ -35,6 +42,10 @@ import {
   type AgentWorkflowDebugAnalysis,
   type AgentWorkflowDiffRecord,
   type AgentWorkflowProposal,
+  type AgentWorkflowCorrectionRecord,
+  type AgentWorkflowInternalPlan,
+  type AgentWorkflowRefactorPlan,
+  type AgentWorkflowSwitch,
   type AgentWorkflowVerificationRecord,
   type LocationExecutionMeta,
   type RunBudget,
@@ -170,6 +181,9 @@ export class AgentLoop {
   private runRoutingMeta?: AgentRoutingMeta;
   private workflowProposals: AgentWorkflowProposal[] = [];
   private workflowDebugAnalyses: AgentWorkflowDebugAnalysis[] = [];
+  private workflowRefactorPlans: AgentWorkflowRefactorPlan[] = [];
+  private workflowInternalPlans: AgentWorkflowInternalPlan[] = [];
+  private workflowSwitch?: AgentWorkflowSwitch;
 
   constructor(private readonly options: AgentLoopOptions) {
     this.policy =
@@ -205,6 +219,9 @@ export class AgentLoop {
     this.runRoutingMeta = undefined;
     this.workflowProposals = [];
     this.workflowDebugAnalyses = [];
+    this.workflowRefactorPlans = [];
+    this.workflowInternalPlans = [];
+    this.workflowSwitch = undefined;
     const isResume = Boolean(this.options.resumeState);
     const effectiveGoal = isResume ? this.options.resumeState!.goal : userMessage;
     const ctx = this.options.contextManager;
@@ -245,9 +262,27 @@ export class AgentLoop {
 
     injectNotifications();
 
+    if (sessionId && !isResume && this.policy.intent && this.policy.workflowType) {
+      this.workflowSwitch = resolveWorkflowSwitch({
+        previous: defaultWorkflowSessionStore.get(sessionId),
+        current: {
+          intent: this.policy.intent,
+          workflowType: this.policy.workflowType,
+        },
+      });
+      if (this.workflowSwitch?.switched) {
+        messages.push({
+          role: "user",
+          content: renderWorkflowSwitchContext(this.workflowSwitch),
+        });
+      }
+    }
+
     const workflowResult = await this.runWorkflowExecutor(effectiveGoal, isResume, sessionId);
     this.workflowProposals = workflowResult.workflowProposals;
     this.workflowDebugAnalyses = workflowResult.workflowDebugAnalyses;
+    this.workflowRefactorPlans = workflowResult.workflowRefactorPlans;
+    this.workflowInternalPlans = workflowResult.workflowInternalPlans;
     for (const step of workflowResult.steps) {
       steps.push(step);
       this.options.onStep?.(step);
@@ -445,6 +480,7 @@ export class AgentLoop {
     sessionId?: string;
     userMessage: string;
   }): Promise<AgentRunResult> {
+    const isResume = Boolean(this.options.resumeState);
     this.writeAgentStepPlanTrace(input.steps);
     const ctx = this.options.contextManager;
     let compressed = false;
@@ -460,6 +496,22 @@ export class AgentLoop {
       goal: input.userMessage,
     });
     this.writeRunUsageSummary(input.steps, executionMeta);
+
+    if (
+      input.sessionId &&
+      !isResume &&
+      this.policy.intent &&
+      this.policy.workflowType
+    ) {
+      defaultWorkflowSessionStore.set({
+        sessionId: input.sessionId,
+        intent: this.policy.intent,
+        workflowType: this.policy.workflowType,
+        workflowTaskState: executionMeta.workflowTaskState,
+        runId: this.options.runId,
+        updatedAt: new Date().toISOString(),
+      });
+    }
 
     if (this.options.runStateStore && this.options.runId) {
       if (input.reachedLimit) {
@@ -547,6 +599,20 @@ export class AgentLoop {
       })?.modelContext;
   }
 
+  private buildWorkflowCorrectionContext(
+    steps: AgentToolStep[],
+    currentStep: AgentToolStep,
+    goal: string,
+  ): string | undefined {
+    return new WorkflowCorrectionWorkflow()
+      .run({
+        goal,
+        intent: this.policy.intent,
+        steps,
+        currentStep,
+      })?.modelContext;
+  }
+
   private async runEditAutoVerification(
     writeStep: AgentToolStep,
     steps: AgentToolStep[],
@@ -602,6 +668,10 @@ export class AgentLoop {
     if (editVerificationContext) {
       input.messages.push({ role: "user", content: editVerificationContext });
     }
+    const workflowCorrectionContext = this.buildWorkflowCorrectionContext(input.steps, input.step, input.goal);
+    if (workflowCorrectionContext) {
+      input.messages.push({ role: "user", content: workflowCorrectionContext });
+    }
     const ctx = this.options.contextManager;
     if (ctx && input.sessionId) {
       ctx.saveToolMessage(input.sessionId, toolText);
@@ -610,6 +680,9 @@ export class AgentLoop {
       }
       if (editVerificationContext) {
         ctx.saveToolMessage(input.sessionId, editVerificationContext);
+      }
+      if (workflowCorrectionContext) {
+        ctx.saveToolMessage(input.sessionId, workflowCorrectionContext);
       }
     }
   }
@@ -804,6 +877,17 @@ export class AgentLoop {
     const location = this.buildLocationMeta(input.steps);
     const workflowDiffs = this.buildWorkflowDiffs(input.steps);
     const workflowVerifications = this.buildWorkflowVerifications(input.steps);
+    const workflowCorrections = this.buildWorkflowCorrections(input.steps);
+    const workflowTaskState = resolveWorkflowTaskState({
+      stopReason: input.stopReason,
+      steps: input.steps,
+      hasPlanningPhase: hasPlanningPhaseArtifacts({
+        workflowInternalPlans: this.workflowInternalPlans,
+        workflowProposals: this.workflowProposals,
+        workflowDebugAnalyses: this.workflowDebugAnalyses,
+        workflowRefactorPlans: this.workflowRefactorPlans,
+      }),
+    });
     const base: AgentExecutionMeta = {
       mode: this.policy.mode,
       modeSource: this.policy.modeSource,
@@ -813,8 +897,13 @@ export class AgentLoop {
       permissionPolicySource: this.policy.permissionPolicySource,
       workflowProposals: this.workflowProposals.length ? this.workflowProposals : undefined,
       workflowDebugAnalyses: this.workflowDebugAnalyses.length ? this.workflowDebugAnalyses : undefined,
+      workflowRefactorPlans: this.workflowRefactorPlans.length ? this.workflowRefactorPlans : undefined,
+      workflowInternalPlans: this.workflowInternalPlans.length ? this.workflowInternalPlans : undefined,
+      workflowTaskState,
+      workflowSwitch: this.workflowSwitch,
       workflowDiffs: workflowDiffs.length ? workflowDiffs : undefined,
       workflowVerifications: workflowVerifications.length ? workflowVerifications : undefined,
+      workflowCorrections: workflowCorrections.length ? workflowCorrections : undefined,
       budget: this.budget,
       usage,
       budgetExhausted: input.budgetExhausted,
@@ -878,6 +967,10 @@ export class AgentLoop {
 
   private buildWorkflowVerifications(steps: AgentToolStep[]): AgentWorkflowVerificationRecord[] {
     return new EditVerificationWorkflow().collect(this.policy.intent, steps);
+  }
+
+  private buildWorkflowCorrections(steps: AgentToolStep[]): AgentWorkflowCorrectionRecord[] {
+    return new WorkflowCorrectionWorkflow().collect(this.policy.intent, steps);
   }
 
   private buildLocationMeta(steps: AgentToolStep[]): LocationExecutionMeta | undefined {
