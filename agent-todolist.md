@@ -291,6 +291,7 @@
   - [x] 模型调用。
   - [x] 工具调用。
   - [x] 简单任务状态。（步骤记录 + 分项运行预算 + reachedLimit + executionMeta）
+  - [x] 自动工作流状态中心。（`WorkflowStateCenter` 派生 `executionMeta.workflowState`，`WorkflowWriteGate` 基于状态阻止未验证前连续写入与 refactor 无计划写入）
   - [x] 工具步骤 SSE 流式推送。（`POST /api/agent/stream` + `Orchestrator.runAgentStream`）
 - [x] M2：模型路由。
   - [x] 本地和远程模型统一接口。

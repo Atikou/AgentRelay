@@ -16,18 +16,28 @@ export interface EditWriteWorkflowResult {
 }
 
 /**
- * Write phase for edit/generate-file workflows.
+ * Write phase for edit/generate-file/refactor workflows.
  *
  * The workflow does not execute writes. It records the first gated write attempt and
  * injects execution guidance that ties the mutation back to the proposal phase.
  */
 export class EditWriteWorkflow {
   run(input: EditWriteWorkflowInput): EditWriteWorkflowResult | undefined {
-    if (input.intent !== "edit" && input.intent !== "generate_file") return undefined;
+    if (input.intent !== "edit" && input.intent !== "generate_file" && input.intent !== "refactor") {
+      return undefined;
+    }
     if (input.gate.blocked || input.gate.priorWrites > 0) return undefined;
 
-    const intent = input.intent === "generate_file" ? "generate_file" : "edit";
-    const workflowType = intent === "generate_file" ? "generateFileWorkflow" : "editWorkflow";
+    const intent = input.intent === "generate_file"
+      ? "generate_file"
+      : input.intent === "refactor"
+        ? "refactor"
+        : "edit";
+    const workflowType = intent === "generate_file"
+      ? "generateFileWorkflow"
+      : intent === "refactor"
+        ? "refactorWorkflow"
+        : "editWorkflow";
     const record: AgentWorkflowWritePhase = {
       workflowType,
       phase: "write",
@@ -46,13 +56,19 @@ export class EditWriteWorkflow {
   }
 
   renderBlockedContext(goal: string, intent: AgentIntentType, reason: string): string {
-    const workflowType = intent === "generate_file" ? "generateFileWorkflow" : "editWorkflow";
+    const workflowType = intent === "generate_file"
+      ? "generateFileWorkflow"
+      : intent === "refactor"
+        ? "refactorWorkflow"
+        : "editWorkflow";
     return [
       `${workflowType} write gate blocked:`,
       `goal: ${goal}`,
       `reason: ${reason}`,
       "",
-      "Stay in proposal phase: use read/locate tools and finalize targetFiles, changeSummary, diffPlan, and verificationPlan.",
+      intent === "refactor"
+        ? "Stay in refactor plan phase: use read/locate tools and finalize stagedChanges, perStageVerification, and riskAndRollback."
+        : "Stay in proposal phase: use read/locate tools and finalize targetFiles, changeSummary, diffPlan, and verificationPlan.",
       "Do not call write_file or apply_patch until the workflow gate allows the first write.",
     ].join("\n");
   }
@@ -60,7 +76,7 @@ export class EditWriteWorkflow {
 
 function renderWritePhaseContext(
   goal: string,
-  workflowType: "editWorkflow" | "generateFileWorkflow",
+  workflowType: "editWorkflow" | "generateFileWorkflow" | "refactorWorkflow",
   record: AgentWorkflowWritePhase,
 ): string {
   return [
@@ -69,7 +85,9 @@ function renderWritePhaseContext(
     `writeTool: ${record.writeTool}`,
     `readToolsBeforeWrite: ${record.readToolsBeforeWrite}`,
     "",
-    "Execute only the minimal change described in the proposal phase.",
+    workflowType === "refactorWorkflow"
+      ? "Execute exactly one isolated refactor stage from the staged plan."
+      : "Execute only the minimal change described in the proposal phase.",
     "Prefer apply_patch for small edits and write_file for new files or full rewrites.",
     "After the write completes, follow execution/verification guidance instead of repeating the same mutation.",
   ].join("\n");

@@ -1,21 +1,13 @@
 import type { AgentIntentType } from "./IntentTypes.js";
 import { hasProjectScope, hasTargetHint } from "./WorkflowPlanner.js";
+import {
+  buildWorkflowState,
+  isWorkflowReadTool,
+  isWorkflowWriteTool,
+  type WorkflowStateSnapshot,
+} from "./WorkflowStateCenter.js";
+import { MAX_WORKFLOW_CORRECTION_ATTEMPTS } from "./WorkflowCorrectionWorkflow.js";
 import type { AgentToolStep } from "./toolStep.js";
-
-export const READ_WORKFLOW_TOOLS = new Set([
-  "project_scan",
-  "locate_relevant_files",
-  "context_pack",
-  "read_file",
-  "list_files",
-  "search_text",
-  "symbol_search",
-  "diff_file",
-  "git_status",
-  "git_diff",
-]);
-
-const WRITE_TOOLS = new Set(["write_file", "apply_patch"]);
 
 export type WorkflowWriteGatePhase = "write" | "fix";
 
@@ -26,6 +18,8 @@ export interface WorkflowWriteGateInput {
   steps: AgentToolStep[];
   hasProposal?: boolean;
   hasDebugAnalysis?: boolean;
+  hasRefactorPlan?: boolean;
+  state?: WorkflowStateSnapshot;
 }
 
 export interface WorkflowWriteGateResult {
@@ -34,14 +28,42 @@ export interface WorkflowWriteGateResult {
   reason?: string;
   readToolsBeforeWrite: number;
   priorWrites: number;
+  state: WorkflowStateSnapshot;
 }
 
 export function assessWorkflowWriteGate(input: WorkflowWriteGateInput): WorkflowWriteGateResult {
-  const readToolsBeforeWrite = countSuccessfulReadTools(input.steps);
-  const priorWrites = countSuccessfulWrites(input.steps);
+  const state = input.state ?? buildWorkflowState({
+    intent: input.intent,
+    steps: input.steps,
+    hasProposal: input.hasProposal,
+    hasDebugAnalysis: input.hasDebugAnalysis,
+    hasRefactorPlan: input.hasRefactorPlan,
+    maxCorrectionAttempts: MAX_WORKFLOW_CORRECTION_ATTEMPTS,
+  });
+  const { readToolsBeforeWrite, priorWrites } = state;
 
-  if (!WRITE_TOOLS.has(input.tool)) {
-    return { blocked: false, readToolsBeforeWrite, priorWrites };
+  if (!isWorkflowWriteTool(input.tool)) {
+    return { blocked: false, readToolsBeforeWrite, priorWrites, state };
+  }
+
+  if (state.correctionLimitReached) {
+    return {
+      blocked: true,
+      reason: "workflow correction limit reached: stop writing and return final with the latest verification failure.",
+      readToolsBeforeWrite,
+      priorWrites,
+      state,
+    };
+  }
+
+  if (state.requiresVerificationBeforeNextWrite) {
+    return {
+      blocked: true,
+      reason: "workflow state requires verification before another write-capable tool call.",
+      readToolsBeforeWrite,
+      priorWrites,
+      state,
+    };
   }
 
   if (priorWrites > 0) {
@@ -50,6 +72,7 @@ export function assessWorkflowWriteGate(input: WorkflowWriteGateInput): Workflow
       phase: input.intent === "debug" ? "fix" : "write",
       readToolsBeforeWrite,
       priorWrites,
+      state,
     };
   }
 
@@ -60,6 +83,7 @@ export function assessWorkflowWriteGate(input: WorkflowWriteGateInput): Workflow
         reason: "edit/generate-file workflow requires proposal phase before the first write-capable tool.",
         readToolsBeforeWrite,
         priorWrites,
+        state,
       };
     }
     if (requiresReadBeforeWrite(input.intent, input.goal) && readToolsBeforeWrite === 0) {
@@ -69,6 +93,7 @@ export function assessWorkflowWriteGate(input: WorkflowWriteGateInput): Workflow
           "proposal phase is not complete: use read/locate tools to gather context before the first write-capable tool.",
         readToolsBeforeWrite,
         priorWrites,
+        state,
       };
     }
     return {
@@ -76,6 +101,7 @@ export function assessWorkflowWriteGate(input: WorkflowWriteGateInput): Workflow
       phase: "write",
       readToolsBeforeWrite,
       priorWrites,
+      state,
     };
   }
 
@@ -86,6 +112,7 @@ export function assessWorkflowWriteGate(input: WorkflowWriteGateInput): Workflow
         reason: "debug workflow requires analysis phase before the first write-capable tool.",
         readToolsBeforeWrite,
         priorWrites,
+        state,
       };
     }
     if (readToolsBeforeWrite === 0) {
@@ -95,6 +122,7 @@ export function assessWorkflowWriteGate(input: WorkflowWriteGateInput): Workflow
           "debug analysis is not complete: use read/locate tools to confirm root cause before the first write-capable tool.",
         readToolsBeforeWrite,
         priorWrites,
+        state,
       };
     }
     return {
@@ -102,10 +130,40 @@ export function assessWorkflowWriteGate(input: WorkflowWriteGateInput): Workflow
       phase: "fix",
       readToolsBeforeWrite,
       priorWrites,
+      state,
     };
   }
 
-  return { blocked: false, readToolsBeforeWrite, priorWrites };
+  if (input.intent === "refactor") {
+    if (!input.hasRefactorPlan) {
+      return {
+        blocked: true,
+        reason: "refactor workflow requires staged plan phase before the first write-capable tool.",
+        readToolsBeforeWrite,
+        priorWrites,
+        state,
+      };
+    }
+    if (readToolsBeforeWrite === 0) {
+      return {
+        blocked: true,
+        reason:
+          "refactor plan is not complete: use read/locate tools to confirm affected modules before the first staged write.",
+        readToolsBeforeWrite,
+        priorWrites,
+        state,
+      };
+    }
+    return {
+      blocked: false,
+      phase: "write",
+      readToolsBeforeWrite,
+      priorWrites,
+      state,
+    };
+  }
+
+  return { blocked: false, readToolsBeforeWrite, priorWrites, state };
 }
 
 export function requiresReadBeforeWrite(intent: AgentIntentType, goal: string): boolean {
@@ -117,11 +175,9 @@ export function requiresReadBeforeWrite(intent: AgentIntentType, goal: string): 
 }
 
 export function countSuccessfulReadTools(steps: AgentToolStep[]): number {
-  return steps.filter((step) => step.ok && READ_WORKFLOW_TOOLS.has(step.tool)).length;
+  return steps.filter((step) => step.ok && isWorkflowReadTool(step.tool)).length;
 }
 
 export function countSuccessfulWrites(steps: AgentToolStep[]): number {
-  return steps.filter(
-    (step) => step.ok && (step.tool === "write_file" || step.tool === "apply_patch"),
-  ).length;
+  return steps.filter((step) => step.ok && isWorkflowWriteTool(step.tool)).length;
 }

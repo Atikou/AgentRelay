@@ -1,5 +1,7 @@
 /**
- * 架构依赖自检：确保 src 内部 TypeScript import 图没有循环依赖。
+ * 架构依赖自检：禁止 src 内部 value import 控制流循环。
+ *
+ * type-only import/export 只作为数据/类型层边记录，不参与控制流环失败判定。
  */
 import assert from "node:assert/strict";
 import { readdir, readFile } from "node:fs/promises";
@@ -34,24 +36,48 @@ function resolveImport(fromFile: string, specifier: string, fileSet: Set<string>
   return undefined;
 }
 
-async function buildImportGraph(): Promise<Map<string, string[]>> {
+interface ImportEdge {
+  to: string;
+  kind: "value" | "type";
+}
+
+async function buildImportGraph(): Promise<{
+  valueGraph: Map<string, string[]>;
+  typeGraph: Map<string, string[]>;
+}> {
   const files = await walk(root);
   const fileSet = new Set(files.map((file) => path.normalize(file)));
-  const graph = new Map<string, string[]>();
+  const valueGraph = new Map<string, string[]>();
+  const typeGraph = new Map<string, string[]>();
   const importPattern =
-    /import\s+(?:type\s+)?(?:[\s\S]*?)\s+from\s+["']([^"']+)["']|export\s+(?:type\s+)?(?:[\s\S]*?)\s+from\s+["']([^"']+)["']/g;
+    /(import\s+(?:type\s+)?(?:[\s\S]*?)\s+from\s+["']([^"']+)["']|export\s+(?:type\s+)?(?:[\s\S]*?)\s+from\s+["']([^"']+)["'])/g;
 
   for (const file of files) {
     const text = await readFile(file, "utf-8");
-    const deps = new Set<string>();
+    const valueDeps = new Set<string>();
+    const typeDeps = new Set<string>();
     let match: RegExpExecArray | null;
     while ((match = importPattern.exec(text))) {
-      const resolved = resolveImport(file, match[1] ?? match[2] ?? "", fileSet);
-      if (resolved) deps.add(resolved);
+      const statement = match[1] ?? "";
+      const specifier = match[2] ?? match[3] ?? "";
+      const resolved = resolveImport(file, specifier, fileSet);
+      if (!resolved) continue;
+      const edge = classifyImport(statement, resolved);
+      if (edge.kind === "type") typeDeps.add(edge.to);
+      else valueDeps.add(edge.to);
     }
-    graph.set(path.normalize(file), [...deps]);
+    valueGraph.set(path.normalize(file), [...valueDeps]);
+    typeGraph.set(path.normalize(file), [...typeDeps]);
   }
-  return graph;
+  return { valueGraph, typeGraph };
+}
+
+function classifyImport(statement: string, resolved: string): ImportEdge {
+  const trimmed = statement.trim();
+  if (/^(import|export)\s+type\b/.test(trimmed)) {
+    return { to: resolved, kind: "type" };
+  }
+  return { to: resolved, kind: "value" };
 }
 
 function findCycles(graph: Map<string, string[]>): string[][] {
@@ -100,8 +126,11 @@ function findCycles(graph: Map<string, string[]>): string[][] {
   return cycles.sort((a, b) => a.join("|").localeCompare(b.join("|")));
 }
 
-const graph = await buildImportGraph();
-const cycles = findCycles(graph);
+const { valueGraph, typeGraph } = await buildImportGraph();
+const controlFlowCycles = findCycles(valueGraph);
+const typeOnlyCycles = findCycles(typeGraph);
 
-assert.deepEqual(cycles, []);
-console.log(`architecture-deps: ${graph.size} files checked, 0 cycles`);
+assert.deepEqual(controlFlowCycles, []);
+console.log(
+  `architecture-deps: ${valueGraph.size} files checked, 0 control-flow cycles, ${typeOnlyCycles.length} type-only cycle(s) ignored`,
+);

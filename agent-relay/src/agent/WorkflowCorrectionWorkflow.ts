@@ -38,7 +38,7 @@ export class WorkflowCorrectionWorkflow {
     if (!verification || verification.record.ok) return undefined;
 
     const attempt = countFailedVerificationAttempts(input.steps, input.intent, verification.record.path);
-    const limitReached = attempt > MAX_WORKFLOW_CORRECTION_ATTEMPTS;
+    const limitReached = attempt >= MAX_WORKFLOW_CORRECTION_ATTEMPTS;
     const record: AgentWorkflowCorrectionRecord = {
       workflowType: verification.record.workflowType,
       phase: limitReached ? "termination" : "correction",
@@ -75,7 +75,7 @@ export class WorkflowCorrectionWorkflow {
         intent,
         verification.record.path,
       );
-      const limitReached = attempt > MAX_WORKFLOW_CORRECTION_ATTEMPTS;
+      const limitReached = attempt >= MAX_WORKFLOW_CORRECTION_ATTEMPTS;
       records.push({
         workflowType: verification.record.workflowType,
         phase: limitReached ? "termination" : "correction",

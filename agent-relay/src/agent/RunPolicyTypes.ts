@@ -142,10 +142,10 @@ export interface AgentWorkflowDebugAnalysis {
 }
 
 export interface AgentWorkflowWritePhase {
-  workflowType: Extract<AgentWorkflowType, "editWorkflow" | "generateFileWorkflow">;
+  workflowType: Extract<AgentWorkflowType, "editWorkflow" | "generateFileWorkflow" | "refactorWorkflow">;
   phase: "write";
   goal: string;
-  intent: Extract<AgentIntentType, "edit" | "generate_file">;
+  intent: Extract<AgentIntentType, "edit" | "generate_file" | "refactor">;
   permissionPolicy: UserPermissionPolicy;
   writeTool: "write_file" | "apply_patch";
   proposalReady: boolean;
@@ -228,6 +228,7 @@ export interface AgentExecutionMeta {
   workflowInternalPlans?: AgentWorkflowInternalPlan[];
   workflowTaskState?: AgentWorkflowTaskState;
   workflowSwitch?: AgentWorkflowSwitch;
+  workflowState?: import("./WorkflowStateCenter.js").WorkflowStateSnapshot;
   budget: RunBudget;
   usage: RunBudgetUsage;
   budgetExhausted?: RunBudgetKey;

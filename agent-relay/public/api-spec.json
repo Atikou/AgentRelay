@@ -202,7 +202,7 @@
       "post": {
         "tags": ["对话与智能体"],
         "summary": "自主 Agent 循环（ReAct JSON）",
-        "description": "统一 Agent 入口。模型首轮前的确定性工作流由 WorkflowExecutor 统一调度：PlanWorkflow 负责只读预扫描；debugWorkflow 会先执行 locate_relevant_files + context_pack 只读诊断定位，再由 DebugAnalysisWorkflow 注入 analysis phase（errorSummary/suspectedFiles/rootCauseHypotheses/minimalFixPlan/verificationPlan/riskAndRollback）以约束报错分析，并在 executionMeta.workflowDebugAnalyses 返回可审计诊断记录；refactorWorkflow 会先执行 project_scan + locate_relevant_files + context_pack 只读预扫描，再由 RefactorPlanWorkflow 注入 plan phase（scopeSummary/affectedModules/stagedChanges/perStageVerification/riskAndRollback）强制分阶段重构计划，并在 executionMeta.workflowRefactorPlans 返回可审计记录；复杂副作用任务（未显式进入计划模式）会由 ImplicitPlanWorkflow 注入内部轻量计划（goalSummary/internalSteps/successCriteria/stopConditions，userVisiblePlanMode=false），记录到 executionMeta.workflowInternalPlans；运行结束会在 executionMeta.workflowTaskState 返回 idle/planning/waiting_confirmation/executing/verifying/completed/failed/cancelled；editWorkflow/generateFileWorkflow 会先执行 locate_relevant_files + context_pack 只读预定位，再由 EditProposalWorkflow 注入 proposal phase（targetFiles/changeSummary/permissionCheck/diffPlan/verificationPlan）以约束写入前方案，并在 executionMeta.workflowProposals 返回可审计 proposal 记录和 PermissionGuard 写入前预检结果；成功执行 write_file/apply_patch 后会在 executionMeta.workflowDiffs 汇总 path/changeId/hash/diff 审计摘要，并由 EditExecutionWorkflow 注入 execution phase 上下文，要求下一轮基于真实 diff 做最小验证或最终总结；若写工具返回目标路径，EditAutoVerificationWorkflow 会规划只读 read_file，由 AgentLoop 通过既有权限、预算与工具链路自动读回刚写入文件；写入后的 read_file/diff_file/shell_run 等验证工具结果会由 EditVerificationWorkflow 注入 verification phase，并在 executionMeta.workflowVerifications 返回验证工具、状态、错误与输出预览；若验证失败，WorkflowCorrectionWorkflow 会按路径统计修正轮次，注入 correction/termination phase，并在 executionMeta.workflowCorrections 返回 attempt/limitReached 等审计记录（edit/generate-file/debug/refactor 共用，默认最多 2 轮）；runWorkflow/verifyWorkflow 会尝试执行白名单安全命令（node --version、npm --version、npm run typecheck、npm test、npm run build）；无安全命令、无 shell 权限或预算不足时静态降级并说明。",
+        "description": "统一 Agent 入口。模型首轮前的确定性工作流由 WorkflowExecutor 统一调度：PlanWorkflow 负责只读预扫描；debugWorkflow 会先执行 locate_relevant_files + context_pack 只读诊断定位，再由 DebugAnalysisWorkflow 注入 analysis phase（errorSummary/suspectedFiles/rootCauseHypotheses/minimalFixPlan/verificationPlan/riskAndRollback）以约束报错分析，并在 executionMeta.workflowDebugAnalyses 返回可审计诊断记录；refactorWorkflow 会先执行 project_scan + locate_relevant_files + context_pack 只读预扫描，再由 RefactorPlanWorkflow 注入 plan phase（scopeSummary/affectedModules/stagedChanges/perStageVerification/riskAndRollback）强制分阶段重构计划，并在 executionMeta.workflowRefactorPlans 返回可审计记录；复杂副作用任务（未显式进入计划模式）会由 ImplicitPlanWorkflow 注入内部轻量计划（goalSummary/internalSteps/successCriteria/stopConditions，userVisiblePlanMode=false），记录到 executionMeta.workflowInternalPlans；运行结束会在 executionMeta.workflowTaskState 返回 idle/planning/waiting_confirmation/executing/verifying/completed/failed/cancelled；editWorkflow/generateFileWorkflow 会先执行 locate_relevant_files + context_pack 只读预定位，再由 EditProposalWorkflow 注入 proposal phase（targetFiles/changeSummary/permissionCheck/diffPlan/verificationPlan）以约束写入前方案，并在 executionMeta.workflowProposals 返回可审计 proposal 记录和 PermissionGuard 写入前预检结果；成功执行 write_file/apply_patch 后会在 executionMeta.workflowDiffs 汇总 path/changeId/hash/diff 审计摘要，并由 EditExecutionWorkflow 注入 execution phase 上下文，要求下一轮基于真实 diff 做最小验证或最终总结；若写工具返回目标路径，EditAutoVerificationWorkflow 会规划只读 read_file，由 AgentLoop 通过既有权限、预算与工具链路自动读回刚写入文件；写入后的 read_file/diff_file/shell_run 等验证工具结果会由 EditVerificationWorkflow 注入 verification phase，并在 executionMeta.workflowVerifications 返回验证工具、状态、错误与输出预览；WorkflowStateCenter 会从计划、写入、验证、修正事件派生 executionMeta.workflowState；WorkflowWriteGate 基于该状态阻止缺少计划/只读上下文的首次写入、阻止未验证前的连续写入，并要求 refactorWorkflow 先有 staged plan；若验证失败，WorkflowCorrectionWorkflow 会按路径统计修正轮次，注入 correction/termination phase，并在 executionMeta.workflowCorrections 返回 attempt/limitReached 等审计记录（edit/generate-file/debug/refactor 共用，默认达到 2 次失败即终止）；runWorkflow/verifyWorkflow 会尝试执行白名单安全命令（node --version、npm --version、npm run typecheck、npm test、npm run build）；无安全命令、无 shell 权限或预算不足时静态降级并说明。",
         "operationId": "runAgent",
         "requestBody": {
           "required": true,
@@ -1853,7 +1853,7 @@
       },
       "AgentWorkflowCorrectionRecord": {
         "type": "object",
-        "description": "验证失败后的修正/终止阶段审计记录，由 WorkflowCorrectionWorkflow 生成；默认每路径最多 2 轮自动修正，超限后进入 termination phase 禁止继续写入。",
+        "description": "验证失败后的修正/终止阶段审计记录，由 WorkflowCorrectionWorkflow 生成；默认每路径达到 2 次失败即进入 termination phase 并禁止继续写入。",
         "properties": {
           "workflowType": { "type": "string", "enum": ["editWorkflow", "generateFileWorkflow", "debugWorkflow", "refactorWorkflow"] },
           "phase": { "type": "string", "enum": ["correction", "termination"] },
@@ -1868,6 +1868,50 @@
           "verificationError": { "type": "string" }
         }
       },
+      "AgentWorkflowStateSnapshot": {
+        "type": "object",
+        "description": "WorkflowStateCenter 从计划、写入、验证与修正事件派生的单向工作流状态快照，用于审计控制流并驱动 WorkflowWriteGate。",
+        "properties": {
+          "workflowType": {
+            "type": "string",
+            "enum": ["answerWorkflow", "planWorkflow", "editWorkflow", "runWorkflow", "debugWorkflow", "reviewWorkflow", "verifyWorkflow", "summarizeWorkflow", "searchWorkflow", "refactorWorkflow", "generateFileWorkflow"]
+          },
+          "phase": {
+            "type": "string",
+            "enum": ["idle", "planning", "write_ready", "write_pending_verification", "verification_passed", "correction_allowed", "terminated"]
+          },
+          "taskState": {
+            "type": "string",
+            "enum": ["idle", "planning", "waiting_confirmation", "executing", "verifying", "completed", "failed", "cancelled"]
+          },
+          "events": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "enum": ["planning_recorded", "write_succeeded", "verification_succeeded", "verification_failed", "correction_limit_reached"]
+                },
+                "toolCallId": { "type": "string" },
+                "tool": { "type": "string" },
+                "path": { "type": "string" }
+              }
+            }
+          },
+          "priorWrites": { "type": "integer" },
+          "readToolsBeforeWrite": { "type": "integer" },
+          "lastWriteToolCallId": { "type": "string" },
+          "lastWritePath": { "type": "string" },
+          "lastWriteVerified": { "type": "boolean" },
+          "lastVerificationOk": { "type": "boolean" },
+          "failedVerificationAttempts": { "type": "integer" },
+          "maxCorrectionAttempts": { "type": "integer" },
+          "correctionLimitReached": { "type": "boolean" },
+          "requiresVerificationBeforeNextWrite": { "type": "boolean" },
+          "planningReady": { "type": "boolean" }
+        }
+      },
       "AgentExecutionMeta": {
         "type": "object",
         "properties": {
@@ -1879,7 +1923,7 @@
           },
           "workflowType": {
             "type": "string",
-            "description": "由 WorkflowRouter 根据 intent 映射的内部工作流类型，用于 UI 状态展示与审计。answerWorkflow/summarizeWorkflow/searchWorkflow 会强制工具层只读；editWorkflow/generateFileWorkflow 会先通过 WorkflowExecutor 执行只读预定位，通过 EditProposalWorkflow 注入写入前方案约束，在写工具成功后通过 EditExecutionWorkflow 注入执行阶段上下文，经 EditAutoVerificationWorkflow 规划只读 read_file 自动读回，并在验证工具完成后通过 EditVerificationWorkflow 注入验证阶段上下文；runWorkflow/verifyWorkflow 可执行白名单安全命令并在无法执行时静态降级。",
+            "description": "由 WorkflowRouter 根据 intent 映射的内部工作流类型，用于 UI 状态展示与审计。answerWorkflow/summarizeWorkflow/searchWorkflow 会强制工具层只读；editWorkflow/generateFileWorkflow/refactorWorkflow 会先通过 WorkflowExecutor 执行只读定位或分阶段计划，通过 proposal/plan 契约约束写入，在写工具成功后通过 EditExecutionWorkflow 注入执行阶段上下文，经 EditAutoVerificationWorkflow 规划只读 read_file 自动读回，并在验证工具完成后通过 EditVerificationWorkflow 注入验证阶段上下文；WorkflowStateCenter 会派生 workflowState 并驱动写入门控，避免未验证前连续写入；runWorkflow/verifyWorkflow 可执行白名单安全命令并在无法执行时静态降级。",
             "enum": ["answerWorkflow", "planWorkflow", "editWorkflow", "runWorkflow", "debugWorkflow", "reviewWorkflow", "verifyWorkflow", "summarizeWorkflow", "searchWorkflow", "refactorWorkflow", "generateFileWorkflow"]
           },
           "permissionPolicy": {
@@ -1911,13 +1955,17 @@
             "type": "string",
             "enum": ["idle", "planning", "waiting_confirmation", "executing", "verifying", "completed", "failed", "cancelled"]
           },
+          "workflowState": {
+            "$ref": "#/components/schemas/AgentWorkflowStateSnapshot",
+            "description": "WorkflowStateCenter 生成的自动工作流状态快照；用于审计 plan/write/verify/correction 控制流，并标识是否需要先验证才能继续写入。"
+          },
           "workflowSwitch": {
             "$ref": "#/components/schemas/AgentWorkflowSwitch",
             "description": "同一会话后续消息意图变化时返回的工作流切换记录。"
           },
           "workflowWritePhases": {
             "type": "array",
-            "description": "edit/generate-file 工作流首次写入阶段记录。",
+            "description": "edit/generate-file/refactor 工作流写入阶段记录；由 WorkflowWriteGate 基于 WorkflowStateCenter 状态放行后生成。",
             "items": { "$ref": "#/components/schemas/AgentWorkflowWritePhase" }
           },
           "workflowDebugFixes": {

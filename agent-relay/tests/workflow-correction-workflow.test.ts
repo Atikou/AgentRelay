@@ -53,7 +53,7 @@ test("injects correction phase after failed verification", () => {
 
 test("switches to termination phase after correction limit", () => {
   const steps: AgentToolStep[] = [];
-  for (let round = 0; round < MAX_WORKFLOW_CORRECTION_ATTEMPTS + 1; round += 1) {
+  for (let round = 0; round < MAX_WORKFLOW_CORRECTION_ATTEMPTS; round += 1) {
     steps.push({
       ...writeStep,
       iteration: round * 2 + 1,

@@ -16,7 +16,7 @@ import { EditExecutionWorkflow } from "./EditExecutionWorkflow.js";
 import { EditWriteWorkflow } from "./EditWriteWorkflow.js";
 import { DebugFixWorkflow } from "./DebugFixWorkflow.js";
 import { EditVerificationWorkflow } from "./EditVerificationWorkflow.js";
-import { WorkflowCorrectionWorkflow } from "./WorkflowCorrectionWorkflow.js";
+import { MAX_WORKFLOW_CORRECTION_ATTEMPTS, WorkflowCorrectionWorkflow } from "./WorkflowCorrectionWorkflow.js";
 import { hasPlanningPhaseArtifacts, resolveWorkflowTaskState } from "./WorkflowTaskState.js";
 import { WorkflowExecutor } from "./WorkflowExecutor.js";
 import {
@@ -24,6 +24,7 @@ import {
   renderWorkflowSwitchContext,
   resolveWorkflowSwitch,
 } from "./WorkflowSessionSwitch.js";
+import { buildWorkflowState } from "./WorkflowStateCenter.js";
 import { assessWorkflowWriteGate } from "./WorkflowWriteGate.js";
 import {
   buildToolResultLayers,
@@ -669,7 +670,7 @@ export class AgentLoop {
   private buildWritePhaseBlockedContext(goal: string, reason: string): string | undefined {
     const intent = this.policy.intent;
     if (!intent) return undefined;
-    if (intent === "edit" || intent === "generate_file") {
+    if (intent === "edit" || intent === "generate_file" || intent === "refactor") {
       return new EditWriteWorkflow().renderBlockedContext(goal, intent, reason);
     }
     if (intent === "debug") {
@@ -766,6 +767,7 @@ export class AgentLoop {
       steps: ctx.steps,
       hasProposal: this.workflowProposals.length > 0,
       hasDebugAnalysis: this.workflowDebugAnalyses.length > 0,
+      hasRefactorPlan: this.workflowRefactorPlans.length > 0,
     });
     if (writeGate.blocked) {
       const reason = writeGate.reason ?? "workflow write gate blocked";
@@ -976,6 +978,14 @@ export class AgentLoop {
     const workflowDiffs = this.buildWorkflowDiffs(input.steps);
     const workflowVerifications = this.buildWorkflowVerifications(input.steps);
     const workflowCorrections = this.buildWorkflowCorrections(input.steps);
+    const workflowState = buildWorkflowState({
+      intent: this.policy.intent,
+      steps: input.steps,
+      hasProposal: this.workflowProposals.length > 0,
+      hasDebugAnalysis: this.workflowDebugAnalyses.length > 0,
+      hasRefactorPlan: this.workflowRefactorPlans.length > 0,
+      maxCorrectionAttempts: MAX_WORKFLOW_CORRECTION_ATTEMPTS,
+    });
     const workflowTaskState = resolveWorkflowTaskState({
       stopReason: input.stopReason,
       steps: input.steps,
@@ -999,6 +1009,7 @@ export class AgentLoop {
       workflowInternalPlans: this.workflowInternalPlans.length ? this.workflowInternalPlans : undefined,
       workflowTaskState,
       workflowSwitch: this.workflowSwitch,
+      workflowState,
       workflowDiffs: workflowDiffs.length ? workflowDiffs : undefined,
       workflowVerifications: workflowVerifications.length ? workflowVerifications : undefined,
       workflowCorrections: workflowCorrections.length ? workflowCorrections : undefined,

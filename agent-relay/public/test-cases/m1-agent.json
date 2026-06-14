@@ -1441,6 +1441,33 @@
       }
     },
     {
+      "id": "m1-agent-workflow-state-center-api-spec",
+      "title": "API 规范登记工作流状态中心",
+      "purpose": "确认 OpenAPI 已声明 executionMeta.workflowState 与 AgentWorkflowStateSnapshot，用于展示写入后待验证、修正上限等自动工作流状态。",
+      "method": "GET",
+      "path": "/api/api-spec.json",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyContains": ["WorkflowStateCenter", "workflowState", "AgentWorkflowStateSnapshot", "write_pending_verification"]
+      }
+    },
+    {
+      "id": "m1-agent-workflow-state-center-doc",
+      "title": "对话循环文档记录状态中心门控",
+      "purpose": "确认文档站已说明 WorkflowStateCenter 会驱动 WorkflowWriteGate，阻止未验证前连续写入，并要求 refactorWorkflow 先有 staged plan。",
+      "method": "GET",
+      "path": "/api/docs/content?slug=对话循环",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyPaths": {
+          "markdown": "string"
+        },
+        "bodyContains": ["WorkflowStateCenter", "workflowState", "requiresVerificationBeforeNextWrite", "refactorWorkflow"]
+      }
+    },
+    {
       "id": "m1-agent-unknown-client-still-force",
       "title": "未知 clientName 仍立即 404",
       "purpose": "确认 Smart 路由接入后，显式 clientName 校验行为不变，不会静默回退默认路由。",

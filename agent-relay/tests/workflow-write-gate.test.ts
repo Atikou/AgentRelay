@@ -121,6 +121,95 @@ test("allows debug fix after analysis and read tools", () => {
   assert.match(fixPhase.modelContext, /debugWorkflow fix phase/);
 });
 
+test("blocks second write until previous write is verified", () => {
+  const writeStep: AgentToolStep = {
+    iteration: 1,
+    tool: "write_file",
+    input: { path: "src/a.ts", content: "new" },
+    permission: "write",
+    ok: true,
+    output: { path: "src/a.ts" },
+  };
+  const gate = assessWorkflowWriteGate({
+    intent: "edit",
+    goal: "修改 src/a.ts",
+    tool: "apply_patch",
+    steps: [readStep, writeStep],
+    hasProposal: true,
+  });
+
+  assert.equal(gate.blocked, true);
+  assert.match(gate.reason ?? "", /requires verification/);
+  assert.equal(gate.state.phase, "write_pending_verification");
+});
+
+test("allows correction write after failed verification before limit", () => {
+  const writeStep: AgentToolStep = {
+    iteration: 1,
+    tool: "write_file",
+    input: { path: "src/a.ts", content: "new" },
+    permission: "write",
+    ok: true,
+    output: { path: "src/a.ts" },
+  };
+  const failedVerify: AgentToolStep = {
+    iteration: 2,
+    tool: "shell_run",
+    input: { command: "npm test" },
+    permission: "shell",
+    ok: false,
+    error: "failed",
+  };
+  const gate = assessWorkflowWriteGate({
+    intent: "debug",
+    goal: "修复 src/a.ts",
+    tool: "apply_patch",
+    steps: [readStep, writeStep, failedVerify],
+    hasDebugAnalysis: true,
+  });
+
+  assert.equal(gate.blocked, false);
+  assert.equal(gate.phase, "fix");
+  assert.equal(gate.state.phase, "correction_allowed");
+});
+
+test("blocks refactor write without staged plan", () => {
+  const gate = assessWorkflowWriteGate({
+    intent: "refactor",
+    goal: "重构 src/agent 模块",
+    tool: "apply_patch",
+    steps: [readStep],
+    hasRefactorPlan: false,
+  });
+
+  assert.equal(gate.blocked, true);
+  assert.match(gate.reason ?? "", /staged plan phase/);
+});
+
+test("allows refactor write after staged plan and read tools", () => {
+  const gate = assessWorkflowWriteGate({
+    intent: "refactor",
+    goal: "重构 src/agent 模块",
+    tool: "apply_patch",
+    steps: [readStep],
+    hasRefactorPlan: true,
+  });
+
+  assert.equal(gate.blocked, false);
+  assert.equal(gate.phase, "write");
+
+  const writePhase = new EditWriteWorkflow().run({
+    goal: "重构 src/agent 模块",
+    intent: "refactor",
+    permissionPolicy: "autoEdit",
+    gate,
+    tool: "apply_patch",
+  });
+  assert.ok(writePhase);
+  assert.equal(writePhase.record.workflowType, "refactorWorkflow");
+  assert.match(writePhase.modelContext, /one isolated refactor stage/);
+});
+
 let failed = 0;
 for (const t of tests) {
   try {
