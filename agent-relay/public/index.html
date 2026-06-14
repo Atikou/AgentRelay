@@ -28,6 +28,7 @@
           <button class="nav-btn" data-action="routing-logs">模型路由日志</button>
           <button class="nav-btn" data-action="run-reports">运行报告</button>
           <button class="nav-btn" data-action="security">审计回放</button>
+          <button class="nav-btn" data-action="storage">本地存储</button>
         </nav>
 
         <nav class="nav-group">
@@ -110,17 +111,27 @@
             </label>
             <details class="advanced-entry field">
               <summary>高级选项</summary>
-              <label class="field advanced-mode-field">
-                <span>显式模式</span>
-                <select id="explicit-mode-select" title="覆盖自动意图推断；留空则完全自动">
-                  <option value="">自动推断（推荐）</option>
-                  <option value="chat">强制对话</option>
-                  <option value="plan">强制计划</option>
-                  <option value="implement">强制实现</option>
-                  <option value="debug">强制调试</option>
-                  <option value="review">强制审阅</option>
-                </select>
-              </label>
+              <div class="advanced-panel">
+                <label class="field advanced-mode-field">
+                  <span>显式模式</span>
+                  <select id="explicit-mode-select" title="覆盖自动意图推断；留空则完全自动">
+                    <option value="">自动推断（推荐）</option>
+                    <option value="chat">强制对话</option>
+                    <option value="plan">强制计划</option>
+                    <option value="implement">强制实现</option>
+                    <option value="debug">强制调试</option>
+                    <option value="review">强制审阅</option>
+                  </select>
+                </label>
+                <label class="field advanced-mode-field advanced-toggle-field" title="通过 SSE 实时展示模型轮次与工具步骤">
+                  <input type="checkbox" id="stream-agent-input" checked />
+                  <span>SSE 流式（思考过程）</span>
+                </label>
+                <label class="field advanced-mode-field advanced-toggle-field" title="需模型客户端支持 streaming">
+                  <input type="checkbox" id="stream-tokens-input" />
+                  <span>流式 token</span>
+                </label>
+              </div>
             </details>
           </div>
           <div class="composer-row input-row">

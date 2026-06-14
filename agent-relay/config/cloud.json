@@ -43,6 +43,14 @@
         "baseUrl": "http://localhost:11434",
         "model": "phi4",
         "think": false
+      },
+      {
+        "name": "local-qwen25vl",
+        "provider": "ollama",
+        "location": "local",
+        "baseUrl": "http://localhost:11434",
+        "model": "qwen2.5vl:7b",
+        "think": false
       }
     ]
   },

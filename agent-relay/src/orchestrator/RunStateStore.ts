@@ -63,6 +63,10 @@ export class RunStateStore {
       .all(limit) as Array<{ state_json: string }>;
     return rows.map((row) => deserializeRunState(row.state_json));
   }
+
+  delete(runId: string): void {
+    this.db.connection.prepare(`DELETE FROM run_states WHERE run_id=?`).run(runId);
+  }
 }
 
 function serializeRunState(state: RunState): string {

@@ -105,6 +105,13 @@
       "title": "编排与 Run",
       "file": "m9-orchestrator.json",
       "order": 13
+    },
+    {
+      "featureId": "m10-storage-lifecycle",
+      "milestone": "M7",
+      "title": "数据生命周期与清理",
+      "file": "m10-storage-lifecycle.json",
+      "order": 14
     }
   ]
 }

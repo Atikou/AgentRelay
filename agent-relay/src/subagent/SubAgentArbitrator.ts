@@ -1,9 +1,11 @@
 import type { LoopChatFn } from "../agent/AgentLoop.js";
 import type {
   SubAgentConflict,
+  SubAgentRoleId,
   SubAgentRunResult,
   SubAgentWriteConflict,
 } from "./types.js";
+import { parseWriteFilePickHints } from "./writeFileVersionPick.js";
 
 export interface SubAgentArbitrationInput {
   task: string;
@@ -13,10 +15,18 @@ export interface SubAgentArbitrationInput {
   sensitive?: boolean;
 }
 
+export interface SubAgentWriteFilePick {
+  path: string;
+  changeId?: string;
+  role?: SubAgentRoleId;
+  manual?: boolean;
+}
+
 export interface SubAgentArbitrationResult {
   applied: boolean;
   summary: string;
   skippedReason?: string;
+  writeFilePicks?: SubAgentWriteFilePick[];
 }
 
 /** 对子 Agent 文本/写入冲突做模型仲裁复核（可选，batch 或 API 显式开启）。 */
@@ -34,6 +44,9 @@ export async function arbitrateSubAgentConflicts(
     "1. 冲突摘要（各角色分歧点）",
     "2. 更可信的一方或折中结论（说明依据）",
     "3. 对写入冲突：建议保留哪份修改、是否需人工复核、下一步验证",
+    "4. 每个写入冲突在文末单独一行（便于自动选版）：",
+    "   WRITE_PICK: path=<相对路径> changeId=<uuid> role=<角色>",
+    "   无法判断则：WRITE_PICK: path=<相对路径> manual=true",
     "不要调用工具，直接给出 final 建议。",
     "",
     `父任务：${input.task.trim()}`,
@@ -71,5 +84,10 @@ export async function arbitrateSubAgentConflicts(
   );
 
   const summary = response.content.trim() || "（仲裁模型未返回内容）";
-  return { applied: true, summary };
+  const writeFilePicks = parseWriteFilePickHints(summary);
+  return {
+    applied: true,
+    summary,
+    writeFilePicks: writeFilePicks.length > 0 ? writeFilePicks : undefined,
+  };
 }

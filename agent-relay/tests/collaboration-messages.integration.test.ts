@@ -28,6 +28,7 @@ import { RunStore } from "../src/orchestrator/RunStore.js";
 import { RunStateStore } from "../src/orchestrator/RunStateStore.js";
 import { createDefaultRegistry } from "../src/tools/index.js";
 import { createTestPlanService } from "./planTestHelper.js";
+import { createTestOrchestrator } from "./orchestratorTestHelper.js";
 
 const DRAFT_MARKER = "__COLLAB_DRAFT_ONLY__";
 const REVISED_FINAL = "__COLLAB_FINAL_REVISED__";
@@ -175,7 +176,7 @@ async function createHarness(chatFn: ModelChatFn): Promise<Harness> {
   );
 
   const toolRegistry = createDefaultRegistry();
-  const orchestrator = new Orchestrator({
+  const { orchestrator } = createTestOrchestrator({
     workspaceRoot,
     modelRouter: { chat: async () => { throw new Error("应走 Smart 路径"); } } as never,
     planner: {} as never,

@@ -84,6 +84,78 @@ export class OllamaClient implements ModelClient {
     const start = performance.now();
 
     try {
+      if (request.onToken) {
+        const response = await fetch(`${this.baseUrl}/api/chat`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            model: this.model,
+            messages: toOllamaMessages(request.messages),
+            tools: toOllamaTools(request.tools),
+            think: this.think,
+            stream: true,
+            options: {
+              temperature: request.temperature,
+              num_predict: request.maxTokens,
+            },
+          }),
+          signal,
+        });
+
+        if (!response.ok) {
+          const detail = await safeReadText(response);
+          throw new Error(`Ollama 请求失败：${response.status} ${detail}`);
+        }
+        if (!response.body) {
+          throw new Error("Ollama 流式响应无 body");
+        }
+
+        let content = "";
+        const toolCalls: ToolCall[] = [];
+        let modelName = this.model;
+        let promptEval = 0;
+        let evalCount = 0;
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split("\n");
+          buffer = lines.pop() ?? "";
+          for (const line of lines) {
+            const trimmed = line.trim();
+            if (!trimmed) continue;
+            const chunk = JSON.parse(trimmed) as OllamaChatResponse & {
+              message?: { content?: string; tool_calls?: OllamaToolCall[] };
+            };
+            if (chunk.model) modelName = chunk.model;
+            const delta = chunk.message?.content ?? "";
+            if (delta) {
+              content += delta;
+              request.onToken(delta);
+            }
+            if (chunk.message?.tool_calls?.length) {
+              toolCalls.push(...parseToolCalls(chunk.message.tool_calls));
+            }
+            if (chunk.prompt_eval_count != null) promptEval = chunk.prompt_eval_count;
+            if (chunk.eval_count != null) evalCount = chunk.eval_count;
+          }
+        }
+
+        return {
+          content,
+          toolCalls,
+          clientName: this.name,
+          modelName,
+          location: this.location,
+          latencyMs: performance.now() - start,
+          usage: { inputTokens: promptEval, outputTokens: evalCount },
+        };
+      }
+
       const response = await fetch(`${this.baseUrl}/api/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },

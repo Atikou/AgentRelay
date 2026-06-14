@@ -1,6 +1,7 @@
 import type { AgentToolStep } from "../agent/toolStep.js";
 import type { ToolPermission } from "../agent/permissions.js";
 import type { RunBudget } from "../agent/RunPolicyTypes.js";
+import type { WriteFilePickStrategy } from "./writeFileVersionPick.js";
 
 /** 第一版子 Agent 角色；`patch_worker` 为父 Agent 显式授权下的写权限子 Agent。 */
 export type SubAgentRoleId = "code_review" | "test_analyze" | "patch_worker";
@@ -64,6 +65,10 @@ export interface SubAgentBatchOptions {
   dispatchDepth?: number;
   /** 存在文本/写入冲突时调用模型仲裁复核。 */
   arbitrateConflicts?: boolean;
+  /** 对 writeConflicts 尝试 apply_patch 三路合并或 write_file 选版。 */
+  autoMergeWrites?: boolean;
+  /** write_file 全量覆盖冲突选版：latest / earliest / arbitration（默认 arbitration）。 */
+  writeFilePickStrategy?: WriteFilePickStrategy;
 }
 
 export interface SubAgentConflict {
@@ -85,6 +90,26 @@ export interface SubAgentArbitration {
   applied: boolean;
   summary: string;
   skippedReason?: string;
+  writeFilePicks?: Array<{
+    path: string;
+    changeId?: string;
+    role?: SubAgentRoleId;
+    manual?: boolean;
+  }>;
+}
+
+export type SubAgentWriteMergeStatus = "merged" | "manual_required" | "skipped";
+
+/** 单文件写入冲突自动合并尝试结果。 */
+export interface SubAgentWriteMergeAttempt {
+  path: string;
+  status: SubAgentWriteMergeStatus;
+  changeId?: string;
+  reason: string;
+  appliedPatches: number;
+  pickedChangeId?: string;
+  pickedRole?: SubAgentRoleId;
+  pickStrategy?: WriteFilePickStrategy;
 }
 
 export interface SubAgentAggregate {
@@ -95,6 +120,7 @@ export interface SubAgentAggregate {
   commonFindings: string[];
   conflicts: SubAgentConflict[];
   writeConflicts: SubAgentWriteConflict[];
+  writeMerges?: SubAgentWriteMergeAttempt[];
   arbitration?: SubAgentArbitration;
   mergedAnswer: string;
 }

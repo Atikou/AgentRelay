@@ -3,6 +3,7 @@ import { performance } from "node:perf_hooks";
 
 import { AgentLoop, type LoopChatFn } from "../agent/AgentLoop.js";
 import type { ToolPermission } from "../agent/permissions.js";
+import type { RunBudget } from "../agent/RunPolicyTypes.js";
 import type { ToolRegistry } from "../tools/ToolRegistry.js";
 import type { TraceLogger } from "../trace/TraceLogger.js";
 import type { NotificationQueue } from "../background/NotificationQueue.js";
@@ -20,6 +21,10 @@ import type {
   SubAgentWriteConflict,
 } from "./types.js";
 import { detectWriteConflicts } from "./writeConflictMerge.js";
+import {
+  isSubAgentCancelledError,
+  type SubAgentRunRegistry,
+} from "./SubAgentRunRegistry.js";
 
 const DEFAULT_TIMEOUT_MS = 120_000;
 
@@ -32,6 +37,8 @@ export interface SubAgentRunnerDeps {
   notificationQueue?: NotificationQueue;
   /** dispatch_subagent 最大派生深度，默认 1（不支持无限递归）。 */
   maxSubAgentDispatchDepth?: number;
+  /** 运行中子 Agent 注册表，用于显式 cancel。 */
+  runRegistry?: SubAgentRunRegistry;
 }
 
 /** 运行单个子 Agent：独立上下文、受限权限、超时与 trace。 */
@@ -59,6 +66,42 @@ export class SubAgentRunner {
       grantedPermissions: granted,
     });
 
+    const abortController = this.deps.runRegistry?.register(id, {
+      role: options.role,
+      parentTaskId,
+    });
+    const signal = abortController?.signal;
+
+    try {
+      return await this.runInner({
+        id,
+        options,
+        granted,
+        timeoutMs,
+        budget,
+        parentTaskId,
+        role,
+        signal,
+        start,
+      });
+    } finally {
+      this.deps.runRegistry?.unregister(id);
+    }
+  }
+
+  private async runInner(input: {
+    id: string;
+    options: SubAgentRunOptions;
+    granted: ToolPermission[];
+    timeoutMs: number;
+    budget: RunBudget;
+    parentTaskId?: string;
+    role: ReturnType<typeof getSubAgentRole>;
+    signal?: AbortSignal;
+    start: number;
+  }): Promise<SubAgentRunResult> {
+    const { id, options, granted, timeoutMs, budget, parentTaskId, role, signal, start } = input;
+
     const preloaded = await preloadReferencedFiles(
       options.task.trim(),
       this.deps.registry,
@@ -73,6 +116,7 @@ export class SubAgentRunner {
             sensitive: options.sensitive,
           }),
           timeoutMs,
+          signal,
         );
         const durationMs = Math.round(performance.now() - start);
         this.deps.trace?.write({
@@ -97,6 +141,9 @@ export class SubAgentRunner {
           grantedPermissions: granted,
         });
       } catch (err) {
+        if (isSubAgentCancelledError(err)) {
+          return this.finishCancelled(id, options, granted, parentTaskId, start, err);
+        }
         const msg = String(err);
         if (msg.includes("超时")) {
           const durationMs = Math.round(performance.now() - start);
@@ -150,6 +197,7 @@ export class SubAgentRunner {
       trace: this.deps.trace,
       subAgentDispatchDepth: dispatchDepth,
       maxSubAgentDispatchDepth: this.deps.maxSubAgentDispatchDepth ?? 1,
+      signal,
     });
 
     let status: SubAgentStatus = "completed";
@@ -162,6 +210,7 @@ export class SubAgentRunner {
       const result = await raceTimeout(
         loop.run(userContent, systemExtra),
         timeoutMs,
+        signal,
       );
       answer = result.answer;
       steps = result.steps;
@@ -171,6 +220,9 @@ export class SubAgentRunner {
         error = `达到子 Agent 运行预算（耗尽 ${result.executionMeta.budgetExhausted ?? "unknown"}，已执行 ${result.steps.length} 个工具步）；可提高对应预算或换用更擅长 JSON 协议的模型`;
       }
     } catch (err) {
+      if (isSubAgentCancelledError(err)) {
+        return this.finishCancelled(id, options, granted, parentTaskId, start, err);
+      }
       const msg = String(err);
       status = msg.includes("超时") ? "timeout" : "failed";
       error = msg;
@@ -203,6 +255,39 @@ export class SubAgentRunner {
     });
   }
 
+  private finishCancelled(
+    id: string,
+    options: SubAgentRunOptions,
+    granted: ToolPermission[],
+    parentTaskId: string | undefined,
+    start: number,
+    err: unknown,
+  ): SubAgentRunResult {
+    const durationMs = Math.round(performance.now() - start);
+    const error = String(err);
+    this.deps.trace?.write({
+      type: "subagent_end",
+      subAgentId: id,
+      role: options.role,
+      parentTaskId,
+      status: "cancelled",
+      durationMs,
+      iterations: 0,
+    });
+    return this.finishRun({
+      id,
+      role: options.role,
+      parentTaskId,
+      status: "cancelled",
+      answer: "（子 Agent 已取消）",
+      steps: [],
+      iterations: 0,
+      durationMs,
+      grantedPermissions: granted,
+      error,
+    });
+  }
+
   private finishRun(result: SubAgentRunResult): SubAgentRunResult {
     if (this.deps.notificationQueue) {
       enqueueSubAgentCompletionNotification(this.deps.notificationQueue, {
@@ -218,15 +303,29 @@ export class SubAgentRunner {
   }
 }
 
-async function raceTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+async function raceTimeout<T>(promise: Promise<T>, timeoutMs: number, signal?: AbortSignal): Promise<T> {
+  if (signal?.aborted) {
+    throw signal.reason ?? new Error("子 Agent 已取消");
+  }
   let timer: ReturnType<typeof setTimeout> | undefined;
+  let onAbort: (() => void) | undefined;
   const timeout = new Promise<never>((_, reject) => {
     timer = setTimeout(() => reject(new Error(`子 Agent 执行超时（${timeoutMs}ms）`)), timeoutMs);
   });
+  const abortRace = signal
+    ? new Promise<never>((_, reject) => {
+        onAbort = () => reject(signal.reason ?? new Error("子 Agent 已取消"));
+        if (signal.aborted) onAbort();
+        else signal.addEventListener("abort", onAbort, { once: true });
+      })
+    : undefined;
   try {
-    return await Promise.race([promise, timeout]);
+    const racers: Array<Promise<T>> = [promise, timeout];
+    if (abortRace) racers.push(abortRace);
+    return await Promise.race(racers);
   } finally {
     if (timer) clearTimeout(timer);
+    if (signal && onAbort) signal.removeEventListener("abort", onAbort);
   }
 }
 
@@ -255,6 +354,7 @@ export function aggregateSubAgentResultsStructured(
   const completed = results.filter((r) => r.status === "completed");
   const failed = results.filter((r) => r.status === "failed");
   const timedOut = results.filter((r) => r.status === "timeout");
+  const cancelled = results.filter((r) => r.status === "cancelled");
   const commonFindings = findCommonFindings(completed);
   const conflicts = detectConflicts(completed);
   const writeConflicts = detectWriteConflicts(results);
@@ -263,11 +363,11 @@ export function aggregateSubAgentResultsStructured(
       ? "conflict"
       : completed.length === 0
         ? "failed"
-        : failed.length > 0 || timedOut.length > 0
+        : failed.length > 0 || timedOut.length > 0 || cancelled.length > 0
           ? "partial"
           : "completed";
   const sections = [
-    `子 Agent 汇总：${status}（完成 ${completed.length}/${results.length}，失败 ${failed.length}，超时 ${timedOut.length}）`,
+    `子 Agent 汇总：${status}（完成 ${completed.length}/${results.length}，失败 ${failed.length}，超时 ${timedOut.length}，取消 ${cancelled.length}）`,
     commonFindings.length > 0
       ? `共同结论：\n${commonFindings.map((f) => `- ${f}`).join("\n")}`
       : "共同结论：未发现跨角色重复结论。",

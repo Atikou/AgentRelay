@@ -1,37 +1,205 @@
-import { createWriteStream, mkdirSync, type WriteStream } from "node:fs";
+import {
+  appendFileSync,
+  closeSync,
+  createWriteStream,
+  existsSync,
+  mkdirSync,
+  openSync,
+  renameSync,
+  statSync,
+  type WriteStream,
+} from "node:fs";
 import path from "node:path";
+import { randomUUID } from "node:crypto";
 
 import { redactValue } from "../util/redact.js";
+import { migrateLegacyTraceFile } from "./traceCatalog.js";
+import { ACTIVE_SEGMENT_PATH, TraceIndexStore } from "./TraceIndexStore.js";
+import {
+  nextSegmentRelPath,
+  resolveTracePaths,
+  type TracePathLayout,
+} from "./tracePaths.js";
 
 export interface TraceEvent {
   type: string;
   [key: string]: unknown;
 }
 
+export interface TraceRotationPolicy {
+  rotationMaxBytes: number;
+  rotationMaxAgeHours: number;
+}
+
 export interface TraceLoggerOptions {
   /** 写入前脱敏（默认 true）。 */
   redact?: boolean;
+  /** 分段模式：传入 traces 根目录。 */
+  tracesDir?: string;
+  rotation?: TraceRotationPolicy;
+  index?: TraceIndexStore;
 }
 
 /**
- * 追加式 JSONL 事件日志。用于记录模型调用、路由决策等可观测事件，便于复盘。
+ * 追加式 JSONL 事件日志。支持单文件（兼容）与 active + segments 分段写入。
  */
 export class TraceLogger {
-  private readonly stream: WriteStream;
   private readonly redact: boolean;
+  private readonly layout?: TracePathLayout;
+  private readonly index?: TraceIndexStore;
+  private readonly rotation?: TraceRotationPolicy;
+  private readonly segmented: boolean;
+  private stream?: WriteStream;
+  private fd?: number;
+  private activePath: string;
+  private activeRel: string;
+  private bytesWritten = 0;
+  private openedAt = Date.now();
+  private closed = false;
 
-  constructor(traceFile: string, options: TraceLoggerOptions = {}) {
-    mkdirSync(path.dirname(traceFile), { recursive: true });
-    this.stream = createWriteStream(traceFile, { flags: "a", encoding: "utf-8" });
+  constructor(traceFileOrDir: string, options: TraceLoggerOptions = {}) {
     this.redact = options.redact !== false;
+    this.index = options.index;
+    this.rotation = options.rotation;
+    this.segmented = !!options.tracesDir;
+
+    if (options.tracesDir) {
+      this.layout = resolveTracePaths(options.tracesDir);
+      mkdirSync(path.dirname(this.layout.activeFile), { recursive: true });
+      mkdirSync(this.layout.segmentsDir, { recursive: true });
+      migrateLegacyTraceFile({ tracesDir: options.tracesDir, index: this.index });
+      this.activePath = this.layout.activeFile;
+      this.activeRel = ACTIVE_SEGMENT_PATH;
+      this.fd = openSync(this.activePath, "a");
+      if (existsSync(this.activePath)) {
+        this.bytesWritten = statSync(this.activePath).size;
+      }
+    } else {
+      this.activePath = traceFileOrDir;
+      this.activeRel = path.basename(traceFileOrDir);
+      mkdirSync(path.dirname(traceFileOrDir), { recursive: true });
+      this.stream = createWriteStream(traceFileOrDir, { flags: "a", encoding: "utf-8" });
+      if (existsSync(traceFileOrDir)) {
+        this.bytesWritten = statSync(traceFileOrDir).size;
+      }
+    }
+  }
+
+  getTracesDir(): string | undefined {
+    return this.layout?.tracesDir;
+  }
+
+  getActiveFile(): string {
+    return this.activePath;
+  }
+
+  getIndexStore(): TraceIndexStore | undefined {
+    return this.index;
   }
 
   write(event: TraceEvent): void {
+    if (this.closed) return;
+    this.maybeRotate();
+    const eventId = randomUUID();
+    const nowIso = new Date().toISOString();
     const payload = this.redact ? redactValue(event) : event;
-    this.stream.write(`${JSON.stringify({ time: new Date().toISOString(), ...payload })}\n`);
+    const lineObj = { time: nowIso, eventId, ...payload };
+    const line = `${JSON.stringify(lineObj)}\n`;
+    const lineBytes = Buffer.byteLength(line, "utf-8");
+
+    if (this.segmented && this.fd != null) {
+      appendFileSync(this.fd, line, "utf-8");
+    } else if (this.stream) {
+      this.stream.write(line);
+    }
+    this.bytesWritten += lineBytes;
+
+    if (this.index && this.layout) {
+      const e = payload as Record<string, unknown>;
+      this.index.insert({
+        eventId,
+        ts: Date.parse(nowIso),
+        runId: typeof e.runId === "string" ? e.runId : undefined,
+        sessionId: typeof e.sessionId === "string" ? e.sessionId : undefined,
+        eventType: String(e.type ?? "unknown"),
+        status: typeof e.status === "string" ? e.status : undefined,
+        segmentPath: this.activeRel,
+        redacted: this.redact,
+      });
+    }
+  }
+
+  /** 显式轮转 active 段。 */
+  rotate(opts?: { force?: boolean }): { rotated: boolean; segmentPath?: string } {
+    if (!this.layout || this.closed) return { rotated: false };
+    if (!opts?.force && !this.shouldRotate()) return { rotated: false };
+    return this.performRotation();
+  }
+
+  private maybeRotate(): void {
+    if (!this.layout || !this.rotation) return;
+    if (!this.shouldRotate()) return;
+    this.performRotation();
+  }
+
+  private performRotation(): { rotated: boolean; segmentPath?: string } {
+    if (!this.layout || this.bytesWritten === 0) return { rotated: false };
+
+    const segRel = nextSegmentRelPath(this.layout.tracesDir).replace(/\\/g, "/");
+    const segAbs = path.join(this.layout.tracesDir, segRel);
+    mkdirSync(path.dirname(segAbs), { recursive: true });
+
+    if (this.fd != null) {
+      closeSync(this.fd);
+      this.fd = undefined;
+    }
+    if (existsSync(this.activePath)) {
+      renameSync(this.activePath, segAbs);
+    }
+    if (this.index) {
+      this.index.reassignSegment(this.activeRel, segRel);
+    }
+
+    this.activeRel = ACTIVE_SEGMENT_PATH;
+    this.activePath = this.layout.activeFile;
+    this.bytesWritten = 0;
+    this.openedAt = Date.now();
+    this.fd = openSync(this.activePath, "a");
+    return { rotated: true, segmentPath: segRel };
+  }
+
+  private shouldRotate(): boolean {
+    if (!this.rotation) return false;
+    if (this.bytesWritten >= this.rotation.rotationMaxBytes) return true;
+    const ageHours = (Date.now() - this.openedAt) / (60 * 60 * 1000);
+    return ageHours >= this.rotation.rotationMaxAgeHours;
   }
 
   close(): Promise<void> {
-    return new Promise((resolve) => this.stream.end(() => resolve()));
+    if (this.closed) return Promise.resolve();
+    this.closed = true;
+
+    if (this.layout && this.bytesWritten > 0) {
+      this.performRotation();
+    } else if (this.fd != null) {
+      closeSync(this.fd);
+      this.fd = undefined;
+    }
+
+    if (this.stream) {
+      return new Promise((resolve) => this.stream!.end(() => resolve()));
+    }
+    return Promise.resolve();
   }
+}
+
+/** 工厂：从 traces 目录创建带索引的分段 TraceLogger。 */
+export function createSegmentedTraceLogger(
+  tracesDir: string,
+  rotation: TraceRotationPolicy,
+): { logger: TraceLogger; index: TraceIndexStore } {
+  const layout = resolveTracePaths(tracesDir);
+  const index = new TraceIndexStore(layout.indexDbPath);
+  const logger = new TraceLogger(tracesDir, { tracesDir, rotation, index });
+  return { logger, index };
 }

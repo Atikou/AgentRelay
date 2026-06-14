@@ -57,6 +57,8 @@ export interface Tool<TInput extends z.ZodTypeAny = z.ZodTypeAny, TOutput = unkn
   name: string;
   description: string;
   inputSchema: TInput;
+  /** 可选：在 zod 校验前对模型常见错参做保守归一化。 */
+  normalizeInput?: (rawInput: unknown) => unknown;
   permission: ToolPermission;
   hasSideEffect: boolean;
   timeoutMs?: number;

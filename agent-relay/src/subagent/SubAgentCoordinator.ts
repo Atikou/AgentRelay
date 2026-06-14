@@ -5,6 +5,11 @@ import type { LoopChatFn } from "../agent/AgentLoop.js";
 import { arbitrateSubAgentConflicts } from "./SubAgentArbitrator.js";
 import { aggregateSubAgentResultsStructured, SubAgentRunner, type SubAgentRunnerDeps } from "./SubAgentRunner.js";
 import type { SubAgentBatchOptions, SubAgentBatchResult, SubAgentRoleId, SubAgentRunOptions, SubAgentRunResult } from "./types.js";
+import {
+  attemptAutoMergeWriteConflicts,
+  formatWriteMergeSummary,
+} from "./writeConflictAutoMerge.js";
+import type { SubAgentCancelResult, SubAgentRunRegistry, SubAgentRunningRecord } from "./SubAgentRunRegistry.js";
 
 /** 并行派生多个子 Agent 并汇总结果（M5）。 */
 export class SubAgentCoordinator {
@@ -18,6 +23,14 @@ export class SubAgentCoordinator {
 
   run(options: SubAgentRunOptions): Promise<SubAgentRunResult> {
     return this.runner.run(options);
+  }
+
+  cancel(subAgentId: string): SubAgentCancelResult | undefined {
+    return this.deps.runRegistry?.cancel(subAgentId);
+  }
+
+  listRunning(): SubAgentRunningRecord[] {
+    return this.deps.runRegistry?.listRunning() ?? [];
   }
 
   async runBatch(options: SubAgentBatchOptions): Promise<SubAgentBatchResult> {
@@ -45,6 +58,7 @@ export class SubAgentCoordinator {
     );
 
     let aggregate = aggregateSubAgentResultsStructured(settled);
+
     if (options.arbitrateConflicts) {
       const arbitration = await arbitrateSubAgentConflicts(this.chat, {
         task: options.task,
@@ -56,11 +70,44 @@ export class SubAgentCoordinator {
       if (arbitration.applied) {
         aggregate = {
           ...aggregate,
-          arbitration,
+          arbitration: {
+            applied: arbitration.applied,
+            summary: arbitration.summary,
+            writeFilePicks: arbitration.writeFilePicks,
+          },
           mergedAnswer: `${aggregate.mergedAnswer}\n\n## 模型仲裁\n${arbitration.summary}`,
         };
       } else if (arbitration.skippedReason) {
-        aggregate = { ...aggregate, arbitration };
+        aggregate = { ...aggregate, arbitration: { applied: false, summary: "", skippedReason: arbitration.skippedReason } };
+      }
+    }
+
+    if (options.autoMergeWrites && aggregate.writeConflicts.length > 0) {
+      const storage = this.deps.registry.getStorage();
+      if (storage) {
+        const writeMerges = await attemptAutoMergeWriteConflicts(
+          storage,
+          this.deps.workspaceRoot,
+          aggregate.writeConflicts,
+          settled,
+          {
+            arbitrationSummary: aggregate.arbitration?.summary,
+            writeFilePickStrategy: options.writeFilePickStrategy ?? "arbitration",
+          },
+        );
+        const unresolved = aggregate.writeConflicts.filter(
+          (conflict) =>
+            writeMerges.find((attempt) => attempt.path === conflict.path)?.status !== "merged",
+        );
+        const mergeSummary = formatWriteMergeSummary(writeMerges);
+        aggregate = {
+          ...aggregate,
+          writeConflicts: unresolved,
+          writeMerges,
+          mergedAnswer: mergeSummary
+            ? `${aggregate.mergedAnswer}\n\n${mergeSummary}`
+            : aggregate.mergedAnswer,
+        };
       }
     }
 

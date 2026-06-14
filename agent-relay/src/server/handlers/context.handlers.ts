@@ -20,6 +20,21 @@ export function handleContextSessionGet(app: AppContext, id: string): ApiResult 
   return { status: 200, body: { session, messages, summaries } };
 }
 
+export function handleContextSessionUpdate(app: AppContext, id: string, body: unknown): ApiResult {
+  const payload = (body ?? {}) as { title?: string };
+  const title = (payload.title ?? "").trim();
+  if (!title) return { status: 400, body: { error: "title 不能为空" } };
+  const session = app.contextManager.updateSessionTitle(id, title);
+  if (!session) return { status: 404, body: { error: "会话不存在", sessionId: id } };
+  return { status: 200, body: { session } };
+}
+
+export function handleContextSessionDelete(app: AppContext, id: string): ApiResult {
+  const ok = app.contextManager.deleteSession(id);
+  if (!ok) return { status: 404, body: { error: "会话不存在", sessionId: id } };
+  return { status: 200, body: { sessionId: id, deleted: true } };
+}
+
 export async function handleContextSessionRestore(
   app: AppContext,
   id: string,

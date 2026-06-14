@@ -286,9 +286,23 @@ Accept: text/event-stream
 | event | 说明 |
 | --- | --- |
 | `run_start` | `{ runId, taskId, sessionId? }` |
+| `model_turn` | `{ turn: AgentModelTurnEvent }`（每轮模型开始/结束、工具决策、thought 预览） |
 | `step` | `{ step: AgentToolStep }`（每步工具后） |
-| `done` | 与 `/api/agent` 200 响应体相同（含 `answer`、`steps` 等） |
+| `token` | `{ delta, iteration? }`（`streamTokens: true` 时） |
+| `done` | 与 `/api/agent` 200 响应体相同（含 `answer`、`steps` 等）；取消时 `executionMeta.stopReason` 为 `user_cancelled` |
 | `error` | `{ error, runId, taskId }` |
+
+流式运行中可调用 `POST /api/runs/cancel`（body `{ runId }`）显式取消；`GET /api/runs/running` 列出当前注册中的流式 Run。取消在 AgentLoop 安全点生效（模型 HTTP 请求可通过 `AbortSignal` 中断）。
+
+#### 流式对话（SSE）
+
+```http
+POST /api/chat/stream
+Content-Type: application/json
+Accept: text/event-stream
+```
+
+请求体字段与 `POST /api/chat` 类似，额外支持 `streamTokens`。事件：`run_start`、`token`、`done`、`error`。走 ModelRouter 直连以支持 token 流式（不经 Smart 协作流水线）。取消同样走 `POST /api/runs/cancel`；`done.cancelled: true` 时表示用户取消。
 
 
 
@@ -300,7 +314,13 @@ Accept: text/event-stream
 
 GET /api/runs?limit=20
 
+GET /api/runs/running
+
+POST /api/runs/cancel
+
 GET /api/runs/{runId}
+
+DELETE /api/runs/{runId}
 
 ```
 
@@ -325,7 +345,7 @@ GET /api/runs/{runId}
 | 计划与任务 | `/api/plan`、`/api/plans/*`、`/api/task/*`、`/api/tasks/*` | 计划报告/草案/审批/执行；`GET /api/tasks/:id` 查步骤状态；`POST /api/tasks/:id/resume` 重试/跳过/确认 |
 | 模型路由审计 | `/api/routing/logs`、`/api/routing/profiles`、`/api/routing/stats`、`/api/routing/eval/*` | 路由日志、V5 能力矩阵、V6 运行统计、V7 离线评测 |
 
-| 编排与 Run | `/api/runs`、`/api/runs/{id}`、`/api/runs/{id}/report` | 统一编排执行记录与运行报告时间线 |
+| 编排与 Run | `/api/runs`、`/api/runs/running`、`/api/runs/cancel`、`/api/runs/{id}`、`DELETE /api/runs/{id}`、`/api/runs/{id}/report` | 统一编排执行记录、流式取消、删除联动 timeline 与运行报告 |
 
 | 工具 | `/api/tools`、`/api/tools/run` | 工具注册表与直接调用 |
 
@@ -335,9 +355,10 @@ GET /api/runs/{runId}
 
 | 子 Agent | `/api/subagent/*` | M5 只读角色派生、结构化汇总、共同结论与冲突检测 |
 
-| 上下文与记忆 | `/api/context/*` | M6 会话持久化、压缩与检索 |
+| 上下文与记忆 | `/api/context/*` | M6 会话持久化、压缩与检索；`POST .../purge` 隐私清除 |
 
 | 安全与审计 | `/api/trace/recent`、`/export`、`/replay` | M7 脱敏 trace 与回放 |
+| 数据生命周期 | `/api/storage/usage`、`/api/storage/cleanup/preview`、`/api/storage/cleanup/apply`、`/api/trace/rotate`、`POST /api/context/sessions/:id/purge` | 存储用量、清理预览/apply、trace 轮转、会话隐私清除 |
 
 | 文档 | `/api/docs`、`/api/docs/content` | Markdown 文档元数据（供 `/docs` 使用） |
 

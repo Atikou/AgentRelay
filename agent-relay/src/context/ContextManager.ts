@@ -141,6 +141,67 @@ export class ContextManager {
     return this.sessions.list();
   }
 
+  updateSessionTitle(id: string, title: string): SessionRecord | null {
+    return this.sessions.updateTitle(id, title);
+  }
+
+  /** 删除会话及其消息、摘要、会话级记忆与关联任务/运行记录。 */
+  deleteSession(sessionId: string): boolean {
+    if (!this.sessions.get(sessionId)) return false;
+    const conn = this.db.connection;
+    conn.exec("BEGIN");
+    try {
+      const messageRows = conn
+        .prepare(`SELECT id FROM messages WHERE session_id=?`)
+        .all(sessionId) as Array<{ id: string }>;
+      for (const { id } of messageRows) {
+        this.db.deleteFts("messages_fts", id);
+      }
+
+      const summaryRows = conn
+        .prepare(`SELECT id FROM conversation_summaries WHERE session_id=?`)
+        .all(sessionId) as Array<{ id: string }>;
+      for (const { id } of summaryRows) {
+        this.db.deleteFts("summaries_fts", id);
+      }
+
+      const memoryRows = conn
+        .prepare(`SELECT id FROM memories WHERE scope='session' AND scope_id=?`)
+        .all(sessionId) as Array<{ id: string }>;
+      for (const { id } of memoryRows) {
+        this.db.deleteFts("memories_fts", id);
+      }
+
+      const taskRows = conn
+        .prepare(`SELECT id FROM tasks WHERE session_id=?`)
+        .all(sessionId) as Array<{ id: string }>;
+      for (const { id: taskId } of taskRows) {
+        conn.prepare(`DELETE FROM task_step_dependencies WHERE task_id=?`).run(taskId);
+        conn.prepare(`DELETE FROM task_attempts WHERE task_id=?`).run(taskId);
+        conn.prepare(`DELETE FROM task_steps WHERE task_id=?`).run(taskId);
+        conn.prepare(`DELETE FROM tasks WHERE id=?`).run(taskId);
+      }
+
+      const runRows = conn
+        .prepare(`SELECT id FROM runs WHERE session_id=?`)
+        .all(sessionId) as Array<{ id: string }>;
+      for (const { id: runId } of runRows) {
+        conn.prepare(`DELETE FROM run_states WHERE run_id=?`).run(runId);
+      }
+      conn.prepare(`DELETE FROM runs WHERE session_id=?`).run(sessionId);
+      conn.prepare(`DELETE FROM user_visible_plans WHERE session_id=?`).run(sessionId);
+      conn.prepare(`DELETE FROM conversation_summaries WHERE session_id=?`).run(sessionId);
+      conn.prepare(`DELETE FROM messages WHERE session_id=?`).run(sessionId);
+      conn.prepare(`DELETE FROM memories WHERE scope='session' AND scope_id=?`).run(sessionId);
+      this.sessions.delete(sessionId);
+      conn.exec("COMMIT");
+      return true;
+    } catch (error) {
+      conn.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
   /** @deprecated 请使用 saveUserMessage / saveAssistantMessage / saveToolMessage */
   appendMessage(sessionId: string, role: string, content: string): MessageRecord {
     return this.saveMessage(sessionId, role, content);

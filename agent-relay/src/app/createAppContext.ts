@@ -27,6 +27,8 @@ import { ProjectSemanticIndexer } from "../context/ProjectSemanticIndexer.js";
 import { HistoryFileRecaller } from "../context/HistoryFileRecaller.js";
 import { Scheduler } from "../scheduler/index.js";
 import { SubAgentCoordinator } from "../subagent/index.js";
+import { SubAgentRunRegistry } from "../subagent/SubAgentRunRegistry.js";
+import { AgentRunRegistry } from "../orchestrator/AgentRunRegistry.js";
 import { createDefaultRegistry } from "../tools/index.js";
 import { createShellPolicy, type ShellPolicy } from "../policy/ShellPolicy.js";
 import { createNetworkPolicy, type NetworkPolicy } from "../policy/NetworkPolicy.js";
@@ -52,7 +54,10 @@ import {
   validateCapabilityMatrixCoverage,
 } from "../model-router/index.js";
 import { recoverOnStartup, type StartupRecoverySummary } from "./startupRecovery.js";
-import { TraceLogger } from "../trace/TraceLogger.js";
+import { TraceLogger, createSegmentedTraceLogger } from "../trace/TraceLogger.js";
+import { loadLifecyclePolicy } from "../lifecycle/policy.js";
+import type { TraceCatalog } from "../trace/traceCatalog.js";
+import { DataLifecycleService } from "../lifecycle/DataLifecycleService.js";
 
 export interface AppPaths {
   projectRoot: string;
@@ -61,6 +66,7 @@ export interface AppPaths {
   docsDir: string;
   docsAssetsDir: string;
   dataDir: string;
+  tracesDir: string;
   traceFile: string;
 }
 
@@ -73,6 +79,7 @@ export class AppContext {
   readonly clientMap: Map<string, ModelClient>;
   readonly metrics: MetricsRegistry;
   readonly trace: TraceLogger;
+  readonly traceCatalog: TraceCatalog;
   readonly notificationQueue: NotificationQueue;
   readonly scheduler: Scheduler;
   readonly backgroundTasks: BackgroundTaskManager;
@@ -102,6 +109,7 @@ export class AppContext {
   readonly projectAllowedPermissions: ToolPermission[];
   readonly shellPolicy: ShellPolicy;
   readonly networkPolicy: NetworkPolicy;
+  readonly dataLifecycle: DataLifecycleService;
   private readonly defaultAgentChat: LoopChatFn;
   readonly startupRecovery?: StartupRecoverySummary;
 
@@ -113,6 +121,7 @@ export class AppContext {
     clientMap: Map<string, ModelClient>;
     metrics: MetricsRegistry;
     trace: TraceLogger;
+    traceCatalog: TraceCatalog;
     notificationQueue: NotificationQueue;
     scheduler: Scheduler;
     backgroundTasks: BackgroundTaskManager;
@@ -143,6 +152,7 @@ export class AppContext {
     projectAllowedPermissions: ToolPermission[];
     shellPolicy: ShellPolicy;
     networkPolicy: NetworkPolicy;
+    dataLifecycle: DataLifecycleService;
     startupRecovery?: StartupRecoverySummary;
   }) {
     this.profile = opts.profile;
@@ -152,6 +162,7 @@ export class AppContext {
     this.clientMap = opts.clientMap;
     this.metrics = opts.metrics;
     this.trace = opts.trace;
+    this.traceCatalog = opts.traceCatalog;
     this.notificationQueue = opts.notificationQueue;
     this.scheduler = opts.scheduler;
     this.backgroundTasks = opts.backgroundTasks;
@@ -182,6 +193,7 @@ export class AppContext {
     this.projectAllowedPermissions = opts.projectAllowedPermissions;
     this.shellPolicy = opts.shellPolicy;
     this.networkPolicy = opts.networkPolicy;
+    this.dataLifecycle = opts.dataLifecycle;
     this.startupRecovery = opts.startupRecovery;
   }
 
@@ -253,6 +265,10 @@ export class AppContext {
         runReportExport: true,
         runReportTimeline: true,
         traceReplayFilters: true,
+        traceSegmentRotation: true,
+        traceIndex: true,
+        privacyPurge: true,
+        storageLifecycle: true,
         modelTokenStreaming: true,
         routerEvaluatorV3: true,
         answerEvaluatorV4: true,
@@ -278,8 +294,9 @@ export class AppContext {
         projectIndexUpdate: true,
         costBudgetPerRun: true,
         ruleOnlyRouting: true,
-        sqliteSchemaMigrations: true,
+        dataLifecycleRetention: true,
         permissionScopeResolution: true,
+        sqliteSchemaMigrations: true,
         networkDomainPolicy: true,
         structuredToolRisk: true,
       },
@@ -315,6 +332,9 @@ export class AppContext {
 
   shutdown(): void {
     this.scheduler.stop();
+    void this.trace.close().then(() => {
+      this.trace.getIndexStore()?.close();
+    });
     this.registry.close();
     this.contextManager.db.close();
   }
@@ -333,8 +353,16 @@ export function createAppContext(): AppContext {
     docsDir: path.join(repoRoot, "docs"),
     docsAssetsDir: path.join(repoRoot, "docs", "assets"),
     dataDir,
-    traceFile: path.join(dataDir, "traces", "trace.jsonl"),
+    tracesDir: path.join(dataDir, "traces"),
+    traceFile: path.join(dataDir, "traces", "active", "trace-current.jsonl"),
   };
+
+  const lifecyclePolicy = loadLifecyclePolicy(dataDir);
+  const { logger: trace, index: traceIndex } = createSegmentedTraceLogger(paths.tracesDir, {
+    rotationMaxBytes: lifecyclePolicy.trace.rotationMaxBytes,
+    rotationMaxAgeHours: lifecyclePolicy.trace.rotationMaxAgeHours,
+  });
+  const traceCatalog: TraceCatalog = { tracesDir: paths.tracesDir, index: traceIndex };
 
   const { profile, config, workspaceRoot } = loadConfig();
   const shellPolicy = createShellPolicy(config.security?.shell);
@@ -352,7 +380,6 @@ export function createAppContext(): AppContext {
   }
 
   const metrics = new MetricsRegistry();
-  const trace = new TraceLogger(paths.traceFile);
   const notificationQueue = new NotificationQueue(
     path.join(dataDir, "notifications", "notifications.jsonl"),
   );
@@ -471,6 +498,9 @@ export function createAppContext(): AppContext {
           })
       : defaultAgentChat;
 
+  const subAgentRunRegistry = new SubAgentRunRegistry();
+  const agentRunRegistry = new AgentRunRegistry();
+
   const subAgentCoordinator = new SubAgentCoordinator({
     chat: defaultAgentChat,
     registry,
@@ -479,6 +509,7 @@ export function createAppContext(): AppContext {
     projectAllowedPermissions,
     notificationQueue,
     maxSubAgentDispatchDepth,
+    runRegistry: subAgentRunRegistry,
   });
 
   registry.setDefaultContext({
@@ -525,6 +556,7 @@ export function createAppContext(): AppContext {
         projectAllowedPermissions,
         notificationQueue,
         maxSubAgentDispatchDepth,
+        runRegistry: subAgentRunRegistry,
       }),
     smartModelRouter,
     modelOrchestrator,
@@ -532,6 +564,7 @@ export function createAppContext(): AppContext {
     maxCostUsdPerRun: config.security?.budget?.maxCostUsdPerRun,
     projectAllowedPermissions,
     maxSubAgentDispatchDepth,
+    agentRunRegistry,
   });
   orchestratorHolder.current = orchestrator;
 
@@ -554,6 +587,20 @@ export function createAppContext(): AppContext {
 
   const startupRecovery = recoverOnStartup({ runs, notificationQueue, trace });
 
+  const toolsDbPath = registry.getStorage()?.dbPath;
+  const dataLifecycle = new DataLifecycleService({
+    dataDir,
+    workspaceRoot,
+    traceFile: paths.traceFile,
+    tracesDir: paths.tracesDir,
+    traceCatalog,
+    notificationFile: path.join(dataDir, "notifications", "notifications.jsonl"),
+    schedulerJournalFile: path.join(dataDir, "scheduler", "triggers.jsonl"),
+    memoryDb: contextManager.db,
+    toolsDbPath,
+    getActiveRunIds: () => agentRunRegistry.listRunning().map((r) => r.runId),
+  });
+
   const app = new AppContext({
     profile,
     config,
@@ -562,6 +609,7 @@ export function createAppContext(): AppContext {
     clientMap,
     metrics,
     trace,
+    traceCatalog,
     notificationQueue,
     scheduler,
     backgroundTasks,
@@ -592,6 +640,7 @@ export function createAppContext(): AppContext {
     projectAllowedPermissions,
     shellPolicy,
     networkPolicy,
+    dataLifecycle,
     startupRecovery,
   });
   if (startupRecovery.interruptedRuns > 0 || startupRecovery.pendingNotifications > 0) {
@@ -600,6 +649,22 @@ export function createAppContext(): AppContext {
     );
   }
   scheduler.start();
+  if (lifecyclePolicy.cleanup.autoEnabled) {
+    const intervalMs = lifecyclePolicy.cleanup.autoIntervalHours * 60 * 60 * 1000;
+    const runAutoCleanup = (): void => {
+      try {
+        const result = dataLifecycle.runAutoSafeCleanup();
+        if ("autoSkipped" in result) return;
+        console.log(
+          `[lifecycle] auto cleanup ${result.cleanupRunId}: freed ${result.bytesFreed} bytes (${result.applied} actions)`,
+        );
+      } catch (error) {
+        console.warn(`[lifecycle] auto cleanup failed: ${String(error)}`);
+      }
+    };
+    setTimeout(runAutoCleanup, 60_000);
+    setInterval(runAutoCleanup, intervalMs);
+  }
   if (schedCfg?.dailySummaryCron && schedCfg.dailySummaryGoal) {
     const hasDaily = scheduler.list().some((t) => t.name === "__daily_summary__");
     if (!hasDaily) {

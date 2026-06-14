@@ -589,6 +589,35 @@ test("AgentLoop 集成 sessionId 与压缩标记", async () => {
   mgr.close();
 });
 
+test("会话标题可修改", async () => {
+  const mgr = new ContextManager({
+    dataDir: path.join(tmpDir, "rename"),
+    useLanceDb: false,
+    vectorStore: new InMemoryVectorStore(),
+  });
+  const session = mgr.createSession("旧标题");
+  const updated = mgr.updateSessionTitle(session.id, "新标题");
+  assert.equal(updated?.title, "新标题");
+  assert.equal(mgr.getSession(session.id)?.title, "新标题");
+  mgr.close();
+});
+
+test("deleteSession 级联删除消息与会话", async () => {
+  const mgr = new ContextManager({
+    dataDir: path.join(tmpDir, "delete"),
+    useLanceDb: false,
+    vectorStore: new InMemoryVectorStore(),
+  });
+  const session = mgr.createSession("待删除");
+  mgr.appendMessage(session.id, "user", "hello");
+  assert.equal(mgr.messages.countInSession(session.id), 1);
+  assert.ok(mgr.deleteSession(session.id));
+  assert.equal(mgr.getSession(session.id), null);
+  assert.equal(mgr.messages.countInSession(session.id), 0);
+  assert.equal(mgr.deleteSession(session.id), false);
+  mgr.close();
+});
+
 async function main() {
   tmpDir = await mkdtemp(path.join(os.tmpdir(), "agent-context-"));
   let passed = 0;

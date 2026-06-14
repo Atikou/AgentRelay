@@ -6,7 +6,12 @@ import {
   type LoopChatFn,
 } from "../agent/AgentLoop.js";
 import type { AgentToolStep } from "../agent/toolStep.js";
+import { AgentTimelineService } from "../agent/timeline/AgentTimelineService.js";
+import type { AgentActivityEvent } from "../agent/timeline/types.js";
+import { ActivityRunStore } from "../agent/timeline/ActivityRunStore.js";
+import { defaultActivityEventBus } from "../agent/timeline/AgentEventBus.js";
 import type { AgentStreamEvent } from "./AgentStream.js";
+import type { ChatStreamEvent } from "./ChatStream.js";
 
 import { planFromTask } from "../agent/planFromTask.js";
 import { TaskExecutionWorkflow } from "../agent/TaskExecutionWorkflow.js";
@@ -53,6 +58,7 @@ import type { TraceLogger } from "../trace/TraceLogger.js";
 
 import { RunStore } from "./RunStore.js";
 import { RunStateStore } from "./RunStateStore.js";
+import { AgentRunRegistry, isRunCancelledError } from "./AgentRunRegistry.js";
 import type { ProjectIndex } from "../context/ProjectIndex.js";
 import type { RunState } from "./runStateTypes.js";
 import { rollbackFileChangesForRun, type TaskRollbackResult } from "./TaskRollback.js";
@@ -108,6 +114,9 @@ export interface OrchestratorDeps {
 
   /** 子 Agent 最大派生深度（security.subagent.maxDispatchDepth），默认 1。 */
   maxSubAgentDispatchDepth?: number;
+
+  /** 流式 Agent / Chat Run 取消注册表。 */
+  agentRunRegistry: AgentRunRegistry;
 
 }
 
@@ -426,6 +435,124 @@ export class Orchestrator {
 
     }
 
+  }
+
+
+
+  /** SSE：单次对话流式（token + done）；走 ModelRouter 以支持 onToken。 */
+  async runChatStream(body: unknown, emit: (event: ChatStreamEvent) => void): Promise<void> {
+    const payload = (body ?? {}) as {
+      clientName?: string;
+      message?: string;
+      system?: string;
+      sensitive?: boolean;
+      taskType?: string;
+      sessionId?: string;
+      persist?: boolean;
+      streamTokens?: boolean;
+    };
+    const message = (payload.message ?? "").trim();
+    if (!message) throw new Error("message 不能为空");
+
+    const taskTypeParsed = parseModelTaskTypeOrError(payload.taskType);
+    if (!taskTypeParsed.ok) throw new Error(taskTypeParsed.error);
+
+    const forceClient =
+      payload.clientName && payload.clientName !== "__default__" ? payload.clientName : undefined;
+
+    const persist = payload.persist !== false;
+    const sessionId = persist ? this.ensureSession(payload.sessionId, "网页对话") : undefined;
+
+    const run = this.deps.runs.create({
+      kind: "chat",
+      status: "running",
+      sessionId,
+      goal: message.slice(0, 200),
+      correlation: { runId: "", sessionId },
+    });
+    this.deps.runs.update(run.id, {
+      correlationJson: JSON.stringify(this.correlationFor(run.id, { sessionId })),
+    });
+
+    const systemBase = payload.system?.trim() ?? "";
+    if (persist && sessionId) {
+      this.deps.contextManager.saveUserMessage(sessionId, message);
+    }
+
+    const messages =
+      persist && sessionId
+        ? this.deps.contextManager.buildChatMessages(
+            await this.deps.contextManager.restoreContextPackage(sessionId, message),
+            systemBase,
+            { phase: "pre_call", currentUser: message },
+          )
+        : [
+            ...(systemBase ? [{ role: "system" as const, content: systemBase }] : []),
+            { role: "user" as const, content: message },
+          ];
+
+    emit({ type: "run_start", runId: run.id, sessionId });
+
+    const abortController = this.deps.agentRunRegistry.register(run.id, "chat");
+
+    try {
+      this.deps.trace?.write({ type: "run_start", runId: run.id, kind: "chat", sessionId });
+      const response = await this.deps.modelRouter.chat(
+        {
+          messages,
+          temperature: 0.3,
+          onToken: payload.streamTokens
+            ? (delta) => emit({ type: "token", delta })
+            : undefined,
+          signal: abortController.signal,
+        },
+        {
+          forceClient,
+          sensitive: payload.sensitive,
+          taskType: taskTypeParsed.taskType,
+        },
+      );
+
+      if (persist && sessionId) {
+        this.deps.contextManager.saveAssistantMessage(sessionId, response.content);
+        await this.deps.contextManager.finalizeTurn(sessionId, message);
+      }
+
+      this.deps.runs.update(run.id, {
+        status: "completed",
+        resultJson: JSON.stringify({ content: response.content }),
+      });
+      this.deps.trace?.write({ type: "run_end", runId: run.id, kind: "chat", status: "completed" });
+
+      emit({
+        type: "done",
+        runId: run.id,
+        sessionId,
+        content: response.content,
+        clientName: response.clientName,
+        modelName: response.modelName,
+        location: response.location,
+        latencyMs: Math.round(response.latencyMs),
+      });
+    } catch (error) {
+      if (isRunCancelledError(error)) {
+        this.deps.runs.update(run.id, { status: "cancelled", error: "运行已取消" });
+        this.deps.trace?.write({ type: "run_end", runId: run.id, kind: "chat", status: "cancelled" });
+        emit({
+          type: "done",
+          runId: run.id,
+          sessionId,
+          content: "（运行已取消）",
+          cancelled: true,
+        });
+        return;
+      }
+      this.deps.runs.update(run.id, { status: "failed", error: String(error) });
+      this.deps.trace?.write({ type: "run_end", runId: run.id, kind: "chat", status: "failed" });
+      emit({ type: "error", error: String(error), runId: run.id });
+    } finally {
+      this.deps.agentRunRegistry.unregister(run.id);
+    }
   }
 
 
@@ -824,7 +951,10 @@ export class Orchestrator {
 
 
   async runAgent(body: unknown, makeChat?: LoopChatFn): Promise<ApiResult> {
-    const prepared = this.prepareAgentRun(body, makeChat);
+    const prepared = this.prepareAgentRun(body, makeChat, {
+      registerForCancel: true,
+      enableTimeline: true,
+    });
     if ("error" in prepared) return prepared.error;
     const { ctx } = prepared;
 
@@ -834,6 +964,8 @@ export class Orchestrator {
       return { status: 200, body: this.finalizeAgentRunSuccess(ctx, result) };
     } catch (error) {
       return { status: 502, body: this.finalizeAgentRunFailure(ctx, error) };
+    } finally {
+      this.deps.agentRunRegistry.unregister(ctx.run.id);
     }
   }
 
@@ -951,16 +1083,59 @@ export class Orchestrator {
     return this.deps.runStateStore.get(runId);
   }
 
-  /** SSE：推送 run_start / step / done | error（校验错误由 handler 在开启流前返回 JSON）。 */
+  listRunningAgentRuns() {
+    return this.deps.agentRunRegistry.listRunning();
+  }
+
+  cancelRun(runId: string): ApiResult {
+    const id = runId.trim();
+    if (!id) return { status: 400, body: { error: "runId 不能为空" } };
+    const result = this.deps.agentRunRegistry.cancel(id);
+    if (!result) return { status: 404, body: { error: "运行不存在或已结束", runId: id } };
+    return { status: 200, body: result };
+  }
+
+  getActivityRun(runId: string): ApiResult {
+    const store = new ActivityRunStore(this.deps.workspaceRoot);
+    const run = store.loadRun(runId);
+    if (!run) return { status: 404, body: { error: "Activity Run 不存在", runId } };
+    return { status: 200, body: { run } };
+  }
+
+  subscribeActivityEvents(
+    runId: string,
+    emit: (event: AgentActivityEvent) => void,
+    opts?: { replay?: boolean },
+  ): () => void {
+    const store = new ActivityRunStore(this.deps.workspaceRoot);
+    if (opts?.replay !== false) {
+      for (const event of store.listEvents(runId)) {
+        emit(event);
+      }
+    }
+    return defaultActivityEventBus.subscribe(runId, emit);
+  }
+
+  /** SSE：推送 run_start / model_turn / step / token / done | error。 */
   async runAgentStream(
     body: unknown,
     emit: (event: AgentStreamEvent) => void,
     makeChat?: LoopChatFn,
   ): Promise<void> {
     const payload = (body ?? {}) as { streamTokens?: boolean };
+    let activeIteration = 0;
     const prepared = this.prepareAgentRun(body, makeChat, {
       onStep: (step) => emit({ type: "step", step }),
-      onToken: payload.streamTokens ? (delta) => emit({ type: "token", delta }) : undefined,
+      onModelTurn: (turn) => {
+        activeIteration = turn.iteration;
+        emit({ type: "model_turn", turn });
+      },
+      onToken: payload.streamTokens
+        ? (delta) => emit({ type: "token", delta, iteration: activeIteration || undefined })
+        : undefined,
+      registerForCancel: true,
+      enableTimeline: true,
+      onActivityEvent: (event) => emit({ type: "activity_event", event }),
     });
     if ("error" in prepared) throw new Error(String((prepared.error.body as { error?: string }).error));
     const { ctx } = prepared;
@@ -979,6 +1154,8 @@ export class Orchestrator {
         runId: ctx.run.id,
         taskId: ctx.task.id,
       });
+    } finally {
+      this.deps.agentRunRegistry.unregister(ctx.run.id);
     }
   }
 
@@ -1240,13 +1417,18 @@ export class Orchestrator {
 
       this.deps.runs.update(run.id, {
 
-        status: "completed",
+        status: result.status === "cancelled" ? "cancelled" : "completed",
 
-        resultJson: JSON.stringify({ role: payload.role, summary: result.answer?.slice(0, 500) }),
+        resultJson: JSON.stringify({ role: payload.role, summary: result.answer?.slice(0, 500), subAgentId: result.id }),
 
       });
 
-      this.deps.trace?.write({ type: "run_end", runId: run.id, kind: "subagent", status: "completed" });
+      this.deps.trace?.write({
+        type: "run_end",
+        runId: run.id,
+        kind: "subagent",
+        status: result.status === "cancelled" ? "cancelled" : "completed",
+      });
 
       return { status: 200, body: { runId: run.id, result } };
 
@@ -1285,6 +1467,10 @@ export class Orchestrator {
       sensitive?: boolean;
 
       arbitrateConflicts?: boolean;
+
+      autoMergeWrites?: boolean;
+
+      writeFilePickStrategy?: "latest" | "earliest" | "arbitration";
 
     };
 
@@ -1366,6 +1552,10 @@ export class Orchestrator {
 
         arbitrateConflicts: payload.arbitrateConflicts,
 
+        autoMergeWrites: payload.autoMergeWrites,
+
+        writeFilePickStrategy: payload.writeFilePickStrategy,
+
       });
 
       this.deps.runs.update(run.id, {
@@ -1394,6 +1584,31 @@ export class Orchestrator {
 
 
 
+  cancelSubAgent(subAgentId: string): ApiResult {
+
+    const coord = this.deps.subAgentCoordinator;
+
+    if (!coord) return { status: 503, body: { error: "子 Agent 未启用" } };
+
+    const result = coord.cancel(subAgentId);
+
+    if (!result) {
+      return { status: 404, body: { error: `子 Agent 不在运行中：${subAgentId}` } };
+    }
+
+    this.deps.trace?.write({
+      type: "subagent_cancel",
+      subAgentId,
+      role: result.role,
+      parentTaskId: result.parentTaskId,
+    });
+
+    return { status: 200, body: result };
+
+  }
+
+
+
   private correlationFor(runId: string, extra: Omit<CorrelationContext, "runId">): CorrelationContext {
 
     return { runId, ...extra };
@@ -1405,7 +1620,11 @@ export class Orchestrator {
     makeChat?: LoopChatFn,
     callbacks?: {
       onStep?: (step: AgentToolStep) => void;
+      onModelTurn?: (turn: import("../agent/AgentModelTurn.js").AgentModelTurnEvent) => void;
       onToken?: (delta: string) => void;
+      registerForCancel?: boolean;
+      enableTimeline?: boolean;
+      onActivityEvent?: (event: AgentActivityEvent) => void;
     },
   ):
     | { error: ApiResult }
@@ -1476,6 +1695,29 @@ export class Orchestrator {
       correlationJson: JSON.stringify(this.correlationFor(run.id, { sessionId, taskId: task.id })),
     });
 
+    const cancelSignal = callbacks?.registerForCancel
+      ? this.deps.agentRunRegistry.register(run.id, "agent").signal
+      : undefined;
+
+    const timeline = callbacks?.enableTimeline
+      ? new AgentTimelineService({
+          workspaceRoot: this.deps.workspaceRoot,
+          onEvent: callbacks.onActivityEvent,
+        })
+      : undefined;
+    if (timeline) {
+      timeline.createRun({
+        id: run.id,
+        goal: message,
+        sessionId,
+        metadata: {
+          userInput: message,
+          mode: policy.mode,
+          projectRoot: this.deps.workspaceRoot,
+        },
+      });
+    }
+
     const loop = new AgentLoop({
       chat: makeChat ?? this.deps.makeChatFn(),
       registry: this.deps.registry,
@@ -1495,10 +1737,13 @@ export class Orchestrator {
       runStateStore: this.deps.runStateStore,
       projectIndex: this.deps.projectIndex,
       onStep: callbacks?.onStep,
+      onModelTurn: callbacks?.onModelTurn,
       onToken: callbacks?.onToken,
       maxCostUsdPerRun: this.deps.maxCostUsdPerRun,
       subAgentDispatchDepth: 0,
       maxSubAgentDispatchDepth: this.deps.maxSubAgentDispatchDepth ?? 1,
+      signal: cancelSignal,
+      timeline,
     });
 
     return {
@@ -1532,16 +1777,17 @@ export class Orchestrator {
     result: AgentRunResult,
     extra?: { resumed?: boolean },
   ): AgentRunResult & { runId: string; taskId: string; runState?: RunState | null; resumed?: boolean } {
+    const cancelled = result.executionMeta.stopReason === "user_cancelled";
     this.deps.tasks.update(ctx.task.id, {
-      status: result.reachedLimit ? "failed" : "done",
+      status: cancelled ? "cancelled" : result.reachedLimit ? "failed" : "done",
       summary: result.answer.slice(0, 500),
     });
-    if (!result.reachedLimit) this.releaseTaskFromSession(ctx.sessionId, ctx.task.id);
+    if (!result.reachedLimit && !cancelled) this.releaseTaskFromSession(ctx.sessionId, ctx.task.id);
     const runState = result.reachedLimit
       ? this.deps.runStateStore.get(ctx.run.id)
       : null;
     this.deps.runs.update(ctx.run.id, {
-      status: result.reachedLimit ? "failed" : "completed",
+      status: cancelled ? "cancelled" : result.reachedLimit ? "failed" : "completed",
       resultJson: JSON.stringify({
         answer: result.answer,
         iterations: result.iterations,
@@ -1558,7 +1804,7 @@ export class Orchestrator {
       type: "run_end",
       runId: ctx.run.id,
       kind: "agent",
-      status: result.reachedLimit ? "failed" : "completed",
+      status: cancelled ? "cancelled" : result.reachedLimit ? "failed" : "completed",
       resumed: extra?.resumed,
       resumable: runState?.status === "resumable",
     });

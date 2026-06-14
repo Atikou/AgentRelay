@@ -99,6 +99,30 @@
       }
     },
     {
+      "id": "m9-agent-resume-empty-runid",
+      "title": "agent/resume 空 runId 返回 400",
+      "purpose": "回归：续跑接口校验 runId，避免无状态恢复请求进入 Orchestrator。",
+      "method": "POST",
+      "path": "/api/agent/resume",
+      "input": { "runId": "" },
+      "expect": {
+        "status": 400,
+        "bodyHasKeys": ["error"]
+      }
+    },
+    {
+      "id": "m9-agent-resume-missing-run",
+      "title": "agent/resume 不存在 run 返回 404",
+      "purpose": "回归：对已删除或从未创建的 runId 续跑应明确 404，与取消后不可续跑语义一致。",
+      "method": "POST",
+      "path": "/api/agent/resume",
+      "input": { "runId": "00000000-0000-0000-0000-000000000000" },
+      "expect": {
+        "status": 404,
+        "bodyHasKeys": ["error", "runId"]
+      }
+    },
+    {
       "id": "m9-config-p3-capabilities",
       "title": "配置暴露 P3 修复能力标记",
       "purpose": "确认 startupRecovery、runReportExport、modelTokenStreaming、routerEvaluatorV3、answerEvaluatorV4、costBudgetPerRun 等能力可探测。",
@@ -116,6 +140,18 @@
           "capabilities.answerEvaluatorV4": true,
           "capabilities.costBudgetPerRun": true
         }
+      }
+    },
+    {
+      "id": "m9-run-delete-missing",
+      "title": "删除不存在的 Run 返回 404",
+      "purpose": "确认 DELETE /api/runs/:id 在 Run 不存在时拒绝删除，避免误操作。",
+      "method": "DELETE",
+      "path": "/api/runs/00000000-0000-0000-0000-000000000099",
+      "input": null,
+      "expect": {
+        "status": 404,
+        "bodyHasKeys": ["error"]
       }
     }
   ]

@@ -202,6 +202,102 @@
         "status": 200,
         "bodyContains": ["arbitrateConflicts", "arbitration", "模型仲裁"]
       }
+    },
+    {
+      "id": "m5-auto-merge-writes-doc",
+      "title": "子 Agent 文档记录 autoMergeWrites",
+      "purpose": "确认 batch / dispatch_subagent 支持 autoMergeWrites 自动三路补丁合并，且 aggregate.writeMerges 有说明。",
+      "method": "GET",
+      "path": "/api/docs/content?slug=子Agent",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyContains": ["autoMergeWrites", "writeMerges", "三路"]
+      }
+    },
+    {
+      "id": "m5-api-spec-batch-merge-fields",
+      "title": "api-spec 暴露 batch 合并字段",
+      "purpose": "确认 OpenAPI SubAgentBatchRequest 含 autoMergeWrites，SubAgentAggregate 含 writeMerges。",
+      "method": "GET",
+      "path": "/api/api-spec",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyContains": ["autoMergeWrites", "writeMerges", "SubAgentWriteMergeAttempt"]
+      }
+    },
+    {
+      "id": "m5-subagent-cancel-missing-id",
+      "title": "cancel 缺少 subAgentId 返回 400",
+      "purpose": "确认显式取消入口校验 subAgentId，避免误操作。",
+      "method": "POST",
+      "path": "/api/subagent/cancel",
+      "input": {},
+      "expect": {
+        "status": 400,
+        "bodyHasKeys": ["error"]
+      }
+    },
+    {
+      "id": "m5-subagent-cancel-not-running",
+      "title": "cancel 非运行中 subAgentId 返回 404",
+      "purpose": "确认对不存在或已结束的 subAgentId 取消返回 404。",
+      "method": "POST",
+      "path": "/api/subagent/cancel",
+      "input": { "subAgentId": "00000000-0000-4000-8000-000000000000" },
+      "expect": {
+        "status": 404,
+        "bodyHasKeys": ["error"]
+      }
+    },
+    {
+      "id": "m5-subagent-cancel-doc",
+      "title": "子 Agent 文档记录显式 cancel",
+      "purpose": "确认文档说明 POST /api/subagent/cancel 与 running 查询。",
+      "method": "GET",
+      "path": "/api/docs/content?slug=子Agent",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyContains": ["/api/subagent/cancel", "subAgentId", "running"]
+      }
+    },
+    {
+      "id": "m5-write-file-pick-doc",
+      "title": "子 Agent 文档记录 write_file 选版",
+      "purpose": "确认文档说明 writeFilePickStrategy 与仲裁 WRITE_PICK 自动选版。",
+      "method": "GET",
+      "path": "/api/docs/content?slug=子Agent",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyContains": ["writeFilePickStrategy", "WRITE_PICK", "write_file"]
+      }
+    },
+    {
+      "id": "m5-dispatch-input-normalization-doc",
+      "title": "dispatch_subagent 文档记录错参归一化",
+      "purpose": "确认文档说明 dispatch_subagent 会归一化 task 数组、空对象 context、角色别名和 null 选项，降低模型工具调用错误。",
+      "method": "GET",
+      "path": "/api/docs/content?slug=子Agent",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyContains": ["归一化", "task", "context", "writeFilePickStrategy"]
+      }
+    },
+    {
+      "id": "m5-dispatch-final-convergence-doc",
+      "title": "dispatch_subagent 文档记录三结果收敛",
+      "purpose": "确认文档说明主 Agent 已收集 3 个成功子 Agent 结果后会阻止继续派生并要求输出 final。",
+      "method": "GET",
+      "path": "/api/docs/content?slug=子Agent",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyContains": ["3 个", "dispatch_subagent", "final"]
+      }
     }
   ]
 }

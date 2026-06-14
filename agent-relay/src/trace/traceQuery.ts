@@ -1,7 +1,10 @@
 import { createReadStream, existsSync } from "node:fs";
 import { createInterface } from "node:readline";
+import path from "node:path";
 
 import { redactValue } from "../util/redact.js";
+import { resolveFilesForFilter, type TraceCatalog } from "./traceCatalog.js";
+import { readRecentTraceEvents } from "./traceReader.js";
 import type { TraceEvent } from "./TraceLogger.js";
 
 /** 审计回放默认包含的事件类型（过滤 model_call 等噪声）。 */
@@ -60,6 +63,7 @@ export interface ScanTraceOptions {
   maxScanLines?: number;
   redact?: boolean;
   filter?: TraceQueryFilter;
+  catalog?: TraceCatalog;
 }
 
 export interface TraceQuerySummary {
@@ -179,9 +183,9 @@ export function summarizeTraceEvents(events: TraceEvent[]): TraceQuerySummary {
   };
 }
 
-/** 扫描 trace 文件并按过滤条件收集事件；有 scope 过滤时全文件扫描，否则读尾部。 */
+/** 扫描 trace 文件并按过滤条件收集事件；有 scope 过滤时优先索引定位 segment。 */
 export async function scanTraceEvents(
-  traceFile: string,
+  traceFileOrDir: string,
   options: ScanTraceOptions = {},
 ): Promise<TraceEvent[]> {
   const limit = Math.min(Math.max(options.limit ?? 100, 1), 2000);
@@ -189,37 +193,57 @@ export async function scanTraceEvents(
   const filter = options.filter;
   const maxScanLines = options.maxScanLines ?? DEFAULT_MAX_SCAN_LINES;
 
-  if (!existsSync(traceFile)) return [];
+  const catalog: TraceCatalog = options.catalog ?? resolveCatalogFromPath(traceFileOrDir);
 
   if (!hasScopedFilter(filter)) {
-    const { readRecentTraceEvents } = await import("./traceReader.js");
-    const raw = readRecentTraceEvents(traceFile, {
+    const raw = readRecentTraceEvents(traceFileOrDir, {
       limit: filter?.replayOnly === false ? limit : limit * 3,
       redact: false,
+      catalog,
     });
     const matched = raw.filter((e) => matchesTraceFilter(e, filter));
     const sliced = matched.slice(-limit);
     return redact ? sliced.map((e) => redactValue(e)) : sliced;
   }
 
+  const files = resolveFilesForFilter(catalog, filter);
+  if (files.length === 0 && !existsSync(traceFileOrDir)) return [];
+
   const matched: TraceEvent[] = [];
-  const rl = createInterface({ input: createReadStream(traceFile, { encoding: "utf-8" }) });
   let scanned = 0;
 
-  for await (const line of rl) {
-    scanned += 1;
-    if (scanned > maxScanLines) break;
-    const trimmed = line.trim();
-    if (!trimmed) continue;
-    try {
-      const parsed = JSON.parse(trimmed) as TraceEvent;
-      if (!matchesTraceFilter(parsed, filter)) continue;
-      matched.push(redact ? redactValue(parsed) : parsed);
-      if (matched.length > limit * 4) matched.splice(0, matched.length - limit * 2);
-    } catch {
-      // skip corrupt line
+  const scanFile = async (file: string): Promise<void> => {
+    const rl = createInterface({ input: createReadStream(file, { encoding: "utf-8" }) });
+    for await (const line of rl) {
+      scanned += 1;
+      if (scanned > maxScanLines) return;
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+      try {
+        const parsed = JSON.parse(trimmed) as TraceEvent;
+        if (!matchesTraceFilter(parsed, filter)) continue;
+        matched.push(redact ? redactValue(parsed) : parsed);
+        if (matched.length > limit * 4) matched.splice(0, matched.length - limit * 2);
+      } catch {
+        // skip corrupt line
+      }
     }
+  };
+
+  const targets = files.length > 0 ? files : [traceFileOrDir];
+  for (const file of targets) {
+    if (!existsSync(file)) continue;
+    await scanFile(file);
+    if (scanned > maxScanLines) break;
   }
 
   return matched.slice(-limit);
+}
+
+function resolveCatalogFromPath(traceFileOrDir: string): TraceCatalog {
+  const base = path.basename(traceFileOrDir);
+  const dir = path.dirname(traceFileOrDir);
+  if (base === "trace-current.jsonl") return { tracesDir: path.dirname(dir) };
+  if (base === "trace.jsonl") return { tracesDir: dir };
+  return { tracesDir: traceFileOrDir };
 }

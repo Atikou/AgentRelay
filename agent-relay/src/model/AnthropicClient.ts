@@ -102,6 +102,97 @@ export class AnthropicClient implements ModelClient {
       .join("\n\n");
 
     try {
+      if (request.onToken) {
+        const response = await fetch(`${this.baseUrl}/v1/messages`, {
+          method: "POST",
+          headers: this.headers(),
+          body: JSON.stringify({
+            model: this.model,
+            max_tokens: request.maxTokens ?? this.defaultMaxTokens,
+            ...(system ? { system } : {}),
+            messages: toAnthropicMessages(request.messages),
+            tools: toAnthropicTools(request.tools),
+            temperature: request.temperature,
+            stream: true,
+          }),
+          signal,
+        });
+
+        if (!response.ok) {
+          const detail = await safeReadText(response);
+          throw new Error(`Anthropic 请求失败：${response.status} ${detail}`);
+        }
+        if (!response.body) {
+          throw new Error("Anthropic 流式响应无 body");
+        }
+
+        let content = "";
+        let modelName = this.model;
+        let inputTokens: number | undefined;
+        let outputTokens: number | undefined;
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+
+        const consumeSsePart = (part: string) => {
+          let eventType = "";
+          let dataLine = "";
+          for (const line of part.split("\n")) {
+            const trimmed = line.trim();
+            if (trimmed.startsWith("event:")) eventType = trimmed.slice(6).trim();
+            if (trimmed.startsWith("data:")) dataLine = trimmed.slice(5).trim();
+          }
+          if (!dataLine) return;
+          let data: Record<string, unknown>;
+          try {
+            data = JSON.parse(dataLine) as Record<string, unknown>;
+          } catch {
+            return;
+          }
+          const type = String(data.type ?? eventType);
+          if (type === "message_start") {
+            const message = data.message as { model?: string; usage?: { input_tokens?: number } } | undefined;
+            if (message?.model) modelName = message.model;
+            inputTokens = message?.usage?.input_tokens;
+          }
+          if (type === "content_block_delta") {
+            const delta = data.delta as { type?: string; text?: string } | undefined;
+            const text = delta?.type === "text_delta" ? delta.text ?? "" : "";
+            if (text) {
+              content += text;
+              request.onToken?.(text);
+            }
+          }
+          if (type === "message_delta") {
+            const usage = data.usage as { output_tokens?: number } | undefined;
+            if (usage?.output_tokens != null) outputTokens = usage.output_tokens;
+          }
+        };
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const parts = buffer.split("\n\n");
+          buffer = parts.pop() ?? "";
+          for (const part of parts) consumeSsePart(part);
+        }
+        if (buffer.trim()) consumeSsePart(buffer);
+
+        return {
+          content,
+          toolCalls: [],
+          clientName: this.name,
+          modelName,
+          location: this.location,
+          latencyMs: performance.now() - start,
+          usage: {
+            inputTokens,
+            outputTokens,
+          },
+        };
+      }
+
       const response = await fetch(`${this.baseUrl}/v1/messages`, {
         method: "POST",
         headers: this.headers(),

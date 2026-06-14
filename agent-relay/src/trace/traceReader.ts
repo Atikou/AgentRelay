@@ -1,6 +1,8 @@
 import { closeSync, existsSync, fstatSync, openSync, readSync } from "node:fs";
+import path from "node:path";
 
 import { redactValue } from "../util/redact.js";
+import { listFilesForTailRead, type TraceCatalog } from "./traceCatalog.js";
 import type { TraceEvent } from "./TraceLogger.js";
 import { REPLAY_EVENT_TYPES } from "./traceQuery.js";
 
@@ -9,6 +11,7 @@ export { REPLAY_EVENT_TYPES } from "./traceQuery.js";
 export interface TraceReadOptions {
   limit?: number;
   redact?: boolean;
+  catalog?: TraceCatalog;
 }
 
 const DEFAULT_TAIL_CHUNK_BYTES = 64 * 1024;
@@ -38,18 +41,9 @@ function readTailLines(file: string, limit: number): string[] {
   }
 }
 
-/** 读取 trace JSONL 尾部事件（用于导出 / 调试）。 */
-export function readRecentTraceEvents(
-  traceFile: string,
-  options: TraceReadOptions = {},
-): TraceEvent[] {
-  const limit = options.limit ?? 50;
-  const redact = options.redact !== false;
-  if (!existsSync(traceFile)) return [];
-
-  const slice = readTailLines(traceFile, limit);
+function parseTraceLines(lines: string[], redact: boolean): TraceEvent[] {
   const events: TraceEvent[] = [];
-  for (const line of slice) {
+  for (const line of lines) {
     try {
       const parsed = JSON.parse(line) as TraceEvent;
       events.push(redact ? redactValue(parsed) : parsed);
@@ -60,13 +54,50 @@ export function readRecentTraceEvents(
   return events;
 }
 
+function resolveCatalog(traceFileOrDir: string, catalog?: TraceCatalog): TraceCatalog {
+  if (catalog) return catalog;
+  const base = path.basename(traceFileOrDir);
+  const dir = path.dirname(traceFileOrDir);
+  if (base === "trace-current.jsonl") return { tracesDir: path.dirname(dir) };
+  if (base === "trace.jsonl") return { tracesDir: dir };
+  return { tracesDir: traceFileOrDir };
+}
+
+/** 读取 trace JSONL 尾部事件（支持 active + segments + legacy）。 */
+export function readRecentTraceEvents(
+  traceFileOrDir: string,
+  options: TraceReadOptions = {},
+): TraceEvent[] {
+  const limit = options.limit ?? 50;
+  const redact = options.redact !== false;
+  const catalog = resolveCatalog(traceFileOrDir, options.catalog);
+  const files = listFilesForTailRead(catalog);
+  if (files.length === 0) {
+    if (existsSync(traceFileOrDir)) {
+      return parseTraceLines(readTailLines(traceFileOrDir, limit), redact);
+    }
+    return [];
+  }
+
+  const collected: string[] = [];
+  for (const file of files) {
+    if (!existsSync(file)) continue;
+    const need = limit - collected.length;
+    if (need <= 0) break;
+    const lines = readTailLines(file, need);
+    collected.unshift(...lines);
+    if (collected.length >= limit) break;
+  }
+  return parseTraceLines(collected.slice(-limit), redact);
+}
+
 /** 读取可回放审计链路（过滤 model_call 等噪声事件）。 */
 export function readReplayTraceEvents(
-  traceFile: string,
+  traceFileOrDir: string,
   options: TraceReadOptions = {},
 ): TraceEvent[] {
   const limit = options.limit ?? 100;
-  const events = readRecentTraceEvents(traceFile, { ...options, limit: limit * 3 });
+  const events = readRecentTraceEvents(traceFileOrDir, { ...options, limit: limit * 3 });
   const filtered = events.filter((e) => REPLAY_EVENT_TYPES.has(String(e.type)));
   return filtered.slice(-limit);
 }

@@ -1,6 +1,7 @@
-import type { ServerResponse } from "node:http";
+import type { IncomingMessage, ServerResponse } from "node:http";
 
 import { Planner } from "../../agent/Planner.js";
+import type { ActivityAgentRun } from "../../agent/timeline/types.js";
 import type { AppContext } from "../../app/createAppContext.js";
 import type { ApiResult } from "../../orchestrator/Orchestrator.js";
 import { sendJson } from "../http/response.js";
@@ -11,6 +12,32 @@ export async function handleChat(app: AppContext, body: unknown): Promise<ApiRes
   const { error } = app.resolveForceClient(payload.clientName);
   if (error) return { status: 404, body: { error } };
   return app.orchestrator.runChat(body);
+}
+
+export async function handleChatStream(
+  app: AppContext,
+  body: unknown,
+  res: ServerResponse,
+): Promise<void> {
+  const payload = (body ?? {}) as { clientName?: string; message?: string };
+  const { error } = app.resolveForceClient(payload.clientName);
+  if (error) {
+    sendJson(res, 404, { error });
+    return;
+  }
+  const message = (payload.message ?? "").trim();
+  if (!message) {
+    sendJson(res, 400, { error: "message 不能为空" });
+    return;
+  }
+
+  initSse(res);
+  try {
+    await app.orchestrator.runChatStream(body, (event) => writeSseEvent(res, event.type, event));
+  } catch (error) {
+    writeSseEvent(res, "error", { type: "error", error: String(error), runId: "" });
+  }
+  endSse(res);
 }
 
 export async function handlePlan(app: AppContext, body: unknown): Promise<ApiResult> {
@@ -74,4 +101,69 @@ export async function handleAgentStream(
     makeChat,
   );
   endSse(res);
+}
+
+export function handleActivityRunGet(app: AppContext, runId: string, res: ServerResponse): void {
+  const id = runId.trim();
+  if (!id) {
+    sendJson(res, 400, { error: "runId 不能为空" });
+    return;
+  }
+  const result = app.orchestrator.getActivityRun(id);
+  sendJson(res, result.status, result.body);
+}
+
+/** SSE：重放 `events.jsonl` 并订阅进程内实时 Activity 事件（断线可重连）。 */
+export function handleActivityRunEvents(
+  app: AppContext,
+  runId: string,
+  res: ServerResponse,
+  req: IncomingMessage,
+): void {
+  const id = runId.trim();
+  if (!id) {
+    sendJson(res, 400, { error: "runId 不能为空" });
+    return;
+  }
+  const snapshot = app.orchestrator.getActivityRun(id);
+  if (snapshot.status === 404) {
+    sendJson(res, 404, snapshot.body);
+    return;
+  }
+
+  initSse(res);
+  let closed = false;
+  const finish = () => {
+    if (closed) return;
+    closed = true;
+    endSse(res);
+  };
+
+  let terminalSeen = false;
+  const unsubscribe = app.orchestrator.subscribeActivityEvents(id, (event) => {
+    if (closed) return;
+    writeSseEvent(res, event.type, event);
+    if (
+      event.type === "run_completed" ||
+      event.type === "run_failed" ||
+      event.type === "run_cancelled"
+    ) {
+      terminalSeen = true;
+      unsubscribe();
+      finish();
+    }
+  });
+
+  if (!terminalSeen) {
+    const run = (snapshot.body as { run: ActivityAgentRun }).run;
+    if (run.status !== "running" && run.status !== "pending") {
+      unsubscribe();
+      finish();
+    }
+  }
+
+  req.on("close", () => {
+    closed = true;
+    unsubscribe();
+  });
 }

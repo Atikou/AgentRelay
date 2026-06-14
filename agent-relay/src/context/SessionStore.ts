@@ -44,4 +44,19 @@ export class SessionStore {
       .prepare(`UPDATE sessions SET active_task_id=?, updated_at=? WHERE id=?`)
       .run(taskId, nowIso(), sessionId);
   }
+
+  updateTitle(id: string, title: string): SessionRecord | null {
+    const trimmed = title.trim();
+    if (!trimmed) return null;
+    const result = this.db.connection
+      .prepare(`UPDATE sessions SET title=?, updated_at=? WHERE id=?`)
+      .run(trimmed, nowIso(), id);
+    if (result.changes === 0) return null;
+    return this.get(id);
+  }
+
+  delete(id: string): boolean {
+    const result = this.db.connection.prepare(`DELETE FROM sessions WHERE id=?`).run(id);
+    return result.changes > 0;
+  }
 }

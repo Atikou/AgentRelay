@@ -21,6 +21,8 @@ const inputSchema = z.object({
     .optional(),
   /** 多角色 batch 且存在冲突时启用模型仲裁。 */
   arbitrateConflicts: z.boolean().optional(),
+  autoMergeWrites: z.boolean().optional(),
+  writeFilePickStrategy: z.enum(["latest", "earliest", "arbitration"]).optional(),
 });
 
 export type DispatchSubagentInput = z.infer<typeof inputSchema>;
@@ -46,6 +48,13 @@ export interface DispatchSubagentOutput {
     timedOut: number;
     conflicts: Array<{ topic: string; roles: SubAgentRoleId[]; reason: string }>;
     writeConflicts?: Array<{ path: string; roles: SubAgentRoleId[]; reason: string }>;
+    writeMerges?: Array<{
+      path: string;
+      status: string;
+      changeId?: string;
+      reason: string;
+      appliedPatches: number;
+    }>;
     arbitration?: { applied: boolean; summary: string };
     mergedAnswer: string;
   };
@@ -56,7 +65,8 @@ export interface DispatchSubagentOutput {
 export const dispatchSubagentTool: Tool<typeof inputSchema, DispatchSubagentOutput> = {
   name: DISPATCH_SUBAGENT_TOOL_NAME,
   description:
-    "派生一个或多个子 Agent 并行或单独执行任务，返回结构化汇总。只读角色：code_review、test_analyze；写权限角色 patch_worker 须 grantedPermissions 含 write。深度受配置上限约束，不可无限递归。",
+    "派生一个或多个子 Agent 并行或单独执行任务，返回结构化汇总。roles 只能是 code_review/test_analyze/patch_worker；task 与 context 必须是字符串。只读分析任务优先 code_review/test_analyze；不要使用 plan/time_scheduling 等自造角色。写权限角色 patch_worker 须 grantedPermissions 含 write。深度受配置上限约束，不可无限递归。",
+  normalizeInput: normalizeDispatchSubagentInput,
   inputSchema,
   permission: "read",
   hasSideEffect: false,
@@ -90,6 +100,8 @@ export const dispatchSubagentTool: Tool<typeof inputSchema, DispatchSubagentOutp
       grantedPermissions: input.grantedPermissions,
       dispatchDepth: childDepth,
       arbitrateConflicts: input.arbitrateConflicts,
+      autoMergeWrites: input.autoMergeWrites,
+      writeFilePickStrategy: input.writeFilePickStrategy,
     };
 
     if (roles.length === 1) {
@@ -127,6 +139,13 @@ export const dispatchSubagentTool: Tool<typeof inputSchema, DispatchSubagentOutp
           roles: w.roles,
           reason: w.reason,
         })),
+        writeMerges: batch.aggregate.writeMerges?.map((w) => ({
+          path: w.path,
+          status: w.status,
+          changeId: w.changeId,
+          reason: w.reason,
+          appliedPatches: w.appliedPatches,
+        })),
         arbitration: batch.aggregate.arbitration
           ? {
               applied: batch.aggregate.arbitration.applied,
@@ -139,6 +158,42 @@ export const dispatchSubagentTool: Tool<typeof inputSchema, DispatchSubagentOutp
     };
   },
 };
+
+export function normalizeDispatchSubagentInput(rawInput: unknown): unknown {
+  if (!isRecord(rawInput)) return rawInput;
+  const out: Record<string, unknown> = { ...rawInput };
+  const taskItems = Array.isArray(out.task) ? out.task.map(formatTaskItem) : undefined;
+
+  if (Array.isArray(out.roles)) {
+    let roles = out.roles.map((role) => normalizeRoleValue(role));
+    if (taskItems && taskItems.length > 1 && roles.every((role) => role === "code_review")) {
+      roles = taskItems.map(inferRoleFromTask);
+    }
+    const grants = Array.isArray(out.grantedPermissions)
+      ? out.grantedPermissions.filter((p): p is string => typeof p === "string")
+      : [];
+    if (!grants.includes("write") && roles.includes("patch_worker") && roles.some((r) => r !== "patch_worker")) {
+      roles = roles.filter((role) => role !== "patch_worker");
+    }
+    out.roles = roles;
+  }
+
+  if (taskItems) {
+    out.task = taskItems.join("\n");
+  } else if (isRecord(out.task)) {
+    out.task = formatTaskItem(out.task);
+  }
+
+  if (isRecord(out.context)) {
+    out.context = Object.keys(out.context).length === 0 ? "" : JSON.stringify(out.context);
+  }
+
+  if (out.writeFilePickStrategy === null) {
+    delete out.writeFilePickStrategy;
+  }
+
+  return out;
+}
 
 function dedupeRoles(roles: SubAgentRoleId[]): SubAgentRoleId[] {
   const seen = new Set<SubAgentRoleId>();
@@ -183,3 +238,33 @@ function formatSingleSummary(result: {
 }
 
 export type { SubAgentCoordinator };
+
+function normalizeRoleValue(value: unknown): SubAgentRoleId {
+  if (value === "code_review" || value === "test_analyze" || value === "patch_worker") return value;
+  if (typeof value !== "string") return "code_review";
+  const lower = value.toLowerCase();
+  if (/patch|write|edit|fix|补丁|修改|修复/.test(lower)) return "patch_worker";
+  if (/test|risk|verify|time|schedule|坚持|风险|时间|测试|验证/.test(lower)) return "test_analyze";
+  return "code_review";
+}
+
+function inferRoleFromTask(task: string): SubAgentRoleId {
+  const lower = task.toLowerCase();
+  if (/patch|write|edit|fix|补丁|修改|修复/.test(lower)) return "patch_worker";
+  if (/test|risk|verify|time|schedule|坚持|风险|时间|测试|验证/.test(lower)) return "test_analyze";
+  return "code_review";
+}
+
+function formatTaskItem(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (!isRecord(value)) return String(value);
+  const goal = typeof value.goal === "string" ? value.goal : undefined;
+  const mode = typeof value.mode === "string" ? value.mode : undefined;
+  const task = typeof value.task === "string" ? value.task : undefined;
+  const title = task ?? goal ?? JSON.stringify(value);
+  return mode ? `- ${title}（${mode}）` : `- ${title}`;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}

@@ -22,6 +22,7 @@ import { RunStore } from "../src/orchestrator/RunStore.js";
 import { ALL_PERMISSIONS } from "../src/agent/permissions.js";
 import { createDefaultRegistry } from "../src/tools/index.js";
 import { createTestPlanService } from "./planTestHelper.js";
+import { createTestOrchestrator } from "./orchestratorTestHelper.js";
 
 const tests: Array<{ name: string; fn: () => Promise<void> }> = [];
 function test(name: string, fn: () => Promise<void>) {
@@ -53,7 +54,7 @@ function scriptedChat(scripts: string[]): LoopChatFn {
 function makeOrchestrator(chat: LoopChatFn) {
   const registry = createDefaultRegistry();
   const planService = createTestPlanService({ workspaceRoot: sandbox, db: ctx.db, registry });
-  return new Orchestrator({
+  const { orchestrator } = createTestOrchestrator({
     workspaceRoot: sandbox,
     modelRouter: {} as never,
     planner: {} as never,
@@ -67,6 +68,7 @@ function makeOrchestrator(chat: LoopChatFn) {
     planService,
     projectAllowedPermissions: ALL_PERMISSIONS,
   });
+  return orchestrator;
 }
 
 async function seedProjectLayout() {

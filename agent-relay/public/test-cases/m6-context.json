@@ -34,7 +34,53 @@
       }
     },
     {
-      "id": "m6-memory-create",
+      "id": "m6-session-rename-empty",
+      "title": "PATCH 空标题返回 400",
+      "purpose": "确认修改会话标题时拒绝空字符串，避免侧栏出现无标题会话。",
+      "method": "PATCH",
+      "path": "/api/context/sessions/00000000-0000-0000-0000-000000000000",
+      "input": { "title": "" },
+      "expect": {
+        "status": 400,
+        "bodyHasKeys": ["error"]
+      }
+    },
+    {
+      "id": "m6-session-delete-missing",
+      "title": "DELETE 不存在的会话返回 404",
+      "purpose": "确认删除会话接口对无效 sessionId 返回明确 404，避免误认删除成功。",
+      "method": "DELETE",
+      "path": "/api/context/sessions/00000000-0000-0000-0000-000000000000",
+      "input": null,
+      "expect": {
+        "status": 404,
+        "bodyHasKeys": ["error", "sessionId"]
+      }
+    },
+    {
+      "id": "m6-session-purge-no-confirm",
+      "title": "隐私清除未确认返回 400",
+      "purpose": "确认 POST purge 必须携带 confirm: true，避免误触不可恢复的隐私清除。",
+      "method": "POST",
+      "path": "/api/context/sessions/00000000-0000-0000-0000-000000000000/purge",
+      "input": {},
+      "expect": {
+        "status": 400,
+        "bodyHasKeys": ["error"]
+      }
+    },
+    {
+      "id": "m6-session-purge-missing",
+      "title": "隐私清除不存在的会话返回 404",
+      "purpose": "确认对已删除或不存在的 sessionId 执行 purge 时返回明确 404。",
+      "method": "POST",
+      "path": "/api/context/sessions/00000000-0000-0000-0000-000000000000/purge",
+      "input": { "confirm": true },
+      "expect": {
+        "status": 404,
+        "bodyHasKeys": ["error", "sessionId"]
+      }
+    },
       "title": "写入全局偏好记忆",
       "purpose": "验证 POST /api/context/memories 能持久化结构化记忆并同步 FTS/向量索引。",
       "method": "POST",

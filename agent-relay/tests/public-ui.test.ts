@@ -60,13 +60,36 @@ test("Agent 结果卡展示自动工作流状态", async () => {
 test("测试台默认自动工作流入口与权限策略", async () => {
   const html = await readFile(path.join(publicDir, "index.html"), "utf-8");
   const js = await readFile(path.join(publicDir, "app.js"), "utf-8");
+  const css = await readFile(path.join(publicDir, "styles.css"), "utf-8");
   assert.ok(html.includes('id="permission-policy-select"'));
   assert.ok(!html.includes('id="mode-select"'));
   assert.ok(!html.includes("autoconfirm-input"));
   assert.ok(html.includes('id="explicit-mode-select"'));
+  assert.ok(html.includes('class="advanced-panel"'));
+  assert.ok(css.includes(".advanced-panel"));
+  assert.ok(css.includes("--advanced-panel-left"));
+  assert.ok(css.includes("flex-direction: column"));
+  assert.ok(js.includes("positionAdvancedPanel"));
+  assert.ok(js.includes("bindAdvancedPanelPositioning"));
   assert.ok(js.includes("handleUnifiedAgent"));
   assert.ok(js.includes("attachWorkflowBadgeToLastUserMessage"));
   assert.ok(js.includes("PERMISSION_POLICY_KEY"));
+});
+
+test("M1 自动工作流 UI 用例覆盖结构化面板紧凑显示", async () => {
+  const raw = await readFile(path.join(publicDir, "test-cases/m1-auto-workflow-ui.json"), "utf-8");
+  const page = JSON.parse(raw) as { cases: Array<{ id: string; purpose?: string }> };
+  const ids = new Set(page.cases.map((c) => c.id));
+  for (const id of [
+    "m1-auto-ui-structured-bubble-class",
+    "m1-auto-ui-structured-bubble-spacing",
+    "m1-auto-ui-advanced-panel-container",
+    "m1-auto-ui-advanced-panel-spacing",
+  ]) {
+    const item = page.cases.find((c) => c.id === id);
+    assert.ok(ids.has(id), `${id} 未登记`);
+    assert.ok(item?.purpose && item.purpose.length > 10, `${id} 缺少 purpose`);
+  }
 });
 
 test("Agent 工作流状态样式已登记", async () => {
@@ -74,6 +97,37 @@ test("Agent 工作流状态样式已登记", async () => {
   assert.ok(css.includes(".workflow-status"));
   assert.ok(css.includes(".workflow-status-detail"));
   assert.ok(css.includes(".confirmation-request"));
+});
+
+test("结构化系统面板不继承文本 pre-wrap 间距", async () => {
+  const js = await readFile(path.join(publicDir, "app.js"), "utf-8");
+  const css = await readFile(path.join(publicDir, "styles.css"), "utf-8");
+  assert.ok(js.includes('bubble.classList.add("structured-bubble")'));
+  assert.ok(css.includes(".bubble.structured-bubble"));
+  assert.ok(css.includes("white-space: normal"));
+});
+
+test("测试台 Activity Timeline 面板处理 activity_event", async () => {
+  const js = await readFile(path.join(publicDir, "app.js"), "utf-8");
+  const css = await readFile(path.join(publicDir, "styles.css"), "utf-8");
+  assert.ok(js.includes("function createActivityTimelinePanel"));
+  assert.ok(js.includes('evt.type === "activity_event"'));
+  assert.ok(js.includes("ACTIVITY_STEP_ICONS"));
+  assert.ok(css.includes(".activity-timeline-card"));
+  assert.ok(css.includes(".activity-step-running"));
+});
+
+test("测试台历史会话支持重命名与删除", async () => {
+  const js = await readFile(path.join(publicDir, "app.js"), "utf-8");
+  const css = await readFile(path.join(publicDir, "styles.css"), "utf-8");
+  assert.ok(js.includes("session-menu-popover"));
+  assert.ok(js.includes("openSessionMenu"));
+  assert.ok(js.includes('data-action="session-menu-toggle"'));
+  assert.ok(js.includes("saveHistorySessionTitle"));
+  assert.ok(js.includes("performDeleteHistorySession"));
+  assert.ok(!js.includes("renameHistorySession"));
+  assert.ok(css.includes(".session-menu-popover"));
+  assert.ok(css.includes(".sidebar-session-more"));
 });
 
 let passed = 0;

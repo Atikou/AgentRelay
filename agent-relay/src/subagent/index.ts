@@ -6,14 +6,37 @@ export {
   type SubAgentRunnerDeps,
 } from "./SubAgentRunner.js";
 export { SubAgentCoordinator } from "./SubAgentCoordinator.js";
-export { arbitrateSubAgentConflicts, type SubAgentArbitrationResult } from "./SubAgentArbitrator.js";
-export { detectWriteConflicts, extractWritePathsFromSteps } from "./writeConflictMerge.js";
+export {
+  SubAgentRunRegistry,
+  SUB_AGENT_CANCELLED_MESSAGE,
+  isSubAgentCancelledError,
+} from "./SubAgentRunRegistry.js";
+export type { SubAgentCancelResult, SubAgentRunningRecord } from "./SubAgentRunRegistry.js";
+export { arbitrateSubAgentConflicts, type SubAgentArbitrationResult, type SubAgentWriteFilePick } from "./SubAgentArbitrator.js";
+export { detectWriteConflicts, extractWritePathsFromSteps, normalizeRelPath } from "./writeConflictMerge.js";
+export {
+  attemptAutoMergeWriteConflict,
+  attemptAutoMergeWriteConflicts,
+  applySearchReplaceInMemory,
+  formatWriteMergeSummary,
+  type AutoMergeWriteOptions,
+} from "./writeConflictAutoMerge.js";
+export {
+  collectWriteFileCandidates,
+  parseWriteFilePickHints,
+  pickWriteFileCandidate,
+  type WriteFilePickStrategy,
+  type WriteFileCandidate,
+  type WriteFilePickHint,
+} from "./writeFileVersionPick.js";
 export type {
   SubAgentBatchOptions,
   SubAgentBatchResult,
   SubAgentAggregate,
   SubAgentConflict,
   SubAgentWriteConflict,
+  SubAgentWriteMergeAttempt,
+  SubAgentWriteMergeStatus,
   SubAgentArbitration,
   SubAgentRoleDefinition,
   SubAgentRoleId,

@@ -1,5 +1,6 @@
 /**
  * CLI 自检入口：加载配置并构建模型客户端，快速确认当前 profile 可用。
+ * 子命令：`storage status` / `storage cleanup`
  */
 import { loadConfig } from "../config/loadConfig.js";
 import { createModelClients } from "../model/ModelFactory.js";
@@ -8,6 +9,13 @@ import { loadEnvFile } from "../util/env.js";
 loadEnvFile();
 
 async function main(): Promise<void> {
+  const args = process.argv.slice(2);
+  if (args[0] === "storage") {
+    const { runStorageCli } = await import("./storage.js");
+    await runStorageCli(args.slice(1));
+    return;
+  }
+
   const { profile, config } = loadConfig();
   const clients = createModelClients(config.models.clients);
 

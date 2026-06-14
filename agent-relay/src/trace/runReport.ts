@@ -1,8 +1,10 @@
 import { createReadStream, existsSync } from "node:fs";
+import path from "node:path";
 import { createInterface } from "node:readline";
 
 import type { FallbackLogRow, RouteLogRow } from "../model-router/route-stores.js";
 import { redactValue } from "../util/redact.js";
+import { resolveFilesForFilter, type TraceCatalog } from "./traceCatalog.js";
 import type { TraceEvent } from "./TraceLogger.js";
 
 export interface RunUsageReport {
@@ -348,26 +350,34 @@ export function enrichRunTimeline(
 
 /** 扫描 trace 文件，收集指定 runId 的事件（上限 maxEvents 条）并构建时间线。 */
 export async function buildRunReport(
-  traceFile: string,
+  traceFileOrDir: string,
   runId: string,
   maxEvents = 500,
+  catalog?: TraceCatalog,
 ): Promise<RunReport | null> {
-  if (!existsSync(traceFile)) return null;
+  const resolvedCatalog = catalog ?? resolveCatalogFromTracePath(traceFileOrDir);
+  const files = resolveFilesForFilter(resolvedCatalog, { runId, replayOnly: false });
+  const targets = files.length > 0 ? files : existsSync(traceFileOrDir) ? [traceFileOrDir] : [];
+  if (targets.length === 0) return null;
 
   const events: TraceEvent[] = [];
-  const rl = createInterface({ input: createReadStream(traceFile, { encoding: "utf-8" }) });
 
-  for await (const line of rl) {
-    const trimmed = line.trim();
-    if (!trimmed) continue;
-    try {
-      const parsed = JSON.parse(trimmed) as TraceEvent & { runId?: string };
-      if (parsed.runId !== runId) continue;
-      events.push(redactValue(parsed));
-      if (events.length >= maxEvents) break;
-    } catch {
-      // skip corrupt line
+  for (const file of targets) {
+    if (!existsSync(file)) continue;
+    const rl = createInterface({ input: createReadStream(file, { encoding: "utf-8" }) });
+    for await (const line of rl) {
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+      try {
+        const parsed = JSON.parse(trimmed) as TraceEvent & { runId?: string };
+        if (parsed.runId !== runId) continue;
+        events.push(redactValue(parsed));
+        if (events.length >= maxEvents) break;
+      } catch {
+        // skip corrupt line
+      }
     }
+    if (events.length >= maxEvents) break;
   }
 
   if (events.length === 0) return null;
@@ -399,4 +409,12 @@ export function enrichRunReport(
     ...report,
     timeline: enrichRunTimeline(report.timeline, input),
   };
+}
+
+function resolveCatalogFromTracePath(traceFileOrDir: string): TraceCatalog {
+  const base = path.basename(traceFileOrDir);
+  const dir = path.dirname(traceFileOrDir);
+  if (base === "trace-current.jsonl") return { tracesDir: path.dirname(dir) };
+  if (base === "trace.jsonl") return { tracesDir: dir };
+  return { tracesDir: traceFileOrDir };
 }

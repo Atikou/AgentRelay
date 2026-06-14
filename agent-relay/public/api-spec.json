@@ -128,6 +128,84 @@
         }
       }
     },
+    "/api/storage/usage": {
+      "get": {
+        "tags": ["安全与审计"],
+        "summary": "本地存储用量统计",
+        "operationId": "getStorageUsage",
+        "responses": {
+          "200": {
+            "description": "按类别汇总 trace、timeline、SQLite、cache、temp 等占用",
+            "content": {
+              "application/json": {
+                "schema": { "type": "object", "additionalProperties": true }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/storage/cleanup/preview": {
+      "post": {
+        "tags": ["安全与审计"],
+        "summary": "清理预览（dry-run，不删除）",
+        "operationId": "previewStorageCleanup",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "scope": { "type": "string", "enum": ["safe", "all"] },
+                  "include": { "type": "array", "items": { "type": "string" } },
+                  "olderThanDays": { "type": ["number", "null"] },
+                  "maxRisk": { "type": "string", "enum": ["low", "medium", "high"] }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "候选清理动作与预计释放空间",
+            "content": {
+              "application/json": {
+                "schema": { "type": "object", "additionalProperties": true }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/storage/cleanup/apply": {
+      "post": {
+        "tags": ["安全与审计"],
+        "summary": "执行已预览的低风险清理",
+        "operationId": "applyStorageCleanup",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["cleanupRunId", "confirm"],
+                "properties": {
+                  "cleanupRunId": { "type": "string" },
+                  "confirm": { "type": "boolean" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "清理结果", "content": { "application/json": { "schema": { "type": "object", "additionalProperties": true } } } },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "404": { "description": "预览不存在" },
+          "409": { "description": "清理锁冲突" },
+          "410": { "description": "预览已过期" }
+        }
+      }
+    },
     "/api/chat": {
       "post": {
         "tags": ["对话与智能体"],
@@ -148,12 +226,40 @@
         }
       }
     },
+    "/api/chat/stream": {
+      "post": {
+        "tags": ["对话与智能体"],
+        "summary": "单次对话 SSE 流式（token + done）",
+        "operationId": "chatStream",
+        "description": "走 ModelRouter 直连以支持 `streamTokens`；校验失败返回 JSON。事件：run_start、token、done、error。",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/ChatStreamRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "SSE 事件流",
+            "content": {
+              "text/event-stream": {
+                "schema": { "type": "string", "description": "event: run_start|token|done|error" }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
     "/api/agent/stream": {
       "post": {
         "tags": ["对话与智能体"],
-        "summary": "自主 Agent 循环（SSE 流式推送工具步骤）",
+        "summary": "自主 Agent 循环（SSE 思考过程 + 工具步骤）",
         "operationId": "runAgentStream",
-        "description": "校验失败时返回 JSON（400/404）；成功时 `text/event-stream`，事件类型：run_start、step、done、error。",
+        "description": "校验失败时返回 JSON（400/404）；成功时 `text/event-stream`。事件：run_start、model_turn（每轮模型决策）、step、activity_event（公开执行过程）、token（streamTokens=true）、done、error。",
         "requestBody": {
           "required": true,
           "content": {
@@ -167,7 +273,7 @@
             "description": "SSE 事件流",
             "content": {
               "text/event-stream": {
-                "schema": { "type": "string", "description": "event: run_start|step|done|error" }
+                "schema": { "type": "string", "description": "event: run_start|model_turn|step|activity_event|token|done|error" }
               }
             }
           },
@@ -216,6 +322,57 @@
           "200": { "description": "最终答案与工具步骤", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AgentResponse" } } } },
           "400": { "$ref": "#/components/responses/BadRequest" },
           "502": { "$ref": "#/components/responses/UpstreamError" }
+        }
+      }
+    },
+    "/api/agent/runs/{runId}": {
+      "get": {
+        "tags": ["对话与智能体"],
+        "summary": "读取 Activity Timeline Run 快照",
+        "operationId": "getActivityRun",
+        "description": "从 `{workspace}/.agent/runs/{runId}/run.json` 读取公开执行摘要（非模型 CoT）。",
+        "parameters": [
+          { "name": "runId", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": {
+            "description": "Activity Run",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": { "run": { "$ref": "#/components/schemas/ActivityAgentRun" } },
+                  "required": ["run"]
+                }
+              }
+            }
+          },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+    "/api/agent/runs/{runId}/events": {
+      "get": {
+        "tags": ["对话与智能体"],
+        "summary": "Activity Timeline 事件流（SSE 重放 + 实时）",
+        "operationId": "streamActivityEvents",
+        "description": "先重放 `events.jsonl`，再订阅进程内实时事件；Run 结束（completed/failed/cancelled）后关闭连接，支持断线重连。",
+        "parameters": [
+          { "name": "runId", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": {
+            "description": "SSE 事件流",
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "type": "string",
+                  "description": "event: run_started|step_started|step_delta|step_completed|step_failed|step_skipped|run_completed|run_failed|run_cancelled"
+                }
+              }
+            }
+          },
+          "404": { "$ref": "#/components/responses/NotFound" }
         }
       }
     },
@@ -654,6 +811,77 @@
         }
       }
     },
+    "/api/runs/running": {
+      "get": {
+        "tags": ["编排与 Run"],
+        "summary": "列出运行中的流式 Agent / Chat Run",
+        "operationId": "listRunningRuns",
+        "responses": {
+          "200": {
+            "description": "运行中 Run 列表",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "running": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "runId": { "type": "string" },
+                          "kind": { "type": "string", "enum": ["agent", "chat"] },
+                          "startedAt": { "type": "string", "format": "date-time" }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/runs/cancel": {
+      "post": {
+        "tags": ["编排与 Run"],
+        "summary": "取消运行中的流式 Agent 或 Chat Run",
+        "operationId": "cancelRun",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["runId"],
+                "properties": {
+                  "runId": { "type": "string", "description": "run_start 事件返回的 runId" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "已发送取消信号",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "runId": { "type": "string" },
+                    "kind": { "type": "string", "enum": ["agent", "chat"] },
+                    "status": { "type": "string", "enum": ["cancelling"] }
+                  }
+                }
+              }
+            }
+          },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
     "/api/runs/{runId}": {
       "get": {
         "tags": ["编排与 Run"],
@@ -678,6 +906,33 @@
             }
           },
           "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      },
+      "delete": {
+        "tags": ["编排与 Run"],
+        "summary": "删除 Run 并联动清理 timeline / data/runs 落盘",
+        "operationId": "deleteRun",
+        "parameters": [
+          { "name": "runId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }
+        ],
+        "responses": {
+          "200": {
+            "description": "已删除",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "runId": { "type": "string" },
+                    "deleted": { "type": "boolean" },
+                    "artifactsBytesFreed": { "type": "integer" }
+                  }
+                }
+              }
+            }
+          },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "409": { "description": "运行中的 Run 不能删除" }
         }
       }
     },
@@ -1055,6 +1310,60 @@
         }
       }
     },
+    "/api/subagent/running": {
+      "get": {
+        "tags": ["子 Agent"],
+        "summary": "列出运行中的子 Agent",
+        "operationId": "listRunningSubAgents",
+        "responses": {
+          "200": {
+            "description": "运行中子 Agent 列表",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "running": {
+                      "type": "array",
+                      "items": { "$ref": "#/components/schemas/SubAgentRunningRecord" }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "503": { "description": "子 Agent 未启用" }
+        }
+      }
+    },
+    "/api/subagent/cancel": {
+      "post": {
+        "tags": ["子 Agent"],
+        "summary": "显式取消运行中的子 Agent",
+        "operationId": "cancelSubAgent",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/SubAgentCancelRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "取消信号已发出",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/SubAgentCancelResponse" }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "503": { "description": "子 Agent 未启用" }
+        }
+      }
+    },
     "/api/context/sessions": {
       "get": {
         "tags": ["上下文与记忆"],
@@ -1093,6 +1402,40 @@
           "200": { "description": "会话", "content": { "application/json": { "schema": { "type": "object", "additionalProperties": true } } } },
           "404": { "$ref": "#/components/responses/NotFound" }
         }
+      },
+      "patch": {
+        "tags": ["上下文与记忆"],
+        "summary": "修改会话标题",
+        "operationId": "updateContextSession",
+        "parameters": [{ "$ref": "#/components/parameters/sessionId" }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["title"],
+                "properties": { "title": { "type": "string", "minLength": 1 } }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "更新后的会话", "content": { "application/json": { "schema": { "type": "object", "additionalProperties": true } } } },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      },
+      "delete": {
+        "tags": ["上下文与记忆"],
+        "summary": "删除会话及关联消息",
+        "operationId": "deleteContextSession",
+        "description": "级联删除 messages、conversation_summaries、会话级 memories、tasks 与 runs。",
+        "parameters": [{ "$ref": "#/components/parameters/sessionId" }],
+        "responses": {
+          "200": { "description": "已删除", "content": { "application/json": { "schema": { "type": "object", "additionalProperties": true } } } },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
       }
     },
     "/api/context/sessions/{sessionId}/restore": {
@@ -1129,6 +1472,35 @@
         "responses": {
           "200": { "description": "压缩结果", "content": { "application/json": { "schema": { "type": "object", "additionalProperties": true } } } },
           "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+    "/api/context/sessions/{sessionId}/purge": {
+      "post": {
+        "tags": ["上下文与记忆"],
+        "summary": "隐私清除会话及关联详细记录",
+        "operationId": "purgeContextSession",
+        "description": "不可恢复地删除会话，并重写 trace segments、清理 tools.db 与 routing 表、通知 journal、timeline 落盘；需 `confirm: true`。会先轮转 active trace。运行中的 Run 关联会话时返回 409。",
+        "parameters": [{ "$ref": "#/components/parameters/sessionId" }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["confirm"],
+                "properties": {
+                  "confirm": { "type": "boolean", "description": "必须为 true 才执行" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "已清除", "content": { "application/json": { "schema": { "type": "object", "additionalProperties": true } } } },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "409": { "description": "会话有关联运行中的 Run" }
         }
       }
     },
@@ -1283,6 +1655,31 @@
             "content": {
               "application/json": {
                 "schema": { "$ref": "#/components/schemas/TraceReplayResponse" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/trace/rotate": {
+      "post": {
+        "tags": ["安全与审计"],
+        "summary": "轮转 trace active 段到 segments",
+        "operationId": "rotateTrace",
+        "responses": {
+          "200": {
+            "description": "轮转结果",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "rotated": { "type": "boolean" },
+                    "segmentPath": { "type": "string" },
+                    "activeFile": { "type": "string" },
+                    "indexEntries": { "type": "integer" }
+                  }
+                }
               }
             }
           }
@@ -1479,7 +1876,9 @@
             "answerEvaluatorV4": { "type": "boolean" },
             "runtimeStatsV6": { "type": "boolean" },
             "evalSetRunnerV7": { "type": "boolean" },
-            "costBudgetPerRun": { "type": "boolean" }
+            "costBudgetPerRun": { "type": "boolean" },
+            "privacyPurge": { "type": "boolean" },
+            "storageLifecycle": { "type": "boolean" }
           }
         },
       "RunRecord": {
@@ -1591,6 +1990,91 @@
           "location": { "type": "string" },
           "latencyMs": { "type": "number" },
           "usage": { "type": "object", "additionalProperties": true }
+        }
+      },
+      "ChatStreamRequest": {
+        "type": "object",
+        "required": ["message"],
+        "properties": {
+          "message": { "type": "string" },
+          "system": { "type": "string" },
+          "clientName": { "type": "string" },
+          "sensitive": { "type": "boolean" },
+          "taskType": { "type": "string" },
+          "sessionId": { "type": "string" },
+          "persist": { "type": "boolean" },
+          "streamTokens": { "type": "boolean", "description": "推送 token 增量事件" }
+        }
+      },
+      "AgentModelTurnEvent": {
+        "type": "object",
+        "properties": {
+          "iteration": { "type": "integer" },
+          "phase": { "type": "string", "enum": ["started", "completed", "parse_error"] },
+          "action": { "type": "string", "enum": ["tool", "final"] },
+          "tool": { "type": "string" },
+          "thought": { "type": "string" },
+          "contentPreview": { "type": "string" },
+          "clientName": { "type": "string" },
+          "modelName": { "type": "string" },
+          "latencyMs": { "type": "number" }
+        }
+      },
+      "ActivityAgentRun": {
+        "type": "object",
+        "description": "Agent Activity Timeline Run（公开执行摘要，非模型 CoT）",
+        "properties": {
+          "id": { "type": "string" },
+          "title": { "type": "string" },
+          "goal": { "type": "string" },
+          "status": {
+            "type": "string",
+            "enum": ["pending", "running", "success", "failed", "cancelled"]
+          },
+          "steps": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/ActivityAgentStep" }
+          },
+          "createdAt": { "type": "number" },
+          "updatedAt": { "type": "number" },
+          "startedAt": { "type": "number" },
+          "endedAt": { "type": "number" },
+          "metadata": { "type": "object", "additionalProperties": true }
+        }
+      },
+      "ActivityAgentStep": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "runId": { "type": "string" },
+          "type": {
+            "type": "string",
+            "enum": [
+              "analysis",
+              "plan",
+              "todo",
+              "tool_call",
+              "file_search",
+              "file_read",
+              "file_write",
+              "file_patch",
+              "shell",
+              "web_search",
+              "validation",
+              "summary",
+              "error",
+              "retry"
+            ]
+          },
+          "title": { "type": "string" },
+          "content": { "type": "string" },
+          "status": {
+            "type": "string",
+            "enum": ["pending", "running", "success", "failed", "skipped"]
+          },
+          "startedAt": { "type": "number" },
+          "endedAt": { "type": "number" },
+          "metadata": { "type": "object", "additionalProperties": true }
         }
       },
       "AgentRequest": {
@@ -2383,22 +2867,58 @@
           "timeoutMs": { "type": "integer" }
         }
       },
+      "SubAgentCancelRequest": {
+        "type": "object",
+        "required": ["subAgentId"],
+        "properties": {
+          "subAgentId": { "type": "string", "description": "run/batch 返回的 result.id" }
+        }
+      },
+      "SubAgentRunningRecord": {
+        "type": "object",
+        "properties": {
+          "subAgentId": { "type": "string" },
+          "role": { "type": "string", "enum": ["code_review", "test_analyze", "patch_worker"] },
+          "parentTaskId": { "type": "string" },
+          "startedAt": { "type": "string", "format": "date-time" }
+        }
+      },
+      "SubAgentCancelResponse": {
+        "type": "object",
+        "properties": {
+          "subAgentId": { "type": "string" },
+          "role": { "type": "string", "enum": ["code_review", "test_analyze", "patch_worker"] },
+          "parentTaskId": { "type": "string" },
+          "startedAt": { "type": "string", "format": "date-time" },
+          "status": { "type": "string", "enum": ["cancelling"] }
+        }
+      },
       "SubAgentBatchRequest": {
         "type": "object",
         "required": ["roles", "task"],
         "properties": {
-          "roles": { "type": "array", "items": { "type": "string" } },
+          "roles": { "type": "array", "items": { "type": "string", "enum": ["code_review", "test_analyze", "patch_worker"] } },
           "task": { "type": "string" },
+          "context": { "type": "string" },
+          "parentTaskId": { "type": "string" },
+          "grantedPermissions": { "type": "array", "items": { "type": "string" } },
           "budget": { "$ref": "#/components/schemas/RunBudget" },
           "timeoutMs": { "type": "integer" },
-          "sensitive": { "type": "boolean" }
+          "sensitive": { "type": "boolean" },
+          "arbitrateConflicts": { "type": "boolean", "description": "存在文本或写入冲突时启用模型仲裁建议" },
+          "autoMergeWrites": { "type": "boolean", "description": "对 writeConflicts 尝试 apply_patch 合并或 write_file 选版" },
+          "writeFilePickStrategy": {
+            "type": "string",
+            "enum": ["latest", "earliest", "arbitration"],
+            "description": "write_file 全量覆盖冲突选版策略，默认 arbitration"
+          }
         }
       },
       "SubAgentConflict": {
         "type": "object",
         "properties": {
           "topic": { "type": "string" },
-          "roles": { "type": "array", "items": { "type": "string", "enum": ["code_review", "test_analyze"] } },
+          "roles": { "type": "array", "items": { "type": "string", "enum": ["code_review", "test_analyze", "patch_worker"] } },
           "reason": { "type": "string" },
           "excerpts": {
             "type": "array",
@@ -2407,6 +2927,48 @@
               "properties": {
                 "role": { "type": "string", "enum": ["code_review", "test_analyze"] },
                 "text": { "type": "string" }
+              }
+            }
+          }
+        }
+      },
+      "SubAgentWriteConflict": {
+        "type": "object",
+        "properties": {
+          "path": { "type": "string" },
+          "roles": { "type": "array", "items": { "type": "string", "enum": ["code_review", "test_analyze", "patch_worker"] } },
+          "changeIds": { "type": "array", "items": { "type": "string" } },
+          "reason": { "type": "string" }
+        }
+      },
+      "SubAgentWriteMergeAttempt": {
+        "type": "object",
+        "properties": {
+          "path": { "type": "string" },
+          "status": { "type": "string", "enum": ["merged", "manual_required", "skipped"] },
+          "changeId": { "type": "string" },
+          "reason": { "type": "string" },
+          "appliedPatches": { "type": "integer" },
+          "pickStrategy": { "type": "string", "enum": ["latest", "earliest", "arbitration"] },
+          "pickedChangeId": { "type": "string" },
+          "pickedRole": { "type": "string", "enum": ["code_review", "test_analyze", "patch_worker"] }
+        }
+      },
+      "SubAgentArbitration": {
+        "type": "object",
+        "properties": {
+          "applied": { "type": "boolean" },
+          "summary": { "type": "string" },
+          "skippedReason": { "type": "string" },
+          "writeFilePicks": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "path": { "type": "string" },
+                "changeId": { "type": "string" },
+                "role": { "type": "string" },
+                "manual": { "type": "boolean" }
               }
             }
           }
@@ -2421,6 +2983,9 @@
           "timedOut": { "type": "integer" },
           "commonFindings": { "type": "array", "items": { "type": "string" } },
           "conflicts": { "type": "array", "items": { "$ref": "#/components/schemas/SubAgentConflict" } },
+          "writeConflicts": { "type": "array", "items": { "$ref": "#/components/schemas/SubAgentWriteConflict" } },
+          "writeMerges": { "type": "array", "items": { "$ref": "#/components/schemas/SubAgentWriteMergeAttempt" } },
+          "arbitration": { "$ref": "#/components/schemas/SubAgentArbitration" },
           "mergedAnswer": { "type": "string" }
         }
       },

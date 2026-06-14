@@ -20,6 +20,14 @@
         "think": false
       },
       {
+        "name": "local-qwen25vl",
+        "provider": "ollama",
+        "location": "local",
+        "baseUrl": "http://localhost:11434",
+        "model": "qwen2.5vl:7b",
+        "think": false
+      },
+      {
         "name": "local-lmstudio",
         "provider": "openai-compatible",
         "location": "local",

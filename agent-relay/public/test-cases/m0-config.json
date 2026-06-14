@@ -42,6 +42,18 @@
       }
     },
     {
+      "id": "m0-config-local-qwen25vl-client",
+      "title": "配置登记 local-qwen25vl 客户端",
+      "purpose": "确认 GET /api/config.clients 含 Ollama qwen2.5vl:7b 本地视觉模型条目，与 config/default.json 一致。",
+      "method": "GET",
+      "path": "/api/config",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyIncludes": ["local-qwen25vl", "qwen2.5vl:7b"]
+      }
+    },
+    {
       "id": "m0-api-spec",
       "title": "API 规范可访问",
       "purpose": "确认 public/api-spec.json 经静态服务暴露，供 /api-docs 交互参考页加载。",

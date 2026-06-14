@@ -90,10 +90,13 @@
 - [x] 子 Agent 拥有独立上下文窗口。（角色 system + 独立 AgentLoop 消息链）
 - [x] 子 Agent 可被限制为只读、执行命令、代码审查、测试运行等角色。（第一版：`code_review` / `test_analyze` 仅 read）
 - [x] 支持并行派生多个子 Agent。（`SubAgentCoordinator.runBatch`）
+- [x] `dispatch_subagent` 对模型常见错参做系统级容错，并在已收集足够子 Agent 结果后阻止继续派生。（角色别名 / `task` 数组 / 空对象 `context` / `writeFilePickStrategy: null` 归一化；3 个成功结果后要求 `final`）
 - [x] 支持子 Agent 结果汇总、**结论层**冲突检测和合并。（`aggregate`：共同结论、冲突列表、mergedAnswer）
 - [x] 检测多子 Agent **写入同一文件**的补丁级冲突。（`detectWriteConflicts` + `aggregate.writeConflicts`）
+- [x] 非重叠 **apply_patch** 写入冲突自动三路合并。（`autoMergeWrites` + `writeConflictAutoMerge` → `aggregate.writeMerges`）
+- [x] **write_file** 全量覆盖冲突自动选版。（`writeFilePickStrategy` + 仲裁 `WRITE_PICK` → `subagent_write_file_pick`）
 - [x] 支持 **模型仲裁式**冲突复核。（`arbitrateConflicts` on batch / `dispatch_subagent`）
-- [x] 支持子 Agent 超时、取消和失败上报。（超时；显式 cancel 待后续）
+- [x] 支持子 Agent 超时、取消和失败上报。（超时 + `POST /api/subagent/cancel` 显式 cancel + `SubAgentRunRegistry`）
 - [x] 子 Agent 不能默认继承全部权限，必须显式授予。（`resolveGrantedPermissions`）
 - [x] 记录父子 Agent 的任务链路和决策过程。（trace `subagent_start/end` + `parentTaskId`）
 
@@ -241,7 +244,7 @@
 - [x] 集成测试后台命令完成后通知注入。（AgentLoop + NotificationQueue）
 - [x] 集成测试子 Agent 并行执行和结果汇总。（SubAgentCoordinator.runBatch）
 - [ ] 压力测试长上下文、多后台任务和高频通知。
-- [ ] 回归测试失败重试、取消和恢复。
+- [x] 回归测试失败重试、取消和恢复。（`npm run test:regression-cancel-retry-resume`：TaskRunner + Agent cancel/resume）
 
 ## 16. 配置与启动
 
@@ -259,9 +262,9 @@
 - [ ] 支持展示当前计划。
 - [ ] 支持展示任务列表和状态。
 - [ ] 支持用户批准、拒绝、修改计划。
-- [ ] 支持用户中断当前任务。
+- [x] 支持用户中断当前任务。（`POST /api/runs/cancel` + `AgentRunRegistry`；流式与非流式 Agent、Chat 流式）
 - [ ] 支持用户指定模型、模式或权限级别。
-- [ ] 支持输出简洁总结和详细运行日志。
+- [x] 支持输出简洁总结和详细运行日志。（Agent Activity Timeline：公开步骤摘要 + `.agent/runs/{id}/summary.md`；与 trace 审计互补）
 
 ## 18. 容易漏掉的补充项
 
@@ -269,7 +272,7 @@
 - [ ] 幂等性设计：重复执行同一任务不会造成重复写入、重复提交或重复部署。
 - [ ] 锁机制：防止多个线程同时修改同一文件、同一任务或同一状态文件。
 - [ ] 事务或补偿机制：多步骤操作失败后可以恢复到一致状态。
-- [ ] 资源限制：限制并发数、内存、CPU、token、费用和磁盘日志大小。
+- [ ] 资源限制：限制并发数、内存、CPU、token、费用和磁盘日志大小。（**部分**：`src/lifecycle/` 用量统计、安全清理、trace 轮转、会话隐私 purge；自动 retention UI/CLI 见 Phase 6）
 - [ ] 沙箱执行：高风险命令在隔离环境中运行。
 - [ ] 人工接管点：Agent 不确定、风险过高或权限不足时主动暂停并请求用户决策。
 - [ ] 评估体系：用固定任务集评估模型选择、执行质量和成本。
@@ -294,7 +297,10 @@
   - [x] 工具调用。
   - [x] 简单任务状态。（步骤记录 + 分项运行预算 + reachedLimit + executionMeta）
   - [x] 自动工作流状态中心。（`WorkflowStateCenter` 派生 `executionMeta.workflowState`，`WorkflowWriteGate` 基于状态阻止未验证前连续写入与 refactor 无计划写入）
-  - [x] 工具步骤 SSE 流式推送。（`POST /api/agent/stream` + `Orchestrator.runAgentStream`）
+- [x] 工具步骤 SSE 流式推送。（`POST /api/agent/stream` + `model_turn` 思考过程 + 测试台可视化）
+- [x] Agent Activity Timeline。（`src/agent/timeline/` + `activity_event` SSE + `GET /api/agent/runs/:id` + 测试台「执行过程」面板；不展示模型 CoT）
+- [x] 流式 Run 显式取消。（`AgentRunRegistry` + `POST /api/runs/cancel` + 测试台取消按钮）
+- [x] 模型 token 流式输出。（OpenAI 兼容 / Ollama / Anthropic `onToken`）
 - [x] M2：模型路由。
   - [x] 本地和远程模型统一接口。
   - [x] 策略选择。

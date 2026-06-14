@@ -29,7 +29,8 @@
 ## P3 — 后续能力
 
 - [x] **子 Agent / 无人值守统一 Smart 路由**：`SubAgentCoordinator` 默认 `defaultAgentChat`；无人值守经 `makeChatFn()`
-- [x] **模型 token 流式输出**：`ChatRequest.onToken` + OpenAI 兼容 streaming + `/api/agent/stream?streamTokens=true` SSE `token` 事件
+- [x] **模型 token 流式输出**：`ChatRequest.onToken` + OpenAI/Ollama/Anthropic streaming + `/api/agent/stream`/`/api/chat/stream` SSE `token` 事件
+- [x] **流式 Run 显式取消**：`AgentRunRegistry` + `POST /api/runs/cancel` + 非流式 `/api/agent` 同步注册
 - [x] **V3 RouterModelEvaluator 运行时接入**：启发式 V3 + `DecisionEngine` `source=evaluator`
 - [x] **启动时恢复**：`recoverOnStartup` 标记悬挂 `running` Run；统计未消费通知；`GET /api/config.startupRecovery`
 - [x] **成本预算与运行报告**：`security.budget.maxCostUsdPerRun` + `AgentLoop` 检查；`GET /api/runs/:id/report`
@@ -47,7 +48,7 @@
 | 启动恢复 | `src/app/startupRecovery.ts` |
 | 费用预算 | `src/util/costBudget.ts`、`src/agent/AgentLoop.ts`、`src/config/types.ts` |
 | Run 报告 | `src/trace/runReport.ts`、`src/server/handlers/runs.handlers.ts` |
-| Token 流式 | `src/model/types.ts`、`OpenAICompatibleClient.ts`、`AgentStream.ts` |
+| Token 流式 / 取消 | `src/model/types.ts`、`OpenAICompatibleClient.ts`、`OllamaClient.ts`、`AnthropicClient.ts`、`AgentRunRegistry.ts`、`AgentStream.ts` |
 
 ## 自检记录
 

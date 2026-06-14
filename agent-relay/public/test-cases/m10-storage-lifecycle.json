@@ -1,0 +1,74 @@
+{
+  "milestone": "M7",
+  "feature": "数据生命周期与清理",
+  "featureId": "m10-storage-lifecycle",
+  "summary": "验证存储用量统计、清理预览（dry-run）与安全清理 apply API。",
+  "cases": [
+    {
+      "id": "m10-storage-usage",
+      "title": "获取本地存储用量",
+      "purpose": "确认可按 trace、timeline、SQLite、cache、temp 等类别查看磁盘占用，便于用户判断是否需要清理。",
+      "method": "GET",
+      "path": "/api/storage/usage",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyHasKeys": ["totalBytes", "categories", "generatedAt"]
+      }
+    },
+    {
+      "id": "m10-storage-cleanup-preview-safe",
+      "title": "安全清理预览不删除文件",
+      "purpose": "确认 preview 默认 dry-run，返回 cleanupRunId 与候选动作，但不实际删除 temp/cache。",
+      "method": "POST",
+      "path": "/api/storage/cleanup/preview",
+      "input": {
+        "scope": "safe"
+      },
+      "expect": {
+        "status": 200,
+        "bodyHasKeys": ["cleanupRunId", "mode", "summary", "actions"],
+        "bodyPaths": {
+          "mode": "dry-run"
+        }
+      }
+    },
+    {
+      "id": "m10-storage-cleanup-apply-missing-preview",
+      "title": "未预览直接 apply 返回 404",
+      "purpose": "确认清理执行必须先 preview，避免误删；无有效 cleanupRunId 时拒绝 apply。",
+      "method": "POST",
+      "path": "/api/storage/cleanup/apply",
+      "input": {
+        "cleanupRunId": "cleanup_nonexistent",
+        "confirm": true
+      },
+      "expect": {
+        "status": 404,
+        "bodyHasKeys": ["error"]
+      }
+    },
+    {
+      "id": "m10-session-purge-no-confirm",
+      "title": "存储治理：隐私清除需二次确认",
+      "purpose": "与数据生命周期联动，确认 purge API 拒绝无 confirm 的请求，防止误删 trace/tools 审计记录。",
+      "method": "POST",
+      "path": "/api/context/sessions/00000000-0000-0000-0000-000000000000/purge",
+      "input": { "confirm": false },
+      "expect": {
+        "status": 400,
+        "bodyHasKeys": ["error", "hint"]
+      }
+    },
+      "title": "手动轮转 trace active 段",
+      "purpose": "确认可将当前 trace-current.jsonl 封存到 segments，避免单文件无限增长。",
+      "method": "POST",
+      "path": "/api/trace/rotate",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyHasKeys": ["rotated", "activeFile"]
+      }
+    }
+  ]
+}

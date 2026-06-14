@@ -56,6 +56,6 @@ export function detectWriteConflicts(results: SubAgentRunResult[]): SubAgentWrit
   return conflicts.slice(0, 20);
 }
 
-function normalizeRelPath(path: string): string {
+export function normalizeRelPath(path: string): string {
   return path.replace(/\\/g, "/").replace(/^\.\//, "");
 }

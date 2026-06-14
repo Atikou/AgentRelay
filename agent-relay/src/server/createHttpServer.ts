@@ -2,10 +2,13 @@ import { createServer, type Server } from "node:http";
 
 import type { AppContext } from "../app/createAppContext.js";
 import {
+  handleActivityRunEvents,
+  handleActivityRunGet,
   handleAgent,
   handleAgentResume,
   handleAgentStream,
   handleChat,
+  handleChatStream,
   handlePlan,
   handleTaskDryRun,
   handleTaskRun,
@@ -31,10 +34,18 @@ import {
   handleContextSessionCreate,
   handleContextSessionGet,
   handleContextSessionRestore,
+  handleContextSessionUpdate,
   handleContextSessionsList,
 } from "./handlers/context.handlers.js";
+import {
+  handleStorageCleanupApply,
+  handleStorageCleanupPreview,
+  handleStorageUsage,
+  handleContextSessionDeleteWithLifecycle,
+  handleContextSessionPurge,
+} from "./handlers/storage.handlers.js";
 import { handleDocContent, handleDocsList } from "./handlers/docs.handlers.js";
-import { handleRunGet, handleRunReport, handleRunsList } from "./handlers/runs.handlers.js";
+import { handleRunCancel, handleRunDelete, handleRunGet, handleRunReport, handleRunsList, handleRunsRunning } from "./handlers/runs.handlers.js";
 import {
   handleSchedulerCancel,
   handleSchedulerCreate,
@@ -52,9 +63,9 @@ import {
   handlePlanPreview,
   handlePlanReject,
 } from "./handlers/plan.handlers.js";
-import { handleSubAgentBatch, handleSubAgentRoles, handleSubAgentRun } from "./handlers/subagent.handlers.js";
+import { handleSubAgentBatch, handleSubAgentCancel, handleSubAgentRoles, handleSubAgentRun, handleSubAgentRunning } from "./handlers/subagent.handlers.js";
 import { handleToolsList, handleToolRun } from "./handlers/tools.handlers.js";
-import { handleTraceExport, handleTraceRecent, handleTraceReplay } from "./handlers/trace.handlers.js";
+import { handleTraceExport, handleTraceRecent, handleTraceReplay, handleTraceRotate } from "./handlers/trace.handlers.js";
 import { readBody } from "./http/body.js";
 import { HttpError, sendJson } from "./http/response.js";
 import { serveDocsAsset, serveStatic } from "./http/static.js";
@@ -85,6 +96,10 @@ export function createHttpServer(app: AppContext, opts?: HttpServerOptions): Ser
           sendJson(res, 200, await modelsCatalog(app));
           return;
         }
+        if (pathname === "/api/chat/stream" && method === "POST") {
+          await handleChatStream(app, await readBody(req, maxBodyBytes), res);
+          return;
+        }
         if (pathname === "/api/chat" && method === "POST") {
           const result = await handleChat(app, await readBody(req, maxBodyBytes));
           sendJson(res, result.status, result.body);
@@ -92,6 +107,21 @@ export function createHttpServer(app: AppContext, opts?: HttpServerOptions): Ser
         }
         if (pathname === "/api/metrics" && method === "GET") {
           sendJson(res, 200, metrics(app));
+          return;
+        }
+        if (pathname === "/api/storage/usage" && method === "GET") {
+          const result = handleStorageUsage(app);
+          sendJson(res, result.status, result.body);
+          return;
+        }
+        if (pathname === "/api/storage/cleanup/preview" && method === "POST") {
+          const result = handleStorageCleanupPreview(app, await readBody(req, maxBodyBytes));
+          sendJson(res, result.status, result.body);
+          return;
+        }
+        if (pathname === "/api/storage/cleanup/apply" && method === "POST") {
+          const result = handleStorageCleanupApply(app, await readBody(req, maxBodyBytes));
+          sendJson(res, result.status, result.body);
           return;
         }
         if (pathname === "/api/trace/recent" && method === "GET") {
@@ -106,6 +136,11 @@ export function createHttpServer(app: AppContext, opts?: HttpServerOptions): Ser
         }
         if (pathname === "/api/trace/replay" && method === "GET") {
           const result = await handleTraceReplay(app, url);
+          sendJson(res, result.status, result.body);
+          return;
+        }
+        if (pathname === "/api/trace/rotate" && method === "POST") {
+          const result = handleTraceRotate(app);
           sendJson(res, result.status, result.body);
           return;
         }
@@ -228,6 +263,16 @@ export function createHttpServer(app: AppContext, opts?: HttpServerOptions): Ser
           sendJson(res, result.status, result.body);
           return;
         }
+        if (pathname.startsWith("/api/agent/runs/") && method === "GET") {
+          const rest = decodeURIComponent(pathname.slice("/api/agent/runs/".length));
+          if (rest.endsWith("/events")) {
+            const runId = rest.slice(0, -"/events".length);
+            handleActivityRunEvents(app, runId, res, req);
+            return;
+          }
+          handleActivityRunGet(app, rest, res);
+          return;
+        }
         if (pathname === "/api/agent/stream" && method === "POST") {
           await handleAgentStream(app, await readBody(req, maxBodyBytes), res);
           return;
@@ -247,6 +292,16 @@ export function createHttpServer(app: AppContext, opts?: HttpServerOptions): Ser
           sendJson(res, result.status, result.body);
           return;
         }
+        if (pathname === "/api/runs/running" && method === "GET") {
+          const result = handleRunsRunning(app);
+          sendJson(res, result.status, result.body);
+          return;
+        }
+        if (pathname === "/api/runs/cancel" && method === "POST") {
+          const result = handleRunCancel(app, await readBody(req, maxBodyBytes));
+          sendJson(res, result.status, result.body);
+          return;
+        }
         if (pathname.startsWith("/api/runs/") && method === "GET") {
           const rest = decodeURIComponent(pathname.slice("/api/runs/".length));
           if (rest.endsWith("/report")) {
@@ -256,6 +311,12 @@ export function createHttpServer(app: AppContext, opts?: HttpServerOptions): Ser
             return;
           }
           const result = handleRunGet(app, rest);
+          sendJson(res, result.status, result.body);
+          return;
+        }
+        const runDeleteMatch = pathname.match(/^\/api\/runs\/([^/]+)$/);
+        if (runDeleteMatch && method === "DELETE") {
+          const result = handleRunDelete(app, decodeURIComponent(runDeleteMatch[1]!));
           sendJson(res, result.status, result.body);
           return;
         }
@@ -335,6 +396,16 @@ export function createHttpServer(app: AppContext, opts?: HttpServerOptions): Ser
           sendJson(res, result.status, result.body);
           return;
         }
+        if (pathname === "/api/subagent/running" && method === "GET") {
+          const result = handleSubAgentRunning(app);
+          sendJson(res, result.status, result.body);
+          return;
+        }
+        if (pathname === "/api/subagent/cancel" && method === "POST") {
+          const result = handleSubAgentCancel(app, await readBody(req, maxBodyBytes));
+          sendJson(res, result.status, result.body);
+          return;
+        }
         if (pathname === "/api/context/sessions" && method === "GET") {
           sendJson(res, 200, handleContextSessionsList(app));
           return;
@@ -391,6 +462,22 @@ export function createHttpServer(app: AppContext, opts?: HttpServerOptions): Ser
           if (rest.endsWith("/compress") && method === "POST") {
             const id = rest.slice(0, -"/compress".length);
             const result = await handleContextSessionCompress(app, id);
+            sendJson(res, result.status, result.body);
+            return;
+          }
+          if (rest.endsWith("/purge") && method === "POST") {
+            const id = rest.slice(0, -"/purge".length);
+            const result = handleContextSessionPurge(app, id, await readBody(req, maxBodyBytes));
+            sendJson(res, result.status, result.body);
+            return;
+          }
+          if (method === "PATCH" && rest) {
+            const result = handleContextSessionUpdate(app, rest, await readBody(req, maxBodyBytes));
+            sendJson(res, result.status, result.body);
+            return;
+          }
+          if (method === "DELETE" && rest) {
+            const result = handleContextSessionDeleteWithLifecycle(app, rest);
             sendJson(res, result.status, result.body);
             return;
           }

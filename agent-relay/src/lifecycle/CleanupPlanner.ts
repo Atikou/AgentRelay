@@ -1,0 +1,271 @@
+import { existsSync, readFileSync, statSync } from "node:fs";
+import path from "node:path";
+import { randomUUID } from "node:crypto";
+
+import { ActivityRunStore } from "../agent/timeline/ActivityRunStore.js";
+import { fileAgeDays, walkFiles } from "./fsUtils.js";
+import type { LifecyclePolicy } from "./types.js";
+import type {
+  CleanupAction,
+  CleanupPreviewRequest,
+  CleanupRisk,
+  StorageCategory,
+} from "./types.js";
+
+const SAFE_CATEGORIES: StorageCategory[] = ["temp", "cache", "reportCache", "notifications"];
+
+const RISK_ORDER: Record<CleanupRisk, number> = { low: 0, medium: 1, high: 2 };
+
+export interface CleanupPlannerDeps {
+  dataDir: string;
+  workspaceRoot: string;
+  traceFile: string;
+  notificationFile: string;
+  getActiveRunIds: () => string[];
+}
+
+export class CleanupPlanner {
+  constructor(
+    private readonly deps: CleanupPlannerDeps,
+    private readonly policy: LifecyclePolicy,
+  ) {}
+
+  plan(request: CleanupPreviewRequest = {}): CleanupAction[] {
+    const scope = request.scope ?? "safe";
+    const maxRisk = request.maxRisk ?? (scope === "safe" ? "low" : "medium");
+    const include = request.include ?? (scope === "safe" ? SAFE_CATEGORIES : undefined);
+    const activeRuns = new Set(this.deps.getActiveRunIds());
+    const now = Date.now();
+    const actions: CleanupAction[] = [];
+
+    const push = (partial: Omit<CleanupAction, "actionId" | "canDelete"> & { canDelete?: boolean }): void => {
+      if (include && !include.includes(partial.category)) return;
+      if (RISK_ORDER[partial.risk] > RISK_ORDER[maxRisk]) return;
+      if (request.olderThanDays != null) {
+        // path-level age filter handled per action
+      }
+      const blocked = this.blockReason(partial.path, activeRuns);
+      actions.push({
+        actionId: `action_${randomUUID().slice(0, 8)}`,
+        canDelete: partial.canDelete ?? !blocked,
+        blockedReason: blocked,
+        ...partial,
+      });
+    };
+
+    this.planTemp(push, now, request.olderThanDays);
+    this.planCache(push, now, request.olderThanDays);
+    this.planReportCache(push, now, request.olderThanDays);
+    this.planNotifications(push, now);
+    if (scope !== "safe" || include?.includes("timeline")) {
+      this.planTimelineRawEvents(push, now, activeRuns);
+    }
+
+    return actions;
+  }
+
+  private blockReason(targetPath: string, activeRuns: Set<string>): string | undefined {
+    for (const runId of activeRuns) {
+      if (targetPath.includes(runId)) {
+        return `active run ${runId}`;
+      }
+    }
+    const agentRuns = path.join(this.deps.workspaceRoot, ".agent", "runs");
+    if (targetPath.startsWith(agentRuns)) {
+      const seg = targetPath.slice(agentRuns.length + 1).split(path.sep)[0];
+      if (seg && activeRuns.has(seg)) {
+        return `active timeline run ${seg}`;
+      }
+    }
+    return undefined;
+  }
+
+  private planTemp(
+    push: (a: Omit<CleanupAction, "actionId" | "canDelete"> & { canDelete?: boolean }) => void,
+    now: number,
+    olderThanDays?: number | null,
+  ): void {
+    const tempDir = path.join(this.deps.dataDir, "temp");
+    const ttl = olderThanDays ?? this.policy.retentionDays.temp;
+    const files = walkFiles(tempDir).sort((a, b) => a.mtimeMs - b.mtimeMs);
+    let total = files.reduce((s, f) => s + f.size, 0);
+    const quota = this.policy.quotas.tempBytes;
+
+    for (const f of files) {
+      const age = fileAgeDays(f.mtimeMs, now);
+      const overTtl = age >= ttl;
+      const overQuota = total > quota;
+      if (!overTtl && !overQuota) continue;
+      push({
+        type: "delete_file",
+        path: f.path,
+        reason: overTtl ? `temp older than ${ttl} day(s)` : "temp quota exceeded",
+        bytes: f.size,
+        risk: "low",
+        category: "temp",
+      });
+      total -= f.size;
+    }
+  }
+
+  private planCache(
+    push: (a: Omit<CleanupAction, "actionId" | "canDelete"> & { canDelete?: boolean }) => void,
+    now: number,
+    olderThanDays?: number | null,
+  ): void {
+    const cacheDir = path.join(this.deps.dataDir, "cache");
+    const ttl = olderThanDays ?? this.policy.retentionDays.fileCache;
+    const files = walkFiles(cacheDir).sort((a, b) => a.mtimeMs - b.mtimeMs);
+    let total = files.reduce((s, f) => s + f.size, 0);
+    const quota = this.policy.quotas.cacheBytes;
+
+    for (const f of files) {
+      const age = fileAgeDays(f.mtimeMs, now);
+      const overTtl = age >= ttl;
+      const overQuota = total > quota;
+      if (!overTtl && !overQuota) continue;
+      push({
+        type: "delete_file",
+        path: f.path,
+        reason: overTtl ? `cache older than ${ttl} day(s)` : "cache quota exceeded",
+        bytes: f.size,
+        risk: "low",
+        category: "cache",
+      });
+      total -= f.size;
+    }
+  }
+
+  private planReportCache(
+    push: (a: Omit<CleanupAction, "actionId" | "canDelete"> & { canDelete?: boolean }) => void,
+    now: number,
+    olderThanDays?: number | null,
+  ): void {
+    const dir = path.join(this.deps.dataDir, "reports", "cache");
+    const ttl = olderThanDays ?? this.policy.retentionDays.reportCache;
+    const files = walkFiles(dir).sort((a, b) => a.mtimeMs - b.mtimeMs);
+    let total = files.reduce((s, f) => s + f.size, 0);
+    const quota = this.policy.quotas.reportCacheBytes;
+
+    for (const f of files) {
+      const age = fileAgeDays(f.mtimeMs, now);
+      const overTtl = age >= ttl;
+      const overQuota = total > quota;
+      if (!overTtl && !overQuota) continue;
+      push({
+        type: "delete_file",
+        path: f.path,
+        reason: overTtl ? `report cache older than ${ttl} day(s)` : "report cache quota exceeded",
+        bytes: f.size,
+        risk: "low",
+        category: "reportCache",
+      });
+      total -= f.size;
+    }
+  }
+
+  private planNotifications(
+    push: (a: Omit<CleanupAction, "actionId" | "canDelete"> & { canDelete?: boolean }) => void,
+    now: number,
+  ): void {
+    const file = this.deps.notificationFile;
+    let text: string;
+    try {
+      text = readFileSync(file, "utf-8");
+    } catch {
+      return;
+    }
+    if (!text.trim()) return;
+
+    const ttl = this.policy.retentionDays.readNotifications;
+    const lines = text.split("\n").filter(Boolean);
+    const consumed = new Set<string>();
+    let removable = 0;
+    let removableBytes = 0;
+
+    for (const line of lines) {
+      let parsed: Record<string, unknown>;
+      try {
+        parsed = JSON.parse(line) as Record<string, unknown>;
+      } catch {
+        continue;
+      }
+      if (parsed.op === "consume" && Array.isArray(parsed.ids)) {
+        for (const id of parsed.ids) {
+          if (typeof id === "string") consumed.add(id);
+        }
+      }
+    }
+
+    for (const line of lines) {
+      let parsed: Record<string, unknown>;
+      try {
+        parsed = JSON.parse(line) as Record<string, unknown>;
+      } catch {
+        continue;
+      }
+      if (parsed.op === "consume") continue;
+      const id = typeof parsed.id === "string" ? parsed.id : undefined;
+      const ts = typeof parsed.timestamp === "string" ? parsed.timestamp : undefined;
+      const isConsumed = parsed.consumed === true || (id != null && consumed.has(id));
+      if (!isConsumed || !ts) continue;
+      const mtimeMs = Date.parse(ts);
+      if (Number.isNaN(mtimeMs)) continue;
+      if (fileAgeDays(mtimeMs, now) >= ttl) {
+        removable += 1;
+        removableBytes += Buffer.byteLength(line, "utf-8") + 1;
+      }
+    }
+
+    if (removable > 0) {
+      push({
+        type: "compact_jsonl",
+        path: file,
+        reason: `remove ${removable} consumed notification(s) older than ${ttl} day(s)`,
+        bytes: removableBytes,
+        risk: "low",
+        category: "notifications",
+      });
+    }
+  }
+
+  private planTimelineRawEvents(
+    push: (a: Omit<CleanupAction, "actionId" | "canDelete"> & { canDelete?: boolean }) => void,
+    now: number,
+    activeRuns: Set<string>,
+  ): void {
+    const store = new ActivityRunStore(this.deps.workspaceRoot);
+    for (const runId of store.listRunIds()) {
+      if (activeRuns.has(runId)) continue;
+      const manifest = store.loadManifest(runId);
+      if (!manifest) continue;
+      if (manifest.pinned) continue;
+      if (manifest.status === "running" || manifest.status === "pending") continue;
+
+      const runDir = path.join(this.deps.workspaceRoot, ".agent", "runs", runId);
+      const summaryFile = path.join(runDir, "summary.md");
+      if (!existsSync(summaryFile)) continue;
+
+      const ageAnchor = manifest.completedAt ?? manifest.createdAt;
+      const ttl =
+        manifest.status === "failed" || manifest.status === "cancelled"
+          ? this.policy.retentionDays.runRawEventsFailed
+          : this.policy.retentionDays.runRawEventsSuccess;
+      if (fileAgeDays(ageAnchor, now) < ttl) continue;
+
+      for (const name of ["events.jsonl", "raw-tool-calls.jsonl"]) {
+        const file = path.join(runDir, name);
+        if (!existsSync(file)) continue;
+        const bytes = statSync(file).size;
+        push({
+          type: "delete_file",
+          path: file,
+          reason: `timeline raw ${name} older than ${ttl} day(s); summary retained`,
+          bytes,
+          risk: "medium",
+          category: "timeline",
+        });
+      }
+    }
+  }
+}

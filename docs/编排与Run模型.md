@@ -148,4 +148,5 @@ src/
 
 ```bash
 npm run test:orchestrator   # RunStore / TaskStore / dry-run / rollbackOnFailure
+npm run test:regression-cancel-retry-resume  # 失败重试、取消与恢复跨模块回归
 ```

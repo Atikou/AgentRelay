@@ -101,7 +101,8 @@ export class ToolRegistry {
       return result;
     }
 
-    const parsed = tool.inputSchema.safeParse(rawInput);
+    const normalizedInput = tool.normalizeInput ? tool.normalizeInput(rawInput) : rawInput;
+    const parsed = tool.inputSchema.safeParse(normalizedInput);
     if (!parsed.success) {
       const result: ToolRunResult = {
         ok: false,
@@ -112,7 +113,7 @@ export class ToolRegistry {
         durationMs: elapsed(),
         toolCallId,
       };
-      this.logStorage(name, rawInput, result, startedAt, ctx);
+      this.logStorage(name, normalizedInput, result, startedAt, ctx);
       return result;
     }
 

@@ -89,6 +89,15 @@ export class RunStore {
           .all(limit) as Record<string, unknown>[]);
     return rows.map(mapRun);
   }
+
+  delete(id: string): boolean {
+    const existing = this.get(id);
+    if (!existing) return false;
+    const conn = this.db.connection;
+    conn.prepare(`DELETE FROM run_states WHERE run_id=?`).run(id);
+    conn.prepare(`DELETE FROM runs WHERE id=?`).run(id);
+    return true;
+  }
 }
 
 function mapRun(row: Record<string, unknown>): RunRecord {

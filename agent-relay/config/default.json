@@ -35,6 +35,23 @@
         }
       },
       {
+        "name": "local-qwen25vl",
+        "provider": "ollama",
+        "location": "local",
+        "baseUrl": "http://localhost:11434",
+        "model": "qwen2.5vl:7b",
+        "think": false,
+        "routerProfile": {
+          "displayName": "Qwen2.5-VL 7B",
+          "defaultLevel": 3,
+          "relativeCost": "free",
+          "supportsVision": true,
+          "canDraft": true,
+          "canReview": true,
+          "allowedRoles": ["primary", "draft", "review"]
+        }
+      },
+      {
         "name": "local-lmstudio",
         "provider": "openai-compatible",
         "location": "local",

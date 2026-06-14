@@ -20,6 +20,7 @@ import {
 } from "../src/orchestrator/taskUncertainty.js";
 import { createDefaultRegistry } from "../src/tools/index.js";
 import { createTestPlanService } from "./planTestHelper.js";
+import { createTestOrchestrator } from "./orchestratorTestHelper.js";
 
 const tests: Array<{ name: string; fn: () => Promise<void> }> = [];
 function test(name: string, fn: () => Promise<void>) {
@@ -81,7 +82,7 @@ test("Orchestrator fallbackToPlanOnUncertainty 返回 revisedPlan", async () => 
     },
   } as unknown as Planner;
 
-  const orchestrator = new Orchestrator({
+  const { orchestrator } = createTestOrchestrator({
     workspaceRoot: sandbox,
     modelRouter: {} as never,
     planner: stubPlanner,
@@ -129,7 +130,7 @@ test("Orchestrator fallbackToPlanOnUncertainty 返回 revisedPlan", async () => 
 
 test("Orchestrator 未开启 fallback 时不生成 modeFallback", async () => {
   const registry = createDefaultRegistry({ dataDir });
-  const orchestrator = new Orchestrator({
+  const { orchestrator } = createTestOrchestrator({
     workspaceRoot: sandbox,
     modelRouter: {} as never,
     planner: {} as never,

@@ -4,6 +4,8 @@ const systemInput = document.getElementById("system-input");
 const sensitiveInput = document.getElementById("sensitive-input");
 const permissionPolicySelect = document.getElementById("permission-policy-select");
 const explicitModeSelect = document.getElementById("explicit-mode-select");
+const streamAgentInput = document.getElementById("stream-agent-input");
+const streamTokensInput = document.getElementById("stream-tokens-input");
 const messageInput = document.getElementById("message-input");
 const sendBtn = document.getElementById("send-btn");
 const statusDot = document.getElementById("status-dot");
@@ -89,6 +91,33 @@ function restorePermissionPolicy() {
   if (saved && PERMISSION_POLICY_LABELS[saved]) permissionPolicySelect.value = saved;
 }
 
+function positionAdvancedPanel() {
+  const entry = document.querySelector(".advanced-entry");
+  const summary = entry?.querySelector("summary");
+  const panel = entry?.querySelector(".advanced-panel");
+  if (!(entry instanceof HTMLDetailsElement) || !entry.open || !summary || !panel) return;
+  const summaryRect = summary.getBoundingClientRect();
+  const panelRect = panel.getBoundingClientRect();
+  const mainRect = document.querySelector(".main")?.getBoundingClientRect();
+  const margin = 12;
+  const minLeft = (mainRect?.left ?? 0) + margin;
+  const maxLeft = window.innerWidth - panelRect.width - margin;
+  const left = Math.max(minLeft, Math.min(summaryRect.left, maxLeft));
+  const top = Math.max(margin, summaryRect.top - panelRect.height - 8);
+  panel.style.setProperty("--advanced-panel-left", `${Math.round(left)}px`);
+  panel.style.setProperty("--advanced-panel-top", `${Math.round(top)}px`);
+}
+
+function bindAdvancedPanelPositioning() {
+  const entry = document.querySelector(".advanced-entry");
+  if (!(entry instanceof HTMLDetailsElement)) return;
+  entry.addEventListener("toggle", () => {
+    if (entry.open) requestAnimationFrame(positionAdvancedPanel);
+  });
+  window.addEventListener("resize", positionAdvancedPanel);
+  window.addEventListener("scroll", positionAdvancedPanel, true);
+}
+
 function sessionMeta() {
   return activeSessionId ? ` · session ${activeSessionId.slice(0, 8)}…` : "";
 }
@@ -137,6 +166,7 @@ function renderWelcome() {
 async function loadHistorySessions() {
   const list = sidebarHistoryList;
   if (!list) return;
+  closeSessionMenu();
   try {
     const data = await api("/api/context/sessions");
     const sessions = [...(data.sessions || [])].sort(
@@ -153,14 +183,16 @@ async function loadHistorySessions() {
     list.innerHTML = sessions
       .map((s) => {
         const updated = s.updatedAt ?? s.updated_at;
-        const created = s.createdAt ?? s.created_at;
         const active = s.id === activeSessionId ? " active" : "";
         const title = s.title || "未命名会话";
         return `
-          <button class="sidebar-session${active}" data-action="resume-session" data-session-id="${escapeHtml(s.id)}">
-            <span>${escapeHtml(title)}</span>
-            <small>${escapeHtml(formatDateTime(updated))} · ${escapeHtml(s.id.slice(0, 8))}</small>
-          </button>`;
+          <div class="sidebar-session-row${active}">
+            <button class="sidebar-session" data-action="resume-session" data-session-id="${escapeHtml(s.id)}">
+              <span>${escapeHtml(title)}</span>
+              <small>${escapeHtml(formatDateTime(updated))} · ${escapeHtml(s.id.slice(0, 8))}</small>
+            </button>
+            <button type="button" class="sidebar-session-more" data-action="session-menu-toggle" data-session-id="${escapeHtml(s.id)}" data-session-title="${escapeHtml(title)}" aria-label="会话菜单" title="更多">⋯</button>
+          </div>`;
       })
       .join("");
   } catch (err) {
@@ -212,6 +244,188 @@ function renderStoredMessage(message) {
   meta.textContent = `${roleLabel(message.role)} · ${formatDateTime(message.createdAt ?? message.created_at)}`;
   wrap.appendChild(meta);
   return wrap;
+}
+
+let activeSessionMenu = null;
+
+function ensureSessionMenuPopover() {
+  let pop = document.getElementById("session-menu-popover");
+  if (!pop) {
+    pop = document.createElement("div");
+    pop.id = "session-menu-popover";
+    pop.className = "session-menu-popover";
+    pop.hidden = true;
+    document.body.appendChild(pop);
+    pop.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const item = e.target.closest("[data-session-menu-action]");
+      if (!item || !activeSessionMenu) return;
+      void handleSessionMenuAction(item.dataset.sessionMenuAction);
+    });
+  }
+  return pop;
+}
+
+function closeSessionMenu() {
+  const pop = document.getElementById("session-menu-popover");
+  if (pop) pop.hidden = true;
+  if (activeSessionMenu?.anchor) {
+    activeSessionMenu.anchor.removeAttribute("aria-expanded");
+  }
+  activeSessionMenu = null;
+}
+
+function positionSessionMenu(anchor) {
+  const pop = ensureSessionMenuPopover();
+  pop.hidden = false;
+  const rect = anchor.getBoundingClientRect();
+  const margin = 8;
+  const width = pop.offsetWidth || 168;
+  let left = rect.right - width + 4;
+  let top = rect.bottom + 6;
+  left = Math.max(margin, Math.min(left, window.innerWidth - width - margin));
+  const height = pop.offsetHeight || 120;
+  if (top + height > window.innerHeight - margin) {
+    top = Math.max(margin, rect.top - height - 6);
+  }
+  pop.style.left = `${Math.round(left)}px`;
+  pop.style.top = `${Math.round(top)}px`;
+}
+
+function openSessionMenu(anchor, sessionId, title) {
+  activeSessionMenu = { sessionId, title: title || "未命名会话", anchor };
+  anchor.setAttribute("aria-expanded", "true");
+  renderSessionMenuPopover("menu");
+  positionSessionMenu(anchor);
+}
+
+function renderSessionMenuPopover(mode) {
+  const menu = activeSessionMenu;
+  if (!menu) return;
+  const pop = ensureSessionMenuPopover();
+  if (mode === "menu") {
+    pop.innerHTML = `
+      <button type="button" class="session-menu-item" data-session-menu-action="rename">
+        <span class="session-menu-icon" aria-hidden="true">✎</span>
+        <span>重命名</span>
+      </button>
+      <div class="session-menu-sep" role="separator"></div>
+      <button type="button" class="session-menu-item danger" data-session-menu-action="delete">
+        <span class="session-menu-icon" aria-hidden="true">🗑</span>
+        <span>删除</span>
+      </button>`;
+  } else if (mode === "rename") {
+    pop.innerHTML = `
+      <div class="session-menu-panel-title">重命名会话</div>
+      <input class="session-menu-input" type="text" maxlength="120" value="${escapeHtml(menu.title)}" />
+      <div class="session-menu-panel-actions">
+        <button type="button" class="session-menu-btn" data-session-menu-action="rename-cancel">取消</button>
+        <button type="button" class="session-menu-btn primary" data-session-menu-action="rename-save">保存</button>
+      </div>`;
+    const input = pop.querySelector(".session-menu-input");
+    input?.focus();
+    input?.select();
+    input?.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        pop.querySelector('[data-session-menu-action="rename-save"]')?.click();
+      }
+      if (e.key === "Escape") {
+        e.preventDefault();
+        renderSessionMenuPopover("menu");
+        positionSessionMenu(menu.anchor);
+      }
+    });
+  } else if (mode === "delete") {
+    pop.innerHTML = `
+      <div class="session-menu-panel-title">删除会话</div>
+      <p class="session-menu-hint">将删除「${escapeHtml(menu.title)}」的消息、摘要与关联记录，且不可恢复。</p>
+      <div class="session-menu-panel-actions">
+        <button type="button" class="session-menu-btn" data-session-menu-action="delete-cancel">取消</button>
+        <button type="button" class="session-menu-btn danger" data-session-menu-action="delete-confirm">删除</button>
+      </div>`;
+  }
+  if (!pop.hidden && menu.anchor) positionSessionMenu(menu.anchor);
+}
+
+async function saveHistorySessionTitle(sessionId, title) {
+  const trimmed = title.trim();
+  if (!trimmed) {
+    addSystemError("标题不能为空");
+    return false;
+  }
+  await api(`/api/context/sessions/${encodeURIComponent(sessionId)}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ title: trimmed }),
+  });
+  closeSessionMenu();
+  await loadHistorySessions();
+  if (activeSessionId === sessionId) {
+    await renderSessionConversation(sessionId);
+  }
+  return true;
+}
+
+async function performDeleteHistorySession(sessionId) {
+  await api(`/api/context/sessions/${encodeURIComponent(sessionId)}`, { method: "DELETE" });
+  closeSessionMenu();
+  if (activeSessionId === sessionId) {
+    setActiveSessionId(undefined);
+    await renderHomeHistory();
+    return;
+  }
+  await loadHistorySessions();
+}
+
+async function handleSessionMenuAction(action) {
+  const menu = activeSessionMenu;
+  if (!menu) return;
+  const pop = ensureSessionMenuPopover();
+  if (action === "rename") {
+    renderSessionMenuPopover("rename");
+    return;
+  }
+  if (action === "rename-cancel") {
+    renderSessionMenuPopover("menu");
+    return;
+  }
+  if (action === "rename-save") {
+    const input = pop.querySelector(".session-menu-input");
+    const title = input instanceof HTMLInputElement ? input.value : menu.title;
+    try {
+      await saveHistorySessionTitle(menu.sessionId, title);
+    } catch (err) {
+      addSystemError(String(err.message || err));
+    }
+    return;
+  }
+  if (action === "delete") {
+    renderSessionMenuPopover("delete");
+    return;
+  }
+  if (action === "delete-cancel") {
+    renderSessionMenuPopover("menu");
+    return;
+  }
+  if (action === "delete-confirm") {
+    try {
+      await performDeleteHistorySession(menu.sessionId);
+    } catch (err) {
+      addSystemError(String(err.message || err));
+    }
+  }
+}
+
+function bindSessionMenuDismiss() {
+  document.addEventListener("click", (e) => {
+    const pop = document.getElementById("session-menu-popover");
+    if (!pop || pop.hidden) return;
+    if (e.target.closest("#session-menu-popover") || e.target.closest(".sidebar-session-more")) return;
+    closeSessionMenu();
+  });
+  window.addEventListener("resize", closeSessionMenu);
+  window.addEventListener("scroll", closeSessionMenu, true);
 }
 
 async function renderSessionConversation(sessionId) {
@@ -276,8 +490,12 @@ function addMessage(role, content, meta, opts) {
   wrap.className = `msg ${role}`;
   const bubble = document.createElement("div");
   bubble.className = "bubble";
-  if (content instanceof Node) bubble.appendChild(content);
-  else bubble.textContent = content;
+  if (content instanceof Node) {
+    bubble.classList.add("structured-bubble");
+    bubble.appendChild(content);
+  } else {
+    bubble.textContent = content;
+  }
   wrap.appendChild(bubble);
   if (meta) {
     const m = document.createElement("div");
@@ -305,6 +523,405 @@ async function api(path, options) {
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || `请求失败：${res.status}`);
   return data;
+}
+
+function parseSseBlock(block) {
+  let eventType = "message";
+  let data = "";
+  for (const line of block.split("\n")) {
+    if (line.startsWith("event: ")) eventType = line.slice(7).trim();
+    else if (line.startsWith("data: ")) data += line.slice(6);
+  }
+  if (!data) return null;
+  try {
+    return { type: eventType, data: JSON.parse(data) };
+  } catch {
+    return null;
+  }
+}
+
+async function consumeSsePost(path, payload, onEvent, signal) {
+  const res = await fetch(path, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "text/event-stream",
+    },
+    body: JSON.stringify(payload),
+    signal,
+  });
+  const contentType = res.headers.get("content-type") || "";
+  if (!contentType.includes("text/event-stream")) {
+    const err = await res.json().catch(() => ({ error: res.statusText }));
+    throw new Error(err.error || `请求失败：${res.status}`);
+  }
+  if (!res.body) throw new Error("SSE 响应无 body");
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const parts = buffer.split("\n\n");
+    buffer = parts.pop() || "";
+    for (const part of parts) {
+      const evt = parseSseBlock(part);
+      if (evt) onEvent(evt);
+    }
+  }
+}
+
+function modelTurnLabel(turn) {
+  if (turn.phase === "started") return `第 ${turn.iteration} 轮 · 等待模型…`;
+  if (turn.phase === "parse_error") return `第 ${turn.iteration} 轮 · JSON 解析失败`;
+  if (turn.action === "final") return `第 ${turn.iteration} 轮 · 生成最终答案`;
+  if (turn.action === "tool") {
+    const thought = turn.thought ? ` · ${turn.thought}` : "";
+    return `第 ${turn.iteration} 轮 · 调用 ${turn.tool}${thought}`;
+  }
+  return `第 ${turn.iteration} 轮 · 完成`;
+}
+
+function buildAgentStepRow(s) {
+  const row = document.createElement("div");
+  row.className = "plan-step";
+  const state = s.blocked
+    ? '<span class="status status-blocked">已阻塞</span>'
+    : s.ok
+      ? '<span class="status status-completed">成功</span>'
+      : '<span class="status status-failed">失败</span>';
+  const dur = s.durationMs != null ? `<span class="plan-perms">${s.durationMs}ms</span>` : "";
+  const thought = s.thought ? `<div class="plan-step-desc">想法：${escapeHtml(s.thought)}</div>` : "";
+  const io = `入参 ${escapeHtml(JSON.stringify(s.input))}`;
+  const out = s.ok
+    ? `结果 ${escapeHtml(truncate(JSON.stringify(s.output), 400))}`
+    : escapeHtml(s.error || "");
+  const riskTag = s.risk
+    ? `<span class="tag-warn">${escapeHtml(s.risk.tier)}</span> <span class="plan-perms">${escapeHtml(s.risk.summary)}</span>`
+    : "";
+  const confirmation = renderConfirmationRequest(s.confirmationRequest);
+  row.innerHTML = `
+    <div class="plan-step-head">
+      ${state}
+      <span class="plan-step-title">#${s.iteration} ${escapeHtml(s.tool)}</span>
+      ${dur}
+      ${riskTag}
+    </div>
+    ${thought}
+    <div class="plan-step-desc">${io}</div>
+    ${confirmation}
+    <div class="plan-step-desc">${out}</div>`;
+  return row;
+}
+
+const ACTIVITY_STEP_ICONS = {
+  analysis: "💭",
+  plan: "📋",
+  todo: "☑️",
+  tool_call: "🔧",
+  file_search: "🔍",
+  file_read: "📖",
+  file_write: "✏️",
+  file_patch: "🧩",
+  shell: "💻",
+  web_search: "🌐",
+  validation: "🧪",
+  summary: "✅",
+  error: "⚠️",
+  retry: "↻",
+};
+
+const ACTIVITY_STEP_STATUS_LABELS = {
+  pending: "等待",
+  running: "进行中",
+  success: "完成",
+  failed: "失败",
+  skipped: "跳过",
+};
+
+function createActivityTimelinePanel(initialLabel) {
+  const card = document.createElement("div");
+  card.className = "plan-card activity-timeline-card";
+
+  const header = document.createElement("div");
+  header.className = "activity-timeline-header";
+  header.innerHTML = `<strong>执行过程</strong> <span class="activity-timeline-status">${escapeHtml(initialLabel)}</span>`;
+  card.appendChild(header);
+
+  const goalEl = document.createElement("div");
+  goalEl.className = "activity-run-goal";
+  card.appendChild(goalEl);
+
+  const stepsWrap = document.createElement("div");
+  stepsWrap.className = "activity-steps";
+  card.appendChild(stepsWrap);
+
+  const summaryEl = document.createElement("div");
+  summaryEl.className = "activity-summary";
+  summaryEl.style.display = "none";
+  card.appendChild(summaryEl);
+
+  const stepNodes = new Map();
+
+  function stepStatusClass(status) {
+    return `activity-step-${status || "pending"}`;
+  }
+
+  function buildActivityStepRow(step) {
+    const row = document.createElement("div");
+    row.className = `activity-step ${stepStatusClass(step.status)}`;
+    row.dataset.stepId = step.id;
+    const icon = ACTIVITY_STEP_ICONS[step.type] || "•";
+    const meta = step.metadata || {};
+    let detailsHtml = "";
+    if (meta.collapsible && (meta.args || meta.command)) {
+      const body = meta.command
+        ? escapeHtml(meta.command)
+        : escapeHtml(JSON.stringify(meta.args, null, 2));
+      detailsHtml = `
+        <details class="activity-step-details">
+          <summary>查看详情</summary>
+          <pre>${body}</pre>
+        </details>`;
+    }
+    const statusLabel = ACTIVITY_STEP_STATUS_LABELS[step.status] || step.status;
+    row.innerHTML = `
+      <div class="activity-step-head">
+        <span class="activity-step-icon">${icon}</span>
+        <span class="activity-step-title">${escapeHtml(step.title)}</span>
+        <span class="activity-step-badge">${escapeHtml(statusLabel)}</span>
+      </div>
+      ${step.content ? `<div class="activity-step-content">${escapeHtml(step.content)}</div>` : ""}
+      ${detailsHtml}`;
+    return row;
+  }
+
+  function refreshActivityStepRow(row, step) {
+    row.className = `activity-step ${stepStatusClass(step.status)}`;
+    const badge = row.querySelector(".activity-step-badge");
+    if (badge) badge.textContent = ACTIVITY_STEP_STATUS_LABELS[step.status] || step.status;
+    let contentEl = row.querySelector(".activity-step-content");
+    if (step.content) {
+      if (!contentEl) {
+        contentEl = document.createElement("div");
+        contentEl.className = "activity-step-content";
+        row.appendChild(contentEl);
+      }
+      contentEl.textContent = step.content;
+    }
+    if (step.metadata?.errorMessage && !row.querySelector(".activity-step-error")) {
+      const err = document.createElement("div");
+      err.className = "activity-step-error";
+      err.textContent = step.metadata.errorMessage;
+      row.appendChild(err);
+    }
+  }
+
+  return {
+    card,
+    setStatus(text) {
+      const el = header.querySelector(".activity-timeline-status");
+      if (el) el.textContent = text;
+    },
+    handleEvent(event) {
+      if (!event?.type) return;
+      if (event.type === "run_started" && event.run) {
+        goalEl.textContent = event.run.goal || "";
+        this.setStatus("运行中");
+      } else if (event.type === "step_started" && event.step) {
+        const row = buildActivityStepRow(event.step);
+        stepsWrap.appendChild(row);
+        stepNodes.set(event.step.id, { row, step: { ...event.step } });
+        scrollToBottom();
+      } else if (event.type === "step_delta") {
+        const node = stepNodes.get(event.stepId);
+        if (node) {
+          node.step.content = (node.step.content || "") + (event.contentDelta || "");
+          refreshActivityStepRow(node.row, node.step);
+        }
+      } else if (event.type === "step_completed") {
+        const node = stepNodes.get(event.stepId);
+        if (node) {
+          node.step.status = "success";
+          if (event.result) node.step.content = event.result;
+          refreshActivityStepRow(node.row, node.step);
+        }
+      } else if (event.type === "step_failed") {
+        const node = stepNodes.get(event.stepId);
+        if (node) {
+          node.step.status = "failed";
+          node.step.metadata = { ...node.step.metadata, errorMessage: event.error };
+          refreshActivityStepRow(node.row, node.step);
+        }
+      } else if (event.type === "step_skipped") {
+        const node = stepNodes.get(event.stepId);
+        if (node) {
+          node.step.status = "skipped";
+          refreshActivityStepRow(node.row, node.step);
+        }
+      } else if (event.type === "run_completed") {
+        this.setStatus("已完成");
+        summaryEl.style.display = "block";
+        summaryEl.textContent = event.summary || "";
+      } else if (event.type === "run_failed") {
+        this.setStatus("失败");
+        summaryEl.style.display = "block";
+        summaryEl.textContent = event.error || "";
+      } else if (event.type === "run_cancelled") {
+        this.setStatus("已取消");
+        if (event.reason) {
+          summaryEl.style.display = "block";
+          summaryEl.textContent = event.reason;
+        }
+      }
+      scrollToBottom();
+    },
+    finalize(result) {
+      if (result?.answer && summaryEl.style.display === "none") {
+        summaryEl.style.display = "block";
+        summaryEl.textContent = result.answer;
+      }
+    },
+  };
+}
+
+function createAgentStreamPanel(initialLabel) {
+  const card = document.createElement("div");
+  card.className = "plan-card thinking-stream-card";
+
+  const header = document.createElement("div");
+  header.className = "thinking-header";
+  header.innerHTML = `<strong>思考过程</strong> <span class="thinking-status">${escapeHtml(initialLabel)}</span>`;
+  const cancelBtn = document.createElement("button");
+  cancelBtn.type = "button";
+  cancelBtn.className = "thinking-cancel-btn";
+  cancelBtn.textContent = "取消运行";
+  cancelBtn.style.display = "none";
+  header.appendChild(cancelBtn);
+  card.appendChild(header);
+
+  const turnsWrap = document.createElement("div");
+  turnsWrap.className = "thinking-turns";
+  card.appendChild(turnsWrap);
+
+  const stepsWrap = document.createElement("div");
+  stepsWrap.className = "plan-steps thinking-steps";
+  card.appendChild(stepsWrap);
+
+  const tokensWrap = document.createElement("div");
+  tokensWrap.className = "thinking-tokens";
+  tokensWrap.style.display = "none";
+  card.appendChild(tokensWrap);
+
+  const answerTitle = document.createElement("div");
+  answerTitle.className = "plan-goal";
+  answerTitle.style.display = "none";
+  answerTitle.textContent = "最终回答";
+  card.appendChild(answerTitle);
+
+  const answerBody = document.createElement("div");
+  answerBody.className = "plan-step-desc thinking-answer";
+  answerBody.style.whiteSpace = "pre-wrap";
+  answerBody.style.display = "none";
+  card.appendChild(answerBody);
+
+  const metaBox = document.createElement("div");
+  metaBox.className = "plan-step-desc thinking-meta";
+  metaBox.style.display = "none";
+  card.appendChild(metaBox);
+
+  const turnNodes = new Map();
+  let activeRunId = null;
+
+  return {
+    card,
+    setStatus(text) {
+      const el = header.querySelector(".thinking-status");
+      if (el) el.textContent = text;
+    },
+    setRunId(runId) {
+      activeRunId = runId;
+      cancelBtn.style.display = runId ? "inline-block" : "none";
+    },
+    onCancel(handler) {
+      cancelBtn.onclick = () => {
+        if (activeRunId) {
+          void fetch("/api/runs/cancel", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ runId: activeRunId }),
+          }).catch(() => {});
+        }
+        handler?.();
+      };
+    },
+    showTokens(show) {
+      tokensWrap.style.display = show ? "block" : "none";
+    },
+    addModelTurn(turn) {
+      let row = turnNodes.get(turn.iteration);
+      if (!row) {
+        row = document.createElement("div");
+        row.className = "thinking-turn";
+        turnsWrap.appendChild(row);
+        turnNodes.set(turn.iteration, row);
+      }
+      row.className = `thinking-turn thinking-turn-${turn.phase}${turn.action === "tool" ? " thinking-turn-tool" : ""}`;
+      const modelHint =
+        turn.clientName && turn.modelName
+          ? ` <span class="plan-perms">${escapeHtml(turn.clientName)} / ${escapeHtml(turn.modelName)}${turn.latencyMs != null ? ` · ${turn.latencyMs}ms` : ""}</span>`
+          : "";
+      row.innerHTML = `<div class="thinking-turn-head">${escapeHtml(modelTurnLabel(turn))}${modelHint}</div>`;
+      if (turn.contentPreview && turn.phase !== "started") {
+        const preview = document.createElement("div");
+        preview.className = "thinking-turn-preview";
+        preview.textContent = turn.contentPreview;
+        row.appendChild(preview);
+      }
+      scrollToBottom();
+    },
+    addStep(step) {
+      stepsWrap.appendChild(buildAgentStepRow(step));
+      scrollToBottom();
+    },
+    appendToken(delta) {
+      if (!delta) return;
+      tokensWrap.textContent += delta;
+      scrollToBottom();
+    },
+    finalize(result) {
+      cancelBtn.style.display = "none";
+      const cancelled = result.executionMeta?.stopReason === "user_cancelled";
+      this.setStatus(cancelled ? "已取消" : "已完成");
+      if (result.notifications?.length) {
+        const notes = document.createElement("div");
+        notes.className = "plan-step-desc";
+        notes.style.marginBottom = "8px";
+        notes.innerHTML = `<strong>安全点消费的通知</strong><br>${result.notifications
+          .map((n) => escapeHtml(`[${n.source}] ${n.message}`))
+          .join("<br>")}`;
+        card.insertBefore(notes, answerTitle);
+      }
+      if (result.executionMeta) {
+        metaBox.style.display = "block";
+        const m = result.executionMeta;
+        const b = m.budget || {};
+        const u = m.usage || {};
+        const workflowStatus = renderWorkflowStatus(m);
+        const locationInfo = m.location
+          ? `\nlocation=${m.location.usedLocateSteps ?? 0} steps · found=${(m.location.locatedFiles || []).slice(0, 4).join(",") || "-"}`
+          : "";
+        metaBox.innerHTML = `${workflowStatus}<strong>执行元信息</strong><br>${escapeHtml(
+          `mode=${m.mode} · stop=${m.stopReason} · model=${u.modelTurns ?? m.usedModelTurns}/${b.maxModelTurns ?? "-"} · tools=${u.toolCalls ?? m.usedToolCalls}/${b.maxToolCalls ?? "-"}`,
+        )}${escapeHtml(locationInfo)}`;
+      }
+      answerTitle.style.display = "block";
+      answerBody.style.display = "block";
+      answerBody.textContent = result.answer || "";
+      return `${cancelled ? "已取消 · " : ""}模型轮次 ${result.iterations} · 工具 ${result.steps?.length ?? 0} 次${result.reachedLimit ? " · 已达预算" : ""}`;
+    },
+  };
 }
 
 async function loadConfig() {
@@ -445,6 +1062,147 @@ async function handleMetrics() {
     renderMetrics(data);
   } catch (err) {
     addSystemError(String(err.message || err));
+  }
+}
+
+function formatStorageBytes(n) {
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+  if (n < 1024 * 1024 * 1024) return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+  return `${(n / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+}
+
+async function handleStorage() {
+  clearWelcome();
+  const panel = document.createElement("div");
+  panel.className = "tool-panel storage-panel";
+
+  const title = document.createElement("div");
+  title.className = "tool-desc";
+  title.textContent = "本地存储用量与安全清理：先预览（dry-run）再执行 apply，仅删除低风险 temp/cache/已消费通知。";
+  panel.appendChild(title);
+
+  const btnRow = document.createElement("div");
+  btnRow.className = "tool-row";
+
+  const refreshBtn = document.createElement("button");
+  refreshBtn.className = "action-btn";
+  refreshBtn.textContent = "刷新用量";
+  btnRow.appendChild(refreshBtn);
+
+  const previewBtn = document.createElement("button");
+  previewBtn.className = "action-btn secondary";
+  previewBtn.textContent = "安全清理预览";
+  previewBtn.style.marginLeft = "8px";
+  btnRow.appendChild(previewBtn);
+
+  const applyBtn = document.createElement("button");
+  applyBtn.className = "action-btn secondary";
+  applyBtn.textContent = "执行清理";
+  applyBtn.style.marginLeft = "8px";
+  applyBtn.disabled = true;
+  btnRow.appendChild(applyBtn);
+
+  panel.appendChild(btnRow);
+
+  const summary = document.createElement("div");
+  summary.className = "run-report-usage";
+  summary.textContent = "点击「刷新用量」加载分类占用。";
+  panel.appendChild(summary);
+
+  const previewBox = document.createElement("pre");
+  previewBox.className = "tool-output";
+  previewBox.textContent = "";
+  panel.appendChild(previewBox);
+
+  const usageTableHost = document.createElement("div");
+  panel.appendChild(usageTableHost);
+
+  let lastPreview = null;
+
+  async function loadUsage() {
+    summary.textContent = "加载中…";
+    const data = await api("/api/storage/usage");
+    summary.textContent = `总占用 ${formatStorageBytes(data.totalBytes)} · 更新于 ${formatDateTime(new Date(data.generatedAt).toISOString())}`;
+    const cats = data.categories || [];
+    if (cats.length === 0) {
+      usageTableHost.innerHTML = `<div class="history-empty">暂无分类数据。</div>`;
+      return;
+    }
+    const rows = cats
+      .map(
+        (c) =>
+          `<tr><td>${escapeHtml(c.name)}</td><td>${formatStorageBytes(c.bytes)}</td><td>${c.files}</td></tr>`,
+      )
+      .join("");
+    usageTableHost.innerHTML = `
+      <table class="model-table">
+        <thead><tr><th>类别</th><th>占用</th><th>文件数</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>`;
+  }
+
+  refreshBtn.addEventListener("click", async () => {
+    try {
+      await loadUsage();
+    } catch (err) {
+      addSystemError(String(err.message || err));
+    }
+  });
+
+  previewBtn.addEventListener("click", async () => {
+    try {
+      previewBox.textContent = "预览中…";
+      const report = await api("/api/storage/cleanup/preview", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ scope: "safe" }),
+      });
+      lastPreview = report;
+      applyBtn.disabled = !report.cleanupRunId;
+      const deletable = (report.actions || []).filter((a) => a.canDelete);
+      previewBox.textContent = [
+        `cleanupRunId: ${report.cleanupRunId}`,
+        `预计释放: ${formatStorageBytes(report.summary?.estimatedBytesToFree || 0)}`,
+        `可删动作: ${deletable.length}`,
+        ...deletable.slice(0, 15).map((a) => `[${a.risk}] ${a.path} (${formatStorageBytes(a.bytes)})`),
+        deletable.length > 15 ? "..." : "",
+      ]
+        .filter(Boolean)
+        .join("\n");
+    } catch (err) {
+      previewBox.textContent = String(err.message || err);
+      addSystemError(String(err.message || err));
+    }
+  });
+
+  applyBtn.addEventListener("click", async () => {
+    if (!lastPreview?.cleanupRunId) return;
+    if (!window.confirm("确认执行低风险清理？此操作将删除 temp/cache 等待清理文件。")) return;
+    try {
+      const result = await api("/api/storage/cleanup/apply", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ cleanupRunId: lastPreview.cleanupRunId, confirm: true }),
+      });
+      previewBox.textContent = [
+        previewBox.textContent,
+        "",
+        `已执行: 释放 ${formatStorageBytes(result.bytesFreed || 0)}，成功 ${result.applied ?? 0} 项`,
+      ].join("\n");
+      lastPreview = null;
+      applyBtn.disabled = true;
+      await loadUsage();
+    } catch (err) {
+      addSystemError(String(err.message || err));
+    }
+  });
+
+  addMessage("system", panel);
+  try {
+    await loadUsage();
+  } catch (err) {
+    summary.textContent = `加载失败: ${err.message || err}`;
   }
 }
 
@@ -991,17 +1749,90 @@ function renderPlan(plan) {
   addMessage("system", card);
 }
 
+async function handleUnifiedAgentStream(message) {
+  const explicitMode = getExplicitRunMode();
+  const thinkingLabel = explicitMode === "plan"
+    ? "计划模式流式运行中…"
+    : "自动工作流流式运行中…";
+  const timelinePanel = createActivityTimelinePanel("准备中…");
+  const panel = createAgentStreamPanel(thinkingLabel);
+  const wrapper = document.createElement("div");
+  wrapper.className = "agent-stream-wrapper";
+  wrapper.appendChild(timelinePanel.card);
+  wrapper.appendChild(panel.card);
+  panel.showTokens(streamTokensInput?.checked);
+  const msgWrap = addMessage("assistant", wrapper, "流式运行中…", { scroll: "start" });
+
+  const payload = {
+    message,
+    clientName: modelSelect.value,
+    sessionId: activeSessionId,
+    system: systemInput.value,
+    sensitive: sensitiveInput.checked,
+    permissionPolicy: getSelectedPermissionPolicy(),
+    streamTokens: streamTokensInput?.checked === true,
+  };
+  if (explicitMode) payload.mode = explicitMode;
+
+  let doneResult = null;
+  const streamAbort = new AbortController();
+  panel.onCancel(() => streamAbort.abort());
+  try {
+  await consumeSsePost("/api/agent/stream", payload, (evt) => {
+    const data = evt.data || {};
+    if (evt.type === "run_start") {
+      panel.setRunId(data.runId);
+      panel.setStatus(`运行中 · runId=${data.runId || "?"}`);
+    } else if (evt.type === "model_turn" && data.turn) {
+      panel.addModelTurn(data.turn);
+    } else if (evt.type === "step" && data.step) {
+      panel.addStep(data.step);
+    } else if (evt.type === "token") {
+      panel.appendToken(data.delta, data.iteration);
+    } else if (evt.type === "activity_event" && data.event) {
+      timelinePanel.handleEvent(data.event);
+    } else if (evt.type === "done") {
+      doneResult = data;
+    } else if (evt.type === "error") {
+      throw new Error(data.error || "Agent 流式执行失败");
+    }
+  }, streamAbort.signal);
+
+  if (!doneResult) throw new Error("流式响应未收到 done 事件");
+  if (doneResult.sessionId) {
+    setActiveSessionId(doneResult.sessionId);
+    void loadHistorySessions();
+  }
+  attachWorkflowBadgeToLastUserMessage(doneResult.executionMeta);
+  timelinePanel.finalize(doneResult);
+  const meta = panel.finalize(doneResult);
+  const metaEl = msgWrap.querySelector(".msg-meta");
+  if (metaEl) metaEl.textContent = meta + sessionMeta();
+  } catch (err) {
+    if (streamAbort.signal.aborted || String(err).includes("aborted")) {
+      panel.setStatus("已取消");
+      return;
+    }
+    throw err;
+  }
+}
+
 async function handleUnifiedAgent(message) {
   addMessage("user", message);
   messageInput.value = "";
   autoGrow();
   sendBtn.disabled = true;
-  const explicitMode = getExplicitRunMode();
-  const thinkingLabel = explicitMode === "plan"
-    ? "正在只读分析并生成计划报告…"
-    : "自动工作流运行中（识别意图 / 按需调用工具）…";
-  const thinking = addMessage("assistant", thinkingLabel);
+  const useStream = streamAgentInput?.checked !== false;
   try {
+    if (useStream) {
+      await handleUnifiedAgentStream(message);
+      return;
+    }
+    const explicitMode = getExplicitRunMode();
+    const thinkingLabel = explicitMode === "plan"
+      ? "正在只读分析并生成计划报告…"
+      : "自动工作流运行中（识别意图 / 按需调用工具）…";
+    const thinking = addMessage("assistant", thinkingLabel);
     const payload = {
       message,
       clientName: modelSelect.value,
@@ -1024,7 +1855,6 @@ async function handleUnifiedAgent(message) {
     attachWorkflowBadgeToLastUserMessage(data.executionMeta);
     renderAgentRun(data);
   } catch (err) {
-    thinking.remove();
     addSystemError(String(err.message || err));
   } finally {
     sendBtn.disabled = false;
@@ -1182,35 +2012,7 @@ function renderAgentRun(result) {
     const stepsWrap = document.createElement("div");
     stepsWrap.className = "plan-steps";
     result.steps.forEach((s) => {
-      const row = document.createElement("div");
-      row.className = "plan-step";
-      const state = s.blocked
-        ? '<span class="status status-blocked">已阻塞</span>'
-        : s.ok
-          ? '<span class="status status-completed">成功</span>'
-          : '<span class="status status-failed">失败</span>';
-      const dur = s.durationMs != null ? `<span class="plan-perms">${s.durationMs}ms</span>` : "";
-      const thought = s.thought ? `<div class="plan-step-desc">想法：${escapeHtml(s.thought)}</div>` : "";
-      const io = `入参 ${escapeHtml(JSON.stringify(s.input))}`;
-      const out = s.ok
-        ? `结果 ${escapeHtml(truncate(JSON.stringify(s.output), 400))}`
-        : escapeHtml(s.error || "");
-      const riskTag = s.risk
-        ? `<span class="tag-warn">${escapeHtml(s.risk.tier)}</span> <span class="plan-perms">${escapeHtml(s.risk.summary)}</span>`
-        : "";
-      const confirmation = renderConfirmationRequest(s.confirmationRequest);
-      row.innerHTML = `
-        <div class="plan-step-head">
-          ${state}
-          <span class="plan-step-title">#${s.iteration} ${escapeHtml(s.tool)}</span>
-          ${dur}
-          ${riskTag}
-        </div>
-        ${thought}
-        <div class="plan-step-desc">${io}</div>
-        ${confirmation}
-        <div class="plan-step-desc">${out}</div>`;
-      stepsWrap.appendChild(row);
+      stepsWrap.appendChild(buildAgentStepRow(s));
     });
     card.appendChild(stepsWrap);
   }
@@ -2157,6 +2959,8 @@ document.querySelector(".sidebar").addEventListener("click", async (e) => {
     await handleContext();
   } else if (action === "security") {
     await handleSecurity();
+  } else if (action === "storage") {
+    await handleStorage();
   } else if (action === "scheduler") {
     await handleScheduler();
   } else if (action === "refresh-models") {
@@ -2175,6 +2979,18 @@ document.querySelector(".sidebar").addEventListener("click", async (e) => {
       await renderSessionConversation(sessionId);
       messageInput.focus();
     }
+  } else if (action === "session-menu-toggle") {
+    e.stopPropagation();
+    const sessionId = btn.dataset.sessionId;
+    if (!sessionId) return;
+    const pop = document.getElementById("session-menu-popover");
+    const reopen =
+      activeSessionMenu?.sessionId === sessionId && pop && !pop.hidden;
+    if (reopen) {
+      closeSessionMenu();
+      return;
+    }
+    openSessionMenu(btn, sessionId, btn.dataset.sessionTitle || "");
   }
 });
 
@@ -2209,6 +3025,8 @@ messageInput.addEventListener("keydown", (e) => {
 async function init() {
   restorePermissionPolicy();
   permissionPolicySelect?.addEventListener("change", persistPermissionPolicy);
+  bindAdvancedPanelPositioning();
+  bindSessionMenuDismiss();
   await loadConfig();
   await renderHomeHistory();
   void refreshModels();

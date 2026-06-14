@@ -11,6 +11,7 @@ import { ContextManager } from "../src/context/ContextManager.js";
 import type { LoopChatFn } from "../src/agent/AgentLoop.js";
 import type { AgentStreamEvent } from "../src/orchestrator/AgentStream.js";
 import { Orchestrator } from "../src/orchestrator/Orchestrator.js";
+import { AgentRunRegistry } from "../src/orchestrator/AgentRunRegistry.js";
 import { RunStore } from "../src/orchestrator/RunStore.js";
 import { RunStateStore } from "../src/orchestrator/RunStateStore.js";
 import { ALL_PERMISSIONS } from "../src/agent/permissions.js";
@@ -35,6 +36,7 @@ function baseOrchestrator(
   extra?: Record<string, unknown>,
 ) {
   const ps = createTestPlanService({ workspaceRoot: sandbox, db: ctx.db, registry });
+  const agentRunRegistry = new AgentRunRegistry();
   const orchestrator = new Orchestrator({
     workspaceRoot: sandbox,
     modelRouter: {} as never,
@@ -50,9 +52,10 @@ function baseOrchestrator(
     },
     planService: ps,
     projectAllowedPermissions: ALL_PERMISSIONS,
+    agentRunRegistry,
     ...extra,
   });
-  return { orchestrator, planService: ps };
+  return { orchestrator, planService: ps, agentRunRegistry };
 }
 
 test("RunStore 创建与查询", async () => {
@@ -190,6 +193,216 @@ test("Orchestrator runAgentStream 推送 run_start 与 done", async () => {
   const done = events.at(-1);
   assert.equal(done?.type, "done");
   if (done?.type === "done") assert.match(done.answer, /流式完成/);
+  registry.close();
+});
+
+test("Orchestrator runAgentStream 推送 model_turn 与 step", async () => {
+  const registry = createDefaultRegistry({ dataDir });
+  let chatCalls = 0;
+  const makeChat: LoopChatFn = async () => {
+    chatCalls += 1;
+    if (chatCalls === 1) {
+      return {
+        content: '{"action":"tool","tool":"read_file","input":{"path":"package.json"},"thought":"查看依赖"}',
+        toolCalls: [],
+        clientName: "fake",
+        modelName: "fake",
+        location: "local",
+        latencyMs: 2,
+      };
+    }
+    return {
+      content: '{"action":"final","answer":"读完 package.json"}',
+      toolCalls: [],
+      clientName: "fake",
+      modelName: "fake",
+      location: "local",
+      latencyMs: 1,
+    };
+  };
+  const { orchestrator } = baseOrchestrator(registry, {
+    notificationQueue: { drain: () => [] } as never,
+    makeChatFn: () => makeChat,
+  });
+  const events: AgentStreamEvent[] = [];
+  await orchestrator.runAgentStream(
+    { message: "读 package.json", persist: false, autoConfirm: true },
+    (e) => events.push(e),
+    makeChat,
+  );
+  assert.ok(events.some((e) => e.type === "model_turn"));
+  const started = events.filter((e) => e.type === "model_turn" && e.turn.phase === "started");
+  assert.ok(started.length >= 1);
+  assert.ok(events.some((e) => e.type === "step" && e.step.tool === "read_file"));
+  registry.close();
+});
+
+test("Orchestrator runChatStream 推送 token 与 done", async () => {
+  const registry = createDefaultRegistry({ dataDir });
+  const fakeClient = {
+    name: "fake-stream",
+    model: "fake",
+    location: "local" as const,
+    isAvailable: async () => true,
+    chat: async (req: { onToken?: (d: string) => void }) => {
+      req.onToken?.("你");
+      req.onToken?.("好");
+      return {
+        content: "你好",
+        toolCalls: [],
+        clientName: "fake-stream",
+        modelName: "fake",
+        location: "local" as const,
+        latencyMs: 1,
+      };
+    },
+  };
+  const modelRouter = {
+    chat: async (req: { onToken?: (d: string) => void }) => fakeClient.chat(req),
+  } as never;
+  const { orchestrator } = baseOrchestrator(registry, {
+    modelRouter,
+    notificationQueue: { drain: () => [] } as never,
+  });
+  const events: import("../src/orchestrator/ChatStream.js").ChatStreamEvent[] = [];
+  await orchestrator.runChatStream(
+    { message: "hi", persist: false, streamTokens: true, clientName: "fake-stream" },
+    (e) => events.push(e),
+  );
+  assert.equal(events[0]?.type, "run_start");
+  assert.ok(events.some((e) => e.type === "token"));
+  const done = events.at(-1);
+  assert.equal(done?.type, "done");
+  if (done?.type === "done") assert.equal(done.content, "你好");
+  registry.close();
+});
+
+test("Orchestrator cancelRun 终止流式 Agent", async () => {
+  const registry = createDefaultRegistry({ dataDir });
+  const makeChat: LoopChatFn = async (req) => {
+    await new Promise<never>((_resolve, reject) => {
+      const signal = req.signal;
+      if (!signal) {
+        reject(new Error("测试需要 abort signal"));
+        return;
+      }
+      if (signal.aborted) {
+        reject(signal.reason ?? new Error("运行已取消"));
+        return;
+      }
+      signal.addEventListener(
+        "abort",
+        () => reject(signal.reason ?? new Error("运行已取消")),
+        { once: true },
+      );
+    });
+    return {
+      content: '{"action":"final","answer":"不应到达"}',
+      toolCalls: [],
+      clientName: "fake",
+      modelName: "fake",
+      location: "local",
+      latencyMs: 1,
+    };
+  };
+  const { orchestrator } = baseOrchestrator(registry, {
+    notificationQueue: { drain: () => [] } as never,
+    makeChatFn: () => makeChat,
+  });
+  const events: AgentStreamEvent[] = [];
+  const streamPromise = orchestrator.runAgentStream(
+    { message: "取消探测", persist: false },
+    (e) => events.push(e),
+    makeChat,
+  );
+  for (let i = 0; i < 30; i++) {
+    const running = orchestrator.listRunningAgentRuns();
+    if (running.length > 0) {
+      const cancel = orchestrator.cancelRun(running[0]!.runId);
+      assert.equal(cancel.status, 200);
+      break;
+    }
+    await new Promise((r) => setTimeout(r, 10));
+  }
+  await streamPromise;
+  const done = events.find((e) => e.type === "done");
+  assert.ok(done);
+  if (done?.type === "done") {
+    assert.equal(done.executionMeta.stopReason, "user_cancelled");
+    assert.match(done.answer, /已取消/);
+  }
+  registry.close();
+});
+
+test("Orchestrator cancelRun 对不存在 run 返回 404", async () => {
+  const registry = createDefaultRegistry({ dataDir });
+  const { orchestrator } = baseOrchestrator(registry);
+  const result = orchestrator.cancelRun("missing-run-id");
+  assert.equal(result.status, 404);
+  registry.close();
+});
+
+test("Orchestrator cancelRun 终止流式 Chat", async () => {
+  const registry = createDefaultRegistry({ dataDir });
+  const fakeClient = {
+    name: "fake-chat-cancel",
+    model: "fake",
+    location: "local" as const,
+    isAvailable: async () => true,
+    chat: async (req: { signal?: AbortSignal }) => {
+      await new Promise<never>((_resolve, reject) => {
+        const signal = req.signal;
+        if (!signal) {
+          reject(new Error("测试需要 abort signal"));
+          return;
+        }
+        if (signal.aborted) {
+          reject(signal.reason ?? new Error("运行已取消"));
+          return;
+        }
+        signal.addEventListener(
+          "abort",
+          () => reject(signal.reason ?? new Error("运行已取消")),
+          { once: true },
+        );
+      });
+      return {
+        content: "不应到达",
+        toolCalls: [],
+        clientName: "fake-chat-cancel",
+        modelName: "fake",
+        location: "local" as const,
+        latencyMs: 1,
+      };
+    },
+  };
+  const modelRouter = {
+    chat: async (req: { signal?: AbortSignal }) => fakeClient.chat(req),
+  } as never;
+  const { orchestrator } = baseOrchestrator(registry, {
+    modelRouter,
+    notificationQueue: { drain: () => [] } as never,
+  });
+  const events: import("../src/orchestrator/ChatStream.js").ChatStreamEvent[] = [];
+  const streamPromise = orchestrator.runChatStream(
+    { message: "cancel chat", persist: false, clientName: "fake-chat-cancel" },
+    (e) => events.push(e),
+  );
+  for (let i = 0; i < 30; i++) {
+    const running = orchestrator.listRunningAgentRuns();
+    if (running.length > 0) {
+      orchestrator.cancelRun(running[0]!.runId);
+      break;
+    }
+    await new Promise((r) => setTimeout(r, 10));
+  }
+  await streamPromise;
+  const done = events.find((e) => e.type === "done");
+  assert.ok(done);
+  if (done?.type === "done") {
+    assert.equal(done.cancelled, true);
+    assert.match(done.content, /已取消/);
+  }
   registry.close();
 });
 

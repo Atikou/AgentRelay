@@ -50,3 +50,16 @@ export async function handleSubAgentBatch(app: AppContext, body: unknown): Promi
 
   return app.orchestrator.runSubAgentBatch(body, forceClient);
 }
+
+export function handleSubAgentRunning(app: AppContext): ApiResult {
+  const coord = app.subAgentCoordinator;
+  if (!coord) return { status: 503, body: { error: "子 Agent 未启用" } };
+  return { status: 200, body: { running: coord.listRunning() } };
+}
+
+export function handleSubAgentCancel(app: AppContext, body: unknown): ApiResult {
+  const payload = (body ?? {}) as { subAgentId?: string };
+  const subAgentId = (payload.subAgentId ?? "").trim();
+  if (!subAgentId) return { status: 400, body: { error: "subAgentId 不能为空" } };
+  return app.orchestrator.cancelSubAgent(subAgentId);
+}

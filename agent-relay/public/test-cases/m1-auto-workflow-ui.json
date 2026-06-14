@@ -70,6 +70,54 @@
           "自动推断（推荐）"
         ]
       }
+    },
+    {
+      "id": "m1-auto-ui-structured-bubble-class",
+      "title": "结构化面板消息添加紧凑样式钩子",
+      "purpose": "确认 addMessage 在插入 DOM 面板时添加 structured-bubble，避免工具面板、审计回放、历史卡片继承纯文本 pre-wrap 间距。",
+      "method": "GET",
+      "path": "/app.js",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyContains": ["structured-bubble", "content instanceof Node"]
+      }
+    },
+    {
+      "id": "m1-auto-ui-structured-bubble-spacing",
+      "title": "结构化面板关闭 pre-wrap 空白渲染",
+      "purpose": "确认 styles.css 将 structured-bubble 的 white-space 设为 normal，修复审计记录和其他面板条目间距过大的显示问题。",
+      "method": "GET",
+      "path": "/styles.css",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyContains": [".bubble.structured-bubble", "white-space: normal"]
+      }
+    },
+    {
+      "id": "m1-auto-ui-advanced-panel-container",
+      "title": "高级选项使用独立菜单容器",
+      "purpose": "确认高级选项的显式模式与流式开关被包在 advanced-panel 内，避免多个字段共享绝对定位后互相重叠。",
+      "method": "GET",
+      "path": "/",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyContains": ["advanced-panel", "explicit-mode-select", "stream-agent-input", "stream-tokens-input"]
+      }
+    },
+    {
+      "id": "m1-auto-ui-advanced-panel-spacing",
+      "title": "高级选项菜单纵向紧凑排列",
+      "purpose": "确认高级选项面板由 JS 锚定到按钮左上角，并由 CSS 变量承载位置，避免靠右时被裁切或靠左时伸入侧栏。",
+      "method": "GET",
+      "path": "/app.js",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyContains": ["positionAdvancedPanel", "--advanced-panel-left", "summaryRect.top - panelRect.height - 8"]
+      }
     }
   ]
 }
