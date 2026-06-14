@@ -24,6 +24,11 @@ export {
   type WorkflowRouteResult,
 } from "./WorkflowRouter.js";
 export {
+  DebugAnalysisWorkflow,
+  type DebugAnalysisWorkflowInput,
+  type DebugAnalysisWorkflowResult,
+} from "./DebugAnalysisWorkflow.js";
+export {
   EditProposalWorkflow,
   type EditProposalWorkflowInput,
   type EditProposalWorkflowResult,

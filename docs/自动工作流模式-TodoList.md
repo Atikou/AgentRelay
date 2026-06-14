@@ -42,6 +42,9 @@
   - [x] 验证阶段上下文与记录：`EditVerificationWorkflow` 观察写入后的 `read_file` / `diff_file` / `shell_run` 等验证工具结果，注入 verification phase，并在 `executionMeta.workflowVerifications` 记录验证工具、状态、错误与输出预览。
   - [ ] 将执行修改阶段收敛为 edit/generate-file 工作流闭环（目前真实写入仍由模型通过常规写工具触发，并受 `PermissionGuard`、工具风险和预算约束；已具备写后自动读回验证，后续还需失败后的自动修正迭代与终止条件）。
 - [ ] `debugWorkflow`：报错分析、定位文件、最小修复、验证失败后继续迭代。
+  - [x] 首轮前只读定位：`WorkflowPlanner` 按 debug intent 选择 `debug_locate`，`WorkflowExecutor` 通过 `PlanWorkflow` 执行 `locate_relevant_files` → `context_pack`。
+  - [x] 诊断分析阶段：`DebugAnalysisWorkflow` 注入 `errorSummary` / `suspectedFiles` / `rootCauseHypotheses` / `minimalFixPlan` / `verificationPlan` / `riskAndRollback` 约束，并在 `executionMeta.workflowDebugAnalyses` 返回可审计记录。
+  - [ ] 最小修复执行与验证失败后继续迭代（仍由模型常规工具链触发写入，后续需收敛失败修正次数与终止条件）。
 - [ ] `refactorWorkflow`：强制先计划，分阶段修改，每阶段尽量可验证。
 - [x] `runWorkflow` / `verifyWorkflow`：执行安全命令、收集输出、分析结果；无法执行时降级为静态检查并说明。（`RunVerifyWorkflow` 白名单执行 `node --version` / `npm run typecheck` / `npm test` 等安全命令；无匹配命令、无 shell 权限或预算不足时静态降级。）
 - [x] `answerWorkflow` / `summarizeWorkflow` / `searchWorkflow`：只读回答、总结、定位，不做副作用操作。

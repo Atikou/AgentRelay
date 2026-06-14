@@ -1279,6 +1279,33 @@
       }
     },
     {
+      "id": "m1-agent-debug-analysis-workflow-api-spec",
+      "title": "API 规范登记 DebugAnalysisWorkflow",
+      "purpose": "确认 OpenAPI 已声明 debugWorkflow 会注入 analysis phase，并通过 executionMeta.workflowDebugAnalyses 返回诊断契约。",
+      "method": "GET",
+      "path": "/api/api-spec.json",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyContains": ["DebugAnalysisWorkflow", "workflowDebugAnalyses", "AgentWorkflowDebugAnalysis", "rootCauseHypotheses"]
+      }
+    },
+    {
+      "id": "m1-agent-debug-analysis-workflow-doc",
+      "title": "对话循环文档记录调试分析阶段",
+      "purpose": "确认文档站已说明 debugWorkflow 会先定位并注入错误摘要、疑似文件、根因假设、最小修复与验证计划，而不是把内部流程当工具暴露。",
+      "method": "GET",
+      "path": "/api/docs/content?slug=对话循环",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyPaths": {
+          "markdown": "string"
+        },
+        "bodyContains": ["DebugAnalysisWorkflow", "debugWorkflow", "workflowDebugAnalyses", "rootCauseHypotheses"]
+      }
+    },
+    {
       "id": "m1-agent-unknown-client-still-force",
       "title": "未知 clientName 仍立即 404",
       "purpose": "确认 Smart 路由接入后，显式 clientName 校验行为不变，不会静默回退默认路由。",

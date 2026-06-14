@@ -33,6 +33,7 @@
   - [x] 写入工具成功后由 `EditExecutionWorkflow` 注入 execution phase 上下文，要求下一轮基于真实 diff 做最小验证或最终总结。
   - [x] 写入工具成功且返回目标路径后，由 `EditAutoVerificationWorkflow` 规划只读 `read_file` 自动读回验证，仍走既有权限、预算与工具链路。
   - [x] 写入后的验证工具结果会由 `EditVerificationWorkflow` 注入 verification phase，并在 `executionMeta.workflowVerifications` 返回验证工具、状态、错误与输出预览。
+  - [x] 调试类请求先执行只读 `debug_locate`，再由 `DebugAnalysisWorkflow` 注入错误摘要、疑似文件、根因假设、最小修复、验证计划与回滚风险约束，并在 `executionMeta.workflowDebugAnalyses` 返回可审计记录。
   - [x] 输出目标、范围、风险、依赖和执行步骤。
   - [x] 明确哪些步骤需要用户确认。
 - [x] 实现任务模式。（控制流 + 工具真实执行 ToolStepExecutor 已就绪）
@@ -185,7 +186,7 @@
 ## 11. 状态机与任务编排
 
 - [x] 设计 Agent 主状态机。（`AgentLoop`：模型→解析→工具→回灌→迭代/终止）
-- [x] 统一入口下暴露内部意图、工作流与用户侧权限策略元信息，并在测试台展示当前内部处理状态。（`IntentRouter`：`intent` / `modeSource` → `WorkflowRouter`：`workflowType` / 执行器标识 / answer-summarize-search 只读上限 → `RunPolicy`：`permissionPolicy` → `WorkflowExecutor`：预模型确定性工作流调度 → `executionMeta` → Agent 结果卡；`RunVerifyWorkflow` 为 run/verify 安全命令先执行与静态降级）
+- [x] 统一入口下暴露内部意图、工作流与用户侧权限策略元信息，并在测试台展示当前内部处理状态。（`IntentRouter`：`intent` / `modeSource` → `WorkflowRouter`：`workflowType` / 执行器标识 / answer-summarize-search 只读上限 → `RunPolicy`：`permissionPolicy` → `WorkflowExecutor`：预模型确定性工作流调度 → `executionMeta` → Agent 结果卡；`DebugAnalysisWorkflow` 为 debug 先定位并注入诊断分析阶段；`RunVerifyWorkflow` 为 run/verify 安全命令先执行与静态降级）
 - [x] 设计任务状态机。（`TaskRunner`：pending/running/blocked/completed/failed/cancelled）
 - [x] 设计后台线程状态机。（running / completed / failed / cancelled）
 - [x] 设计子 Agent 生命周期。（completed/failed/timeout + batch 汇总）

@@ -170,6 +170,56 @@ test("generate file workflow prelocates conventions through WorkflowExecutor", a
   assert.equal(contextPack.calls.length, 1);
 });
 
+test("debug workflow prelocates and injects analysis phase", async () => {
+  const locate = createMockTool({
+    name: "locate_relevant_files",
+    permission: "read",
+    output: {
+      primaryFiles: [{ path: "src/agent/AgentLoop.ts", score: 0.9, reason: "error path" }],
+      candidateFiles: [],
+      locateStats: {},
+    },
+  });
+  const contextPack = createMockTool({
+    name: "context_pack",
+    permission: "read",
+    output: { files: [{ path: "src/agent/AgentLoop.ts", content: "renderToolResult()" }] },
+  });
+  const policy = resolveRunPolicy({
+    requestedMode: "debug",
+    message: "修复 src/agent/AgentLoop.ts 中未知工具 PlanWorkflow 的错误",
+    requestedPermissionPolicy: "autoEdit",
+  });
+  const executor = new WorkflowExecutor({
+    registry: createMockRegistry([locate, contextPack]),
+    workspaceRoot: sandbox,
+    allowedPermissions: policy.allowedPermissions,
+    budget: policy.budget,
+    budgetManager: defaultRunPolicyManager.createBudgetManager(policy),
+    policy,
+  });
+
+  const result = await executor.executeBeforeModel({
+    goal: "修复 src/agent/AgentLoop.ts 中未知工具 PlanWorkflow 的错误",
+  });
+
+  assert.deepEqual(result.steps.map((step) => step.tool), [
+    "locate_relevant_files",
+    "context_pack",
+  ]);
+  assert.equal(result.modelContexts.length, 2);
+  assert.match(result.modelContexts[0]!, /debugWorkflow read-only diagnosis context/);
+  assert.match(result.modelContexts[1]!, /debugWorkflow analysis phase/);
+  assert.match(result.modelContexts[1]!, /rootCauseHypotheses/);
+  assert.equal(result.workflowDebugAnalyses.length, 1);
+  assert.equal(result.workflowDebugAnalyses[0]!.workflowType, "debugWorkflow");
+  assert.equal(result.workflowDebugAnalyses[0]!.phase, "analysis");
+  assert.equal(result.workflowDebugAnalyses[0]!.writeAllowedByPolicy, true);
+  assert.equal(result.workflowProposals.length, 0);
+  assert.equal(locate.calls.length, 1);
+  assert.equal(contextPack.calls.length, 1);
+});
+
 test("edit proposal records confirmation-required permission checks", async () => {
   const locate = createMockTool({
     name: "locate_relevant_files",

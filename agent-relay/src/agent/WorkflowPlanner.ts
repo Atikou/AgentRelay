@@ -14,6 +14,7 @@ export type AgentWorkflowId =
   | "plan_prescan"
   | "implement_locate"
   | "edit_locate"
+  | "debug_locate"
   | "generate_file_locate";
 
 export interface WorkflowPlan {
@@ -76,6 +77,9 @@ export class WorkflowPlanner {
 
     const generateFileLocate = this.planGenerateFileLocate(goal, mode, intent);
     if (generateFileLocate) return generateFileLocate;
+
+    const debugLocate = this.planDebugLocate(goal, mode, intent);
+    if (debugLocate) return debugLocate;
 
     const editLocate = this.planEditLocate(goal, mode, intent);
     if (editLocate) return editLocate;
@@ -149,6 +153,25 @@ export class WorkflowPlanner {
       contextHeader: "editWorkflow read-only prelocation result:",
       contextHint:
         "Use the located files and context_pack result to draft the edit plan first. Do not call write-capable tools until permissions and the concrete patch are clear.",
+    };
+  }
+
+  private planDebugLocate(
+    goal: string,
+    mode: AgentRunMode,
+    intent?: AgentIntentType,
+  ): WorkflowPlan | null {
+    if (mode !== "debug" && intent !== "debug") return null;
+    if (!hasTargetHint(goal) && !hasProjectScope(goal)) return null;
+
+    return {
+      id: "debug_locate",
+      reason:
+        "debugWorkflow read-only diagnosis: locate likely failing files and pack context before root-cause analysis.",
+      steps: ["locate_relevant_files", "context_pack"],
+      contextHeader: "debugWorkflow read-only diagnosis context:",
+      contextHint:
+        "Use the located files and context_pack result to explain the failure, identify suspected files, form root-cause hypotheses, and draft a minimal fix plus verification plan before any write-capable action.",
     };
   }
 

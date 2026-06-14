@@ -202,7 +202,7 @@
       "post": {
         "tags": ["对话与智能体"],
         "summary": "自主 Agent 循环（ReAct JSON）",
-        "description": "统一 Agent 入口。模型首轮前的确定性工作流由 WorkflowExecutor 统一调度：PlanWorkflow 负责只读预扫描；editWorkflow/generateFileWorkflow 会先执行 locate_relevant_files + context_pack 只读预定位，再由 EditProposalWorkflow 注入 proposal phase（targetFiles/changeSummary/permissionCheck/diffPlan/verificationPlan）以约束写入前方案，并在 executionMeta.workflowProposals 返回可审计 proposal 记录和 PermissionGuard 写入前预检结果；成功执行 write_file/apply_patch 后会在 executionMeta.workflowDiffs 汇总 path/changeId/hash/diff 审计摘要，并由 EditExecutionWorkflow 注入 execution phase 上下文，要求下一轮基于真实 diff 做最小验证或最终总结；若写工具返回目标路径，EditAutoVerificationWorkflow 会规划只读 read_file，由 AgentLoop 通过既有权限、预算与工具链路自动读回刚写入文件；写入后的 read_file/diff_file/shell_run 等验证工具结果会由 EditVerificationWorkflow 注入 verification phase，并在 executionMeta.workflowVerifications 返回验证工具、状态、错误与输出预览；runWorkflow/verifyWorkflow 会尝试执行白名单安全命令（node --version、npm --version、npm run typecheck、npm test、npm run build）；无安全命令、无 shell 权限或预算不足时静态降级并说明。",
+        "description": "统一 Agent 入口。模型首轮前的确定性工作流由 WorkflowExecutor 统一调度：PlanWorkflow 负责只读预扫描；debugWorkflow 会先执行 locate_relevant_files + context_pack 只读诊断定位，再由 DebugAnalysisWorkflow 注入 analysis phase（errorSummary/suspectedFiles/rootCauseHypotheses/minimalFixPlan/verificationPlan/riskAndRollback）以约束报错分析，并在 executionMeta.workflowDebugAnalyses 返回可审计诊断记录；editWorkflow/generateFileWorkflow 会先执行 locate_relevant_files + context_pack 只读预定位，再由 EditProposalWorkflow 注入 proposal phase（targetFiles/changeSummary/permissionCheck/diffPlan/verificationPlan）以约束写入前方案，并在 executionMeta.workflowProposals 返回可审计 proposal 记录和 PermissionGuard 写入前预检结果；成功执行 write_file/apply_patch 后会在 executionMeta.workflowDiffs 汇总 path/changeId/hash/diff 审计摘要，并由 EditExecutionWorkflow 注入 execution phase 上下文，要求下一轮基于真实 diff 做最小验证或最终总结；若写工具返回目标路径，EditAutoVerificationWorkflow 会规划只读 read_file，由 AgentLoop 通过既有权限、预算与工具链路自动读回刚写入文件；写入后的 read_file/diff_file/shell_run 等验证工具结果会由 EditVerificationWorkflow 注入 verification phase，并在 executionMeta.workflowVerifications 返回验证工具、状态、错误与输出预览；runWorkflow/verifyWorkflow 会尝试执行白名单安全命令（node --version、npm --version、npm run typecheck、npm test、npm run build）；无安全命令、无 shell 权限或预算不足时静态降级并说明。",
         "operationId": "runAgent",
         "requestBody": {
           "required": true,
@@ -1708,6 +1708,30 @@
           }
         }
       },
+      "AgentWorkflowDebugAnalysis": {
+        "type": "object",
+        "description": "debugWorkflow 在模型首轮前注入的 analysis phase 可审计结构化记录。该记录只描述诊断契约和权限策略判断，不代表已经执行修复。",
+        "properties": {
+          "workflowType": { "type": "string", "enum": ["debugWorkflow"] },
+          "phase": { "type": "string", "enum": ["analysis"] },
+          "goal": { "type": "string" },
+          "intent": { "type": "string", "enum": ["debug"] },
+          "permissionPolicy": {
+            "type": "string",
+            "enum": ["readOnly", "confirmBeforeEdit", "autoEdit", "confirmBeforeRun", "autoRun"]
+          },
+          "requiredFields": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "suggestedTools": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "writeAllowedByPolicy": { "type": "boolean" },
+          "requiresConfirmationBeforeWrite": { "type": "boolean" }
+        }
+      },
       "AgentWorkflowDiffRecord": {
         "type": "object",
         "description": "write_file/apply_patch 成功执行后的写入审计摘要，来自工具原始输出，用于记录 path/changeId/hash/diff；diff 可能被截断。",
@@ -1762,6 +1786,11 @@
             "type": "array",
             "description": "写入类工作流在模型首轮前生成的 proposal phase 审计记录。",
             "items": { "$ref": "#/components/schemas/AgentWorkflowProposal" }
+          },
+          "workflowDebugAnalyses": {
+            "type": "array",
+            "description": "debugWorkflow 在模型首轮前生成的 analysis phase 诊断契约记录。",
+            "items": { "$ref": "#/components/schemas/AgentWorkflowDebugAnalysis" }
           },
           "workflowDiffs": {
             "type": "array",

@@ -45,6 +45,18 @@ test("implement mode generate-file task chooses generate_file_locate", () => {
   assert.deepEqual(plan!.steps, ["locate_relevant_files", "context_pack"]);
 });
 
+test("debug mode chooses debug_locate before generic implementation locate", () => {
+  const plan = defaultWorkflowPlanner.plan(
+    "修复 src/agent/AgentLoop.ts 中未知工具 PlanWorkflow 的错误",
+    "debug",
+    "debug",
+  );
+  assert.ok(plan);
+  assert.equal(plan!.id, "debug_locate");
+  assert.deepEqual(plan!.steps, ["locate_relevant_files", "context_pack"]);
+  assert.match(plan!.contextHeader, /debugWorkflow/);
+});
+
 test("chat 模式不触发预扫描工作流", () => {
   assert.equal(defaultWorkflowPlanner.plan("分析当前项目路由模块", "chat"), null);
   assert.equal(shouldRunAgentWorkflow("分析当前项目路由模块", "chat"), false);

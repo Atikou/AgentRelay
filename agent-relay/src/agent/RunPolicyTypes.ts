@@ -109,6 +109,18 @@ export interface AgentWorkflowVerificationRecord {
   outputPreview?: string;
 }
 
+export interface AgentWorkflowDebugAnalysis {
+  workflowType: Extract<AgentWorkflowType, "debugWorkflow">;
+  phase: "analysis";
+  goal: string;
+  intent: Extract<AgentIntentType, "debug">;
+  permissionPolicy: UserPermissionPolicy;
+  requiredFields: string[];
+  suggestedTools: string[];
+  writeAllowedByPolicy: boolean;
+  requiresConfirmationBeforeWrite: boolean;
+}
+
 export interface AgentExecutionMeta {
   mode: AgentRunMode;
   modeSource?: "explicit" | "inferred";
@@ -119,6 +131,7 @@ export interface AgentExecutionMeta {
   workflowProposals?: AgentWorkflowProposal[];
   workflowDiffs?: AgentWorkflowDiffRecord[];
   workflowVerifications?: AgentWorkflowVerificationRecord[];
+  workflowDebugAnalyses?: AgentWorkflowDebugAnalysis[];
   budget: RunBudget;
   usage: RunBudgetUsage;
   budgetExhausted?: RunBudgetKey;

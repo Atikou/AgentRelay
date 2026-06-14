@@ -32,6 +32,7 @@ import {
   type AgentExecutionMeta,
   type AgentRunMode,
   type AgentStopReason,
+  type AgentWorkflowDebugAnalysis,
   type AgentWorkflowDiffRecord,
   type AgentWorkflowProposal,
   type AgentWorkflowVerificationRecord,
@@ -168,6 +169,7 @@ export class AgentLoop {
   private modelTurnMetrics: AgentModelTurnMetric[] = [];
   private runRoutingMeta?: AgentRoutingMeta;
   private workflowProposals: AgentWorkflowProposal[] = [];
+  private workflowDebugAnalyses: AgentWorkflowDebugAnalysis[] = [];
 
   constructor(private readonly options: AgentLoopOptions) {
     this.policy =
@@ -202,6 +204,7 @@ export class AgentLoop {
     this.modelTurnMetrics = [];
     this.runRoutingMeta = undefined;
     this.workflowProposals = [];
+    this.workflowDebugAnalyses = [];
     const isResume = Boolean(this.options.resumeState);
     const effectiveGoal = isResume ? this.options.resumeState!.goal : userMessage;
     const ctx = this.options.contextManager;
@@ -244,6 +247,7 @@ export class AgentLoop {
 
     const workflowResult = await this.runWorkflowExecutor(effectiveGoal, isResume, sessionId);
     this.workflowProposals = workflowResult.workflowProposals;
+    this.workflowDebugAnalyses = workflowResult.workflowDebugAnalyses;
     for (const step of workflowResult.steps) {
       steps.push(step);
       this.options.onStep?.(step);
@@ -808,6 +812,7 @@ export class AgentLoop {
       permissionPolicy: this.policy.permissionPolicy,
       permissionPolicySource: this.policy.permissionPolicySource,
       workflowProposals: this.workflowProposals.length ? this.workflowProposals : undefined,
+      workflowDebugAnalyses: this.workflowDebugAnalyses.length ? this.workflowDebugAnalyses : undefined,
       workflowDiffs: workflowDiffs.length ? workflowDiffs : undefined,
       workflowVerifications: workflowVerifications.length ? workflowVerifications : undefined,
       budget: this.budget,

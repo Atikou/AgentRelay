@@ -457,6 +457,48 @@ test("editWorkflow injects proposal phase before model writes", async () => {
   assert.equal(res.executionMeta.usedWriteCalls, 0);
 });
 
+test("debugWorkflow injects analysis phase and execution meta before model turn", async () => {
+  await fs.mkdir(path.join(sandbox, "src", "agent"), { recursive: true });
+  await fs.writeFile(
+    path.join(sandbox, "src", "agent", "AgentLoop.ts"),
+    "export class AgentLoop { renderToolResult() { return '未知工具：PlanWorkflow'; } }\n",
+    "utf-8",
+  );
+
+  let firstPrompt = "";
+  const chat: LoopChatFn = async (req) => {
+    firstPrompt = req.messages.map((m) => m.content).join("\n");
+    return {
+      content: '{"action":"final","answer":"已完成错误分析，暂不写入"}',
+      toolCalls: [],
+      clientName: "fake",
+      modelName: "fake",
+      location: "local",
+      latencyMs: 1,
+    };
+  };
+  const loop = new AgentLoop({
+    chat,
+    registry: createDefaultRegistry(),
+    workspaceRoot: sandbox,
+    mode: "debug",
+    permissionPolicy: "autoEdit",
+  });
+
+  const res = await loop.run("修复 src/agent/AgentLoop.ts 中未知工具 PlanWorkflow 的错误");
+
+  assert.equal(res.executionMeta.intent, "debug");
+  assert.equal(res.executionMeta.workflowType, "debugWorkflow");
+  assert.match(firstPrompt, /debugWorkflow read-only diagnosis context/);
+  assert.match(firstPrompt, /debugWorkflow analysis phase/);
+  assert.match(firstPrompt, /minimalFixPlan/);
+  assert.equal(res.executionMeta.workflowDebugAnalyses?.length, 1);
+  assert.equal(res.executionMeta.workflowDebugAnalyses?.[0]?.workflowType, "debugWorkflow");
+  assert.equal(res.executionMeta.workflowDebugAnalyses?.[0]?.phase, "analysis");
+  assert.equal(res.executionMeta.workflowDebugAnalyses?.[0]?.writeAllowedByPolicy, true);
+  assert.equal(res.executionMeta.usedWriteCalls, 0);
+});
+
 test("editWorkflow injects execution phase after write tool succeeds", async () => {
   await fs.mkdir(path.join(sandbox, "src", "agent"), { recursive: true });
   await fs.writeFile(

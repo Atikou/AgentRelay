@@ -4,9 +4,15 @@ import type { TraceLogger } from "../trace/TraceLogger.js";
 import type { ToolRegistry } from "../tools/ToolRegistry.js";
 import type { BudgetManager } from "./BudgetManager.js";
 import type { ToolPermission } from "./permissions.js";
+import { DebugAnalysisWorkflow } from "./DebugAnalysisWorkflow.js";
 import { EditProposalWorkflow } from "./EditProposalWorkflow.js";
 import { PlanWorkflow, type PlanWorkflowResumeContext } from "./PlanWorkflow.js";
-import type { AgentWorkflowProposal, RunPolicy, RunBudget } from "./RunPolicyTypes.js";
+import type {
+  AgentWorkflowDebugAnalysis,
+  AgentWorkflowProposal,
+  RunPolicy,
+  RunBudget,
+} from "./RunPolicyTypes.js";
 import { RunVerifyWorkflow } from "./RunVerifyWorkflow.js";
 import type { AgentToolStep } from "./toolStep.js";
 import { defaultWorkflowPlanner } from "./WorkflowPlanner.js";
@@ -35,6 +41,7 @@ export interface WorkflowExecutionResult {
   steps: AgentToolStep[];
   modelContexts: string[];
   workflowProposals: AgentWorkflowProposal[];
+  workflowDebugAnalyses: AgentWorkflowDebugAnalysis[];
 }
 
 export class WorkflowExecutor {
@@ -44,11 +51,18 @@ export class WorkflowExecutor {
     const steps: AgentToolStep[] = [];
     const modelContexts: string[] = [];
     const workflowProposals: AgentWorkflowProposal[] = [];
+    const workflowDebugAnalyses: AgentWorkflowDebugAnalysis[] = [];
 
     const planResult = await this.runPlanWorkflow(input);
     if (planResult) {
       steps.push(...planResult.steps);
       modelContexts.push(planResult.modelContext);
+    }
+
+    const debugAnalysisResult = this.runDebugAnalysisWorkflow(input.goal);
+    if (debugAnalysisResult) {
+      modelContexts.push(debugAnalysisResult.modelContext);
+      workflowDebugAnalyses.push(debugAnalysisResult.analysis);
     }
 
     const editProposalResult = this.runEditProposalWorkflow(input.goal);
@@ -63,7 +77,7 @@ export class WorkflowExecutor {
       modelContexts.push(runVerifyResult.modelContext);
     }
 
-    return { steps, modelContexts, workflowProposals };
+    return { steps, modelContexts, workflowProposals, workflowDebugAnalyses };
   }
 
   private async runPlanWorkflow(
@@ -137,6 +151,14 @@ export class WorkflowExecutor {
       intent: this.options.policy.intent,
       permissionPolicy: this.options.policy.permissionPolicy,
       allowedPermissions: this.options.allowedPermissions,
+    });
+  }
+
+  private runDebugAnalysisWorkflow(goal: string) {
+    return new DebugAnalysisWorkflow().run({
+      goal,
+      intent: this.options.policy.intent,
+      permissionPolicy: this.options.policy.permissionPolicy,
     });
   }
 }
