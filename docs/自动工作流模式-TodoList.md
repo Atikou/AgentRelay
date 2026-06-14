@@ -80,7 +80,11 @@
 
 ## P5：验收与回归
 
-- [ ] 每个新工作流至少补 2 条网页用例，覆盖正常路径与权限/安全边界。
-- [ ] 每个执行器补单元测试，覆盖 intent 识别、权限判断、工作流分发、失败降级。
-- [ ] 更新 OpenAPI、架构文档、对话循环文档和自审核记录。
+- [x] 每个新工作流至少补 2 条网页用例，覆盖正常路径与权限/安全边界。
+  - [x] `m1-agent.json` 覆盖 correction/refactor/implicit-plan/session-switch 等；`m1-auto-workflow-ui.json` 覆盖 P4 UI。
+- [x] 每个执行器补单元测试，覆盖 intent 识别、权限判断、工作流分发、失败降级。
+  - [x] `workflow-correction-workflow` / `refactor-plan-workflow` / `implicit-plan-workflow` / `workflow-session-switch` / `workflow-executor` / `loop` 已覆盖主路径。
+- [x] 更新 OpenAPI、架构文档、对话循环文档和自审核记录。
+  - [x] P0–P4 相关文档与 `api-spec.json` 已同步；P2 非阻塞闭环项仍开放。
 - [ ] 完成全部条目后归档到 `docs/completed/`，并保留 stub。
+  - [ ] 待 P2「更强工作流闭环」子项关闭或明确延期后归档。
