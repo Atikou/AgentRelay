@@ -1225,6 +1225,33 @@
       }
     },
     {
+      "id": "m1-agent-edit-verification-workflow-api-spec",
+      "title": "API 规范登记 EditVerificationWorkflow",
+      "purpose": "确认 OpenAPI 已说明写入后的验证工具结果会进入 verification phase，并在 executionMeta.workflowVerifications 返回可审计记录。",
+      "method": "GET",
+      "path": "/api/api-spec.json",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyContains": ["EditVerificationWorkflow", "verification phase", "workflowVerifications", "AgentWorkflowVerificationRecord"]
+      }
+    },
+    {
+      "id": "m1-agent-edit-verification-workflow-doc",
+      "title": "对话循环文档记录验证阶段上下文",
+      "purpose": "确认文档站已说明 EditVerificationWorkflow 会观察 read_file/diff_file/shell_run 等验证工具，并引导通过后 final、失败后最小修正。",
+      "method": "GET",
+      "path": "/api/docs/content?slug=对话循环",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyPaths": {
+          "markdown": "string"
+        },
+        "bodyContains": ["EditVerificationWorkflow", "verification phase", "workflowVerifications", "最小修正"]
+      }
+    },
+    {
       "id": "m1-agent-unknown-client-still-force",
       "title": "未知 clientName 仍立即 404",
       "purpose": "确认 Smart 路由接入后，显式 clientName 校验行为不变，不会静默回退默认路由。",

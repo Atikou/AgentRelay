@@ -521,6 +521,90 @@ test("editWorkflow injects execution phase after write tool succeeds", async () 
   );
 });
 
+test("editWorkflow records verification phase after write is checked", async () => {
+  await fs.mkdir(path.join(sandbox, "src", "agent"), { recursive: true });
+  await fs.writeFile(
+    path.join(sandbox, "src", "agent", "AgentLoop.ts"),
+    "export class AgentLoop { run() { return 'old'; } }\n",
+    "utf-8",
+  );
+
+  let thirdPrompt = "";
+  let turn = 0;
+  const chat: LoopChatFn = async (req) => {
+    turn += 1;
+    if (turn === 1) {
+      return {
+        content: JSON.stringify({
+          action: "tool",
+          tool: "write_file",
+          input: {
+            path: "src/agent/AgentLoop.ts",
+            content: "export class AgentLoop { run() { return 'new'; } }\n",
+          },
+          thought: "执行最小写入",
+        }),
+        toolCalls: [],
+        clientName: "fake",
+        modelName: "fake",
+        location: "local",
+        latencyMs: 1,
+      };
+    }
+    if (turn === 2) {
+      return {
+        content: JSON.stringify({
+          action: "tool",
+          tool: "read_file",
+          input: { path: "src/agent/AgentLoop.ts" },
+          thought: "读回验证",
+        }),
+        toolCalls: [],
+        clientName: "fake",
+        modelName: "fake",
+        location: "local",
+        latencyMs: 1,
+      };
+    }
+    thirdPrompt = req.messages.map((m) => m.content).join("\n");
+    return {
+      content: '{"action":"final","answer":"已修改并验证通过"}',
+      toolCalls: [],
+      clientName: "fake",
+      modelName: "fake",
+      location: "local",
+      latencyMs: 1,
+    };
+  };
+  const loop = new AgentLoop({
+    chat,
+    registry: createDefaultRegistry(),
+    workspaceRoot: sandbox,
+    mode: "implement",
+    permissionPolicy: "autoEdit",
+    budget: {
+      maxModelTurns: 4,
+      maxToolCalls: 8,
+      maxReadCalls: 8,
+      maxWriteCalls: 1,
+      maxShellCalls: 0,
+      maxRuntimeMs: 60000,
+    },
+  });
+
+  const res = await loop.run("修改 src/agent/AgentLoop.ts，把 old 改成 new，并验证结果");
+
+  assert.equal(res.executionMeta.workflowVerifications?.length, 1);
+  assert.equal(res.executionMeta.workflowVerifications?.[0]?.workflowType, "editWorkflow");
+  assert.equal(res.executionMeta.workflowVerifications?.[0]?.verificationTool, "read_file");
+  assert.equal(res.executionMeta.workflowVerifications?.[0]?.ok, true);
+  assert.match(res.executionMeta.workflowVerifications?.[0]?.outputPreview ?? "", /new/);
+  assert.match(thirdPrompt, /editWorkflow verification phase/);
+  assert.match(thirdPrompt, /verificationStatus: completed/);
+  assert.match(thirdPrompt, /changed files, changeId, and verification status/);
+  assert.equal(res.answer, "已修改并验证通过");
+});
+
 test("PlanWorkflow 不处理非项目分析型计划请求", async () => {
   assert.equal(shouldRunPlanWorkflow("计划模式中新建文件", "plan"), false);
   assert.equal(shouldRunPlanWorkflow("只读分析当前项目结构", "plan"), true);

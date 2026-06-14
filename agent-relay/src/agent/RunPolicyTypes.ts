@@ -95,6 +95,20 @@ export interface AgentWorkflowDiffRecord {
   diffTruncated: boolean;
 }
 
+export interface AgentWorkflowVerificationRecord {
+  workflowType: Extract<AgentWorkflowType, "editWorkflow" | "generateFileWorkflow">;
+  writeToolCallId?: string;
+  writeTool: "write_file" | "apply_patch";
+  path?: string;
+  changeId?: string;
+  verificationToolCallId?: string;
+  verificationTool: string;
+  ok: boolean;
+  blocked?: boolean;
+  error?: string;
+  outputPreview?: string;
+}
+
 export interface AgentExecutionMeta {
   mode: AgentRunMode;
   modeSource?: "explicit" | "inferred";
@@ -104,6 +118,7 @@ export interface AgentExecutionMeta {
   permissionPolicySource?: UserPermissionPolicySource;
   workflowProposals?: AgentWorkflowProposal[];
   workflowDiffs?: AgentWorkflowDiffRecord[];
+  workflowVerifications?: AgentWorkflowVerificationRecord[];
   budget: RunBudget;
   usage: RunBudgetUsage;
   budgetExhausted?: RunBudgetKey;

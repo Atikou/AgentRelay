@@ -34,6 +34,11 @@ export {
   type EditExecutionWorkflowResult,
 } from "./EditExecutionWorkflow.js";
 export {
+  EditVerificationWorkflow,
+  type EditVerificationWorkflowInput,
+  type EditVerificationWorkflowResult,
+} from "./EditVerificationWorkflow.js";
+export {
   WorkflowExecutor,
   type WorkflowExecutionInput,
   type WorkflowExecutionResult,

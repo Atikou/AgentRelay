@@ -38,6 +38,7 @@
   - [x] 接入权限检查结果：`EditProposalWorkflow` 复用 `PermissionGuard` 对 `apply_patch` / `write_file` 做写入前预检，并在 prompt 与 `executionMeta.workflowProposals.permissionChecks` 中记录 `allow` / `needsConfirmation` / `deny`。
   - [x] 记录 diff：`write_file` / `apply_patch` 成功执行后，`AgentLoop` 从工具原始输出汇总 `path` / `changeId` / `beforeHash` / `afterHash` / `diff` 到 `executionMeta.workflowDiffs`。
   - [x] 执行阶段上下文：`EditExecutionWorkflow` 在写工具成功后注入 execution phase，要求下一轮基于真实 diff 做最小验证或最终总结，避免重复写入。
+  - [x] 验证阶段上下文与记录：`EditVerificationWorkflow` 观察写入后的 `read_file` / `diff_file` / `shell_run` 等验证工具结果，注入 verification phase，并在 `executionMeta.workflowVerifications` 记录验证工具、状态、错误与输出预览。
   - [ ] 将执行修改阶段收敛为 edit/generate-file 工作流闭环（目前真实写入仍由模型通过常规写工具触发，并受 `PermissionGuard`、工具风险和预算约束；后续还需自动验证与失败后续修正）。
 - [ ] `debugWorkflow`：报错分析、定位文件、最小修复、验证失败后继续迭代。
 - [ ] `refactorWorkflow`：强制先计划，分阶段修改，每阶段尽量可验证。

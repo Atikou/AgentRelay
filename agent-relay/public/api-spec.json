@@ -202,7 +202,7 @@
       "post": {
         "tags": ["对话与智能体"],
         "summary": "自主 Agent 循环（ReAct JSON）",
-        "description": "统一 Agent 入口。模型首轮前的确定性工作流由 WorkflowExecutor 统一调度：PlanWorkflow 负责只读预扫描；editWorkflow/generateFileWorkflow 会先执行 locate_relevant_files + context_pack 只读预定位，再由 EditProposalWorkflow 注入 proposal phase（targetFiles/changeSummary/permissionCheck/diffPlan/verificationPlan）以约束写入前方案，并在 executionMeta.workflowProposals 返回可审计 proposal 记录和 PermissionGuard 写入前预检结果；成功执行 write_file/apply_patch 后会在 executionMeta.workflowDiffs 汇总 path/changeId/hash/diff 审计摘要，并由 EditExecutionWorkflow 注入 execution phase 上下文，要求下一轮基于真实 diff 做最小验证或最终总结；runWorkflow/verifyWorkflow 会尝试执行白名单安全命令（node --version、npm --version、npm run typecheck、npm test、npm run build）；无安全命令、无 shell 权限或预算不足时静态降级并说明。",
+        "description": "统一 Agent 入口。模型首轮前的确定性工作流由 WorkflowExecutor 统一调度：PlanWorkflow 负责只读预扫描；editWorkflow/generateFileWorkflow 会先执行 locate_relevant_files + context_pack 只读预定位，再由 EditProposalWorkflow 注入 proposal phase（targetFiles/changeSummary/permissionCheck/diffPlan/verificationPlan）以约束写入前方案，并在 executionMeta.workflowProposals 返回可审计 proposal 记录和 PermissionGuard 写入前预检结果；成功执行 write_file/apply_patch 后会在 executionMeta.workflowDiffs 汇总 path/changeId/hash/diff 审计摘要，并由 EditExecutionWorkflow 注入 execution phase 上下文，要求下一轮基于真实 diff 做最小验证或最终总结；写入后的 read_file/diff_file/shell_run 等验证工具结果会由 EditVerificationWorkflow 注入 verification phase，并在 executionMeta.workflowVerifications 返回验证工具、状态、错误与输出预览；runWorkflow/verifyWorkflow 会尝试执行白名单安全命令（node --version、npm --version、npm run typecheck、npm test、npm run build）；无安全命令、无 shell 权限或预算不足时静态降级并说明。",
         "operationId": "runAgent",
         "requestBody": {
           "required": true,
@@ -1722,6 +1722,23 @@
           "diffTruncated": { "type": "boolean" }
         }
       },
+      "AgentWorkflowVerificationRecord": {
+        "type": "object",
+        "description": "edit/generate-file 写入后的验证阶段审计摘要，由 EditVerificationWorkflow 观察 read_file/diff_file/shell_run 等验证工具结果生成。",
+        "properties": {
+          "workflowType": { "type": "string", "enum": ["editWorkflow", "generateFileWorkflow"] },
+          "writeToolCallId": { "type": "string" },
+          "writeTool": { "type": "string", "enum": ["write_file", "apply_patch"] },
+          "path": { "type": "string" },
+          "changeId": { "type": "string" },
+          "verificationToolCallId": { "type": "string" },
+          "verificationTool": { "type": "string" },
+          "ok": { "type": "boolean" },
+          "blocked": { "type": "boolean" },
+          "error": { "type": "string" },
+          "outputPreview": { "type": "string" }
+        }
+      },
       "AgentExecutionMeta": {
         "type": "object",
         "properties": {
@@ -1733,7 +1750,7 @@
           },
           "workflowType": {
             "type": "string",
-            "description": "由 WorkflowRouter 根据 intent 映射的内部工作流类型，用于 UI 状态展示与审计。answerWorkflow/summarizeWorkflow/searchWorkflow 会强制工具层只读；editWorkflow/generateFileWorkflow 会先通过 WorkflowExecutor 执行只读预定位，通过 EditProposalWorkflow 注入写入前方案约束，并在写工具成功后通过 EditExecutionWorkflow 注入执行阶段上下文；runWorkflow/verifyWorkflow 可执行白名单安全命令并在无法执行时静态降级。",
+            "description": "由 WorkflowRouter 根据 intent 映射的内部工作流类型，用于 UI 状态展示与审计。answerWorkflow/summarizeWorkflow/searchWorkflow 会强制工具层只读；editWorkflow/generateFileWorkflow 会先通过 WorkflowExecutor 执行只读预定位，通过 EditProposalWorkflow 注入写入前方案约束，在写工具成功后通过 EditExecutionWorkflow 注入执行阶段上下文，并在验证工具完成后通过 EditVerificationWorkflow 注入验证阶段上下文；runWorkflow/verifyWorkflow 可执行白名单安全命令并在无法执行时静态降级。",
             "enum": ["answerWorkflow", "planWorkflow", "editWorkflow", "runWorkflow", "debugWorkflow", "reviewWorkflow", "verifyWorkflow", "summarizeWorkflow", "searchWorkflow", "refactorWorkflow", "generateFileWorkflow"]
           },
           "permissionPolicy": {
@@ -1750,6 +1767,11 @@
             "type": "array",
             "description": "成功执行 write_file/apply_patch 后从工具原始输出汇总的 diff 审计记录。",
             "items": { "$ref": "#/components/schemas/AgentWorkflowDiffRecord" }
+          },
+          "workflowVerifications": {
+            "type": "array",
+            "description": "写入后验证工具完成时汇总的验证阶段审计记录。",
+            "items": { "$ref": "#/components/schemas/AgentWorkflowVerificationRecord" }
           },
           "budget": { "$ref": "#/components/schemas/RunBudget" },
           "usage": { "$ref": "#/components/schemas/RunBudgetUsage" },

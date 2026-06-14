@@ -12,6 +12,7 @@ import { assertWithinCostBudget, sumModelTurnCost } from "../util/costBudget.js"
 import { wrapUntrustedToolOutput } from "../util/injection.js";
 import { redactPreview } from "../util/redact.js";
 import { EditExecutionWorkflow } from "./EditExecutionWorkflow.js";
+import { EditVerificationWorkflow } from "./EditVerificationWorkflow.js";
 import { WorkflowExecutor } from "./WorkflowExecutor.js";
 import {
   buildToolResultLayers,
@@ -32,6 +33,7 @@ import {
   type AgentStopReason,
   type AgentWorkflowDiffRecord,
   type AgentWorkflowProposal,
+  type AgentWorkflowVerificationRecord,
   type LocationExecutionMeta,
   type RunBudget,
   type RunBudgetKey,
@@ -386,10 +388,17 @@ export class AgentLoop {
       if (editExecutionContext) {
         messages.push({ role: "user", content: editExecutionContext });
       }
+      const editVerificationContext = this.buildEditVerificationContext(steps, step, effectiveGoal);
+      if (editVerificationContext) {
+        messages.push({ role: "user", content: editVerificationContext });
+      }
       if (ctx && sessionId) {
         ctx.saveToolMessage(sessionId, toolText);
         if (editExecutionContext) {
           ctx.saveToolMessage(sessionId, editExecutionContext);
+        }
+        if (editVerificationContext) {
+          ctx.saveToolMessage(sessionId, editVerificationContext);
         }
       }
       injectNotifications();
@@ -516,6 +525,20 @@ export class AgentLoop {
         goal,
         intent: this.policy.intent,
         step,
+      })?.modelContext;
+  }
+
+  private buildEditVerificationContext(
+    steps: AgentToolStep[],
+    currentStep: AgentToolStep,
+    goal: string,
+  ): string | undefined {
+    return new EditVerificationWorkflow()
+      .run({
+        goal,
+        intent: this.policy.intent,
+        steps,
+        currentStep,
       })?.modelContext;
   }
 
@@ -708,6 +731,7 @@ export class AgentLoop {
     const needsMoreBudget = input.stopReason === "budget_exhausted";
     const location = this.buildLocationMeta(input.steps);
     const workflowDiffs = this.buildWorkflowDiffs(input.steps);
+    const workflowVerifications = this.buildWorkflowVerifications(input.steps);
     const base: AgentExecutionMeta = {
       mode: this.policy.mode,
       modeSource: this.policy.modeSource,
@@ -717,6 +741,7 @@ export class AgentLoop {
       permissionPolicySource: this.policy.permissionPolicySource,
       workflowProposals: this.workflowProposals.length ? this.workflowProposals : undefined,
       workflowDiffs: workflowDiffs.length ? workflowDiffs : undefined,
+      workflowVerifications: workflowVerifications.length ? workflowVerifications : undefined,
       budget: this.budget,
       usage,
       budgetExhausted: input.budgetExhausted,
@@ -776,6 +801,10 @@ export class AgentLoop {
           diffTruncated: diff?.truncated ?? false,
         };
       });
+  }
+
+  private buildWorkflowVerifications(steps: AgentToolStep[]): AgentWorkflowVerificationRecord[] {
+    return new EditVerificationWorkflow().collect(this.policy.intent, steps);
   }
 
   private buildLocationMeta(steps: AgentToolStep[]): LocationExecutionMeta | undefined {
