@@ -57,6 +57,18 @@ test("Agent 结果卡展示自动工作流状态", async () => {
   assert.ok(js.includes("renderConfirmationRequest"));
 });
 
+test("测试台默认自动工作流入口与权限策略", async () => {
+  const html = await readFile(path.join(publicDir, "index.html"), "utf-8");
+  const js = await readFile(path.join(publicDir, "app.js"), "utf-8");
+  assert.ok(html.includes('id="permission-policy-select"'));
+  assert.ok(!html.includes('id="mode-select"'));
+  assert.ok(!html.includes("autoconfirm-input"));
+  assert.ok(html.includes('id="explicit-mode-select"'));
+  assert.ok(js.includes("handleUnifiedAgent"));
+  assert.ok(js.includes("attachWorkflowBadgeToLastUserMessage"));
+  assert.ok(js.includes("PERMISSION_POLICY_KEY"));
+});
+
 test("Agent 工作流状态样式已登记", async () => {
   const css = await readFile(path.join(publicDir, "styles.css"), "utf-8");
   assert.ok(css.includes(".workflow-status"));

@@ -58,7 +58,7 @@
           <div class="welcome">
             <div class="welcome-kicker">AgentRelay</div>
             <h1>Agent 编排控制台</h1>
-            <p>模型路由、工具执行、上下文记忆、后台任务和调度触发集中在一个本地后端里。</p>
+            <p>统一自动工作流入口：描述目标后系统自动识别意图、路由工作流，并由权限策略控制写文件与命令边界。</p>
             <div class="welcome-actions">
               <button class="action-btn" data-action="check-models">检测模型</button>
               <a class="action-btn secondary" href="/test-cases.html">测试用例</a>
@@ -88,11 +88,13 @@
         <footer class="composer">
           <div class="composer-row meta-row">
             <label class="field">
-              <span>模式</span>
-              <select id="mode-select">
-                <option value="chat">对话</option>
-                <option value="plan">计划报告</option>
-                <option value="agent">智能体</option>
+              <span>权限策略</span>
+              <select id="permission-policy-select" title="控制写文件与执行命令的默认边界">
+                <option value="readOnly">只读</option>
+                <option value="confirmBeforeEdit" selected>修改前确认</option>
+                <option value="autoEdit">自动修改</option>
+                <option value="confirmBeforeRun">命令前确认</option>
+                <option value="autoRun">自动执行</option>
               </select>
             </label>
             <label class="field">
@@ -106,13 +108,23 @@
               <input type="checkbox" id="sensitive-input" />
               <span>敏感（仅本地）</span>
             </label>
-            <label class="field sensitive-field" title="智能体模式下允许执行写文件/命令等副作用工具">
-              <input type="checkbox" id="autoconfirm-input" />
-              <span>允许改动（写/命令）</span>
-            </label>
+            <details class="advanced-entry field">
+              <summary>高级选项</summary>
+              <label class="field advanced-mode-field">
+                <span>显式模式</span>
+                <select id="explicit-mode-select" title="覆盖自动意图推断；留空则完全自动">
+                  <option value="">自动推断（推荐）</option>
+                  <option value="chat">强制对话</option>
+                  <option value="plan">强制计划</option>
+                  <option value="implement">强制实现</option>
+                  <option value="debug">强制调试</option>
+                  <option value="review">强制审阅</option>
+                </select>
+              </label>
+            </details>
           </div>
           <div class="composer-row input-row">
-            <textarea id="message-input" rows="1" placeholder="向模型提问，回车发送，Shift+回车换行"></textarea>
+            <textarea id="message-input" rows="1" placeholder="描述你想做什么，系统会自动识别意图并选择工作流；回车发送，Shift+回车换行"></textarea>
             <button id="send-btn" class="send-btn" title="发送">发送</button>
           </div>
         </footer>

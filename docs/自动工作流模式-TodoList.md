@@ -69,10 +69,14 @@
 
 ## P4：UI 与用户体验
 
-- [ ] 默认入口改为“自动模式”，不要求用户理解对话/计划/Agent 三个入口。
-- [ ] UI 上保留权限策略选择：只读、修改前确认、自动修改、命令前确认、自动执行。
-- [ ] 在消息旁显示当前内部工作流状态，减少黑盒感。
-- [ ] 保留高级用户显式 mode 参数，用于测试、调试与强制边界。
+- [x] 默认入口改为“自动模式”，不要求用户理解对话/计划/Agent 三个入口。
+  - [x] 测试台主输入区统一走 `handleUnifiedAgent` → `POST /api/agent`；移除对话/计划/智能体三分模式与 `autoConfirm` 勾选。
+- [x] UI 上保留权限策略选择：只读、修改前确认、自动修改、命令前确认、自动执行。
+  - [x] `#permission-policy-select` 五档策略；选择持久化到 `localStorage`。
+- [x] 在消息旁显示当前内部工作流状态，减少黑盒感。
+  - [x] 用户消息气泡下附加 `msg-workflow-badge`（`renderWorkflowStatus`）；助手结果卡保留工作流/任务状态标签。
+- [x] 保留高级用户显式 mode 参数，用于测试、调试与强制边界。
+  - [x] `高级选项` 折叠区提供 `explicit-mode-select`（chat/plan/implement/debug/review）。
 
 ## P5：验收与回归
 

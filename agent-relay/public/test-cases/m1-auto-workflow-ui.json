@@ -1,0 +1,75 @@
+{
+  "featureId": "m1-auto-workflow-ui",
+  "milestone": "M1",
+  "title": "自动工作流测试台 UI",
+  "description": "P4 统一自动入口、权限策略选择与工作流状态展示。",
+  "cases": [
+    {
+      "id": "m1-auto-ui-permission-policy-select",
+      "title": "测试台提供权限策略下拉",
+      "purpose": "确认主输入区已用 permissionPolicy 下拉替代旧的对话/计划/智能体三分入口与 autoConfirm 勾选，覆盖只读到自动执行五档策略。",
+      "method": "GET",
+      "path": "/",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyContains": [
+          "permission-policy-select",
+          "confirmBeforeEdit",
+          "autoEdit",
+          "confirmBeforeRun",
+          "autoRun",
+          "readOnly"
+        ]
+      }
+    },
+    {
+      "id": "m1-auto-ui-unified-agent-handler",
+      "title": "测试台统一走自动 Agent 入口",
+      "purpose": "确认 app.js 默认通过 handleUnifiedAgent 调用 /api/agent 并传递 permissionPolicy，高级选项可覆盖显式 mode。",
+      "method": "GET",
+      "path": "/app.js",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyContains": [
+          "handleUnifiedAgent",
+          "permissionPolicy",
+          "/api/agent",
+          "explicit-mode-select",
+          "attachWorkflowBadgeToLastUserMessage"
+        ]
+      }
+    },
+    {
+      "id": "m1-auto-ui-workflow-badge-style",
+      "title": "用户消息旁工作流状态样式",
+      "purpose": "确认样式表已登记 msg-workflow-badge，使用户消息在响应后可展示内部工作流/任务状态标签。",
+      "method": "GET",
+      "path": "/styles.css",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyContains": [".msg-workflow-badge", ".workflow-status"]
+      }
+    },
+    {
+      "id": "m1-auto-ui-advanced-explicit-mode",
+      "title": "高级选项保留显式 mode 覆盖",
+      "purpose": "确认高级折叠区仍提供 chat/plan/implement/debug/review 显式模式，供测试与调试强制边界。",
+      "method": "GET",
+      "path": "/",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyContains": [
+          "explicit-mode-select",
+          "高级选项",
+          "强制计划",
+          "强制实现",
+          "自动推断（推荐）"
+        ]
+      }
+    }
+  ]
+}

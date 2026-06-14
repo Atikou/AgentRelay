@@ -409,6 +409,44 @@ body {
   font-size: 11.5px;
   color: var(--text-faint);
 }
+.msg-workflow-badge {
+  margin-top: 6px;
+  max-width: 100%;
+}
+.msg-workflow-badge .workflow-status {
+  justify-content: flex-end;
+}
+.advanced-entry {
+  position: relative;
+}
+.advanced-entry summary {
+  cursor: pointer;
+  list-style: none;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 6px 12px;
+  font-size: 13px;
+  color: var(--text-soft);
+  background: var(--surface);
+}
+.advanced-entry summary::-webkit-details-marker {
+  display: none;
+}
+.advanced-entry[open] summary {
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+}
+.advanced-entry .advanced-mode-field {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 6px);
+  z-index: 5;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 8px 10px;
+  box-shadow: 0 8px 24px color-mix(in srgb, var(--text) 12%, transparent);
+}
 
 /* 模型可用性表 */
 .model-table {

@@ -23,6 +23,13 @@
       "order": 2
     },
     {
+      "featureId": "m1-auto-workflow-ui",
+      "milestone": "M1",
+      "title": "自动工作流测试台 UI",
+      "file": "m1-auto-workflow-ui.json",
+      "order": 2.5
+    },
+    {
       "featureId": "m2-routing",
       "milestone": "M2",
       "title": "模型路由与指标",

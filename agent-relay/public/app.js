@@ -2,8 +2,8 @@ const feed = document.getElementById("feed");
 const modelSelect = document.getElementById("model-select");
 const systemInput = document.getElementById("system-input");
 const sensitiveInput = document.getElementById("sensitive-input");
-const autoConfirmInput = document.getElementById("autoconfirm-input");
-const modeSelect = document.getElementById("mode-select");
+const permissionPolicySelect = document.getElementById("permission-policy-select");
+const explicitModeSelect = document.getElementById("explicit-mode-select");
 const messageInput = document.getElementById("message-input");
 const sendBtn = document.getElementById("send-btn");
 const statusDot = document.getElementById("status-dot");
@@ -13,7 +13,16 @@ const sidebarHistoryList = document.getElementById("sidebar-history-list");
 
 let appConfig = null;
 const ACTIVE_SESSION_KEY = "agentrelay.activeSessionId";
+const PERMISSION_POLICY_KEY = "agentrelay.permissionPolicy";
 let activeSessionId = localStorage.getItem(ACTIVE_SESSION_KEY) || undefined;
+
+const PERMISSION_POLICY_LABELS = {
+  readOnly: "只读",
+  confirmBeforeEdit: "修改前确认",
+  autoEdit: "自动修改",
+  confirmBeforeRun: "命令前确认",
+  autoRun: "自动执行",
+};
 
 const WORKFLOW_STATUS_LABELS = {
   answerWorkflow: "普通回答",
@@ -60,6 +69,26 @@ function setActiveSessionId(sessionId) {
   else localStorage.removeItem(ACTIVE_SESSION_KEY);
 }
 
+function getSelectedPermissionPolicy() {
+  return permissionPolicySelect?.value || "confirmBeforeEdit";
+}
+
+function getExplicitRunMode() {
+  const value = explicitModeSelect?.value?.trim();
+  return value || undefined;
+}
+
+function persistPermissionPolicy() {
+  if (!permissionPolicySelect) return;
+  localStorage.setItem(PERMISSION_POLICY_KEY, permissionPolicySelect.value);
+}
+
+function restorePermissionPolicy() {
+  if (!permissionPolicySelect) return;
+  const saved = localStorage.getItem(PERMISSION_POLICY_KEY);
+  if (saved && PERMISSION_POLICY_LABELS[saved]) permissionPolicySelect.value = saved;
+}
+
 function sessionMeta() {
   return activeSessionId ? ` · session ${activeSessionId.slice(0, 8)}…` : "";
 }
@@ -90,7 +119,7 @@ function renderWelcome() {
     <div class="welcome">
       <div class="welcome-kicker">AgentRelay</div>
       <h1>Agent 编排控制台</h1>
-      <p>模型路由、工具执行、上下文记忆、后台任务和调度触发集中在一个本地后端里。</p>
+      <p>统一自动工作流入口：描述目标后系统自动识别意图、路由工作流，并由权限策略控制写文件与命令边界。</p>
       <div class="welcome-actions">
         <button class="action-btn" data-action="check-models">检测模型</button>
         <a class="action-btn secondary" href="/test-cases.html">测试用例</a>
@@ -226,6 +255,19 @@ async function renderSessionConversation(sessionId) {
   } catch (err) {
     feed.innerHTML = `<div class="history-empty is-error">${escapeHtml(String(err.message || err))}</div>`;
   }
+}
+
+function attachWorkflowBadgeToLastUserMessage(meta) {
+  if (!meta) return;
+  const label = getWorkflowStatusLabel(meta);
+  if (!label) return;
+  const userMsgs = feed.querySelectorAll(".msg.user");
+  const last = userMsgs[userMsgs.length - 1];
+  if (!last || last.querySelector(".msg-workflow-badge")) return;
+  const badge = document.createElement("div");
+  badge.className = "msg-workflow-badge";
+  badge.innerHTML = renderWorkflowStatus(meta);
+  last.appendChild(badge);
 }
 
 function addMessage(role, content, meta, opts) {
@@ -949,31 +991,37 @@ function renderPlan(plan) {
   addMessage("system", card);
 }
 
-async function handlePlanReport(message) {
+async function handleUnifiedAgent(message) {
   addMessage("user", message);
   messageInput.value = "";
   autoGrow();
   sendBtn.disabled = true;
-  const thinking = addMessage("assistant", "正在只读分析并生成计划报告…");
+  const explicitMode = getExplicitRunMode();
+  const thinkingLabel = explicitMode === "plan"
+    ? "正在只读分析并生成计划报告…"
+    : "自动工作流运行中（识别意图 / 按需调用工具）…";
+  const thinking = addMessage("assistant", thinkingLabel);
   try {
+    const payload = {
+      message,
+      clientName: modelSelect.value,
+      sessionId: activeSessionId,
+      system: systemInput.value,
+      sensitive: sensitiveInput.checked,
+      permissionPolicy: getSelectedPermissionPolicy(),
+    };
+    if (explicitMode) payload.mode = explicitMode;
     const data = await api("/api/agent", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        message,
-        mode: "plan",
-        clientName: modelSelect.value,
-        sessionId: activeSessionId,
-        system: systemInput.value,
-        sensitive: sensitiveInput.checked,
-        autoConfirm: false,
-      }),
+      body: JSON.stringify(payload),
     });
     thinking.remove();
     if (data.sessionId) {
       setActiveSessionId(data.sessionId);
       void loadHistorySessions();
     }
+    attachWorkflowBadgeToLastUserMessage(data.executionMeta);
     renderAgentRun(data);
   } catch (err) {
     thinking.remove();
@@ -982,6 +1030,20 @@ async function handlePlanReport(message) {
     sendBtn.disabled = false;
     messageInput.focus();
   }
+}
+
+async function handlePlanReport(message) {
+  const prev = explicitModeSelect?.value;
+  if (explicitModeSelect) explicitModeSelect.value = "plan";
+  try {
+    await handleUnifiedAgent(message);
+  } finally {
+    if (explicitModeSelect) explicitModeSelect.value = prev ?? "";
+  }
+}
+
+async function handleAgent(message) {
+  await handleUnifiedAgent(message);
 }
 
 const TOOL_PLACEHOLDERS = {
@@ -2041,47 +2103,6 @@ function mergeRoleBudgets(budgets) {
   };
 }
 
-async function handleAgent(message) {
-  addMessage("user", message);
-  messageInput.value = "";
-  autoGrow();
-  sendBtn.disabled = true;
-  const thinking = addMessage("assistant", "智能体运行中（读取/搜索/按需调用工具）…");
-  try {
-    const data = await api("/api/agent", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        message,
-        clientName: modelSelect.value,
-        sessionId: activeSessionId,
-        system: systemInput.value,
-        sensitive: sensitiveInput.checked,
-        autoConfirm: autoConfirmInput.checked,
-      }),
-    });
-    thinking.remove();
-    if (data.sessionId) {
-      setActiveSessionId(data.sessionId);
-      void loadHistorySessions();
-    }
-    renderAgentRun(data);
-  } catch (err) {
-    thinking.remove();
-    addSystemError(String(err.message || err));
-  } finally {
-    sendBtn.disabled = false;
-    messageInput.focus();
-  }
-}
-
-function escapeHtml(s) {
-  return String(s).replace(
-    /[&<>"']/g,
-    (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c],
-  );
-}
-
 async function handleSend() {
   const message = messageInput.value.trim();
   if (!message) return;
@@ -2090,55 +2111,15 @@ async function handleSend() {
     return;
   }
 
-  if (modeSelect.value === "plan") {
-    await handlePlanReport(message);
-    return;
-  }
+  persistPermissionPolicy();
+  await handleUnifiedAgent(message);
+}
 
-  if (modeSelect.value === "agent") {
-    await handleAgent(message);
-    return;
-  }
-
-  addMessage("user", message);
-  messageInput.value = "";
-  autoGrow();
-  sendBtn.disabled = true;
-
-  const thinking = addMessage("assistant", "思考中…");
-  try {
-    const data = await api("/api/chat", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        clientName: modelSelect.value,
-        sessionId: activeSessionId,
-        system: systemInput.value,
-        sensitive: sensitiveInput.checked,
-        message,
-      }),
-    });
-    thinking.remove();
-    if (data.sessionId) {
-      setActiveSessionId(data.sessionId);
-      void loadHistorySessions();
-    }
-    const usage = data.usage
-      ? ` · token in=${data.usage.inputTokens ?? "?"}/out=${data.usage.outputTokens ?? "?"}`
-      : "";
-    const routed = data.routed ? "（路由自选）" : "";
-    addMessage(
-      "assistant",
-      data.content || "(空响应)",
-      `${data.clientName}${routed} · ${data.modelName}（${data.location}） · ${data.latencyMs}ms${usage}${sessionMeta()}`,
-    );
-  } catch (err) {
-    thinking.remove();
-    addSystemError(String(err.message || err));
-  } finally {
-    sendBtn.disabled = false;
-    messageInput.focus();
-  }
+function escapeHtml(s) {
+  return String(s).replace(
+    /[&<>"']/g,
+    (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c],
+  );
 }
 
 function autoGrow() {
@@ -2226,6 +2207,8 @@ messageInput.addEventListener("keydown", (e) => {
 });
 
 async function init() {
+  restorePermissionPolicy();
+  permissionPolicySelect?.addEventListener("change", persistPermissionPolicy);
   await loadConfig();
   await renderHomeHistory();
   void refreshModels();
