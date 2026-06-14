@@ -178,6 +178,30 @@
         },
         "bodyContains": ["NotificationQueue", "subagent", "maxDispatchDepth"]
       }
+    },
+    {
+      "id": "m5-write-conflict-doc",
+      "title": "子 Agent 文档记录写入冲突检测",
+      "purpose": "确认文档说明 detectWriteConflicts / aggregate.writeConflicts 检测多子 Agent 写入同一文件。",
+      "method": "GET",
+      "path": "/api/docs/content?slug=子Agent",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyContains": ["writeConflicts", "writeConflictMerge", "同一文件"]
+      }
+    },
+    {
+      "id": "m5-arbitrate-conflicts-doc",
+      "title": "子 Agent 文档记录模型仲裁",
+      "purpose": "确认 batch / dispatch_subagent 可通过 arbitrateConflicts 启用模型仲裁复核。",
+      "method": "GET",
+      "path": "/api/docs/content?slug=子Agent",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyContains": ["arbitrateConflicts", "arbitration", "模型仲裁"]
+      }
     }
   ]
 }

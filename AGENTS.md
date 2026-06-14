@@ -88,7 +88,7 @@ npm run serve          # 启动后端与测试台 http://localhost:18787
 - **SQLite 迁移（2026-06-13）**：`schema_migrations` + `PRAGMA user_version`；`memory.db` v8、`tools.db` v1；`GET /api/config.schemaVersions`。
 - 自检：`npm test`（全量，含 `tests/plan.test.ts` 计划存储/执行边界 6 项）。
 
-**未实现**（按里程碑推进）：并行投票、多子 Agent 并行写同一文件/冲突合并、多模态附件/OCR、V9 拖拽编排。
+**未实现**（按里程碑推进）：并行投票、多子 Agent 并行写同一文件的**自动补丁合并**（当前仅检测+仲裁建议）、多模态附件/OCR、V9 拖拽编排。
 
 **路由覆盖面（2026-06-13）**：`/api/chat`、`Planner`、`/api/agent`、子 Agent 默认经 `SmartModelRouter`；显式 `clientName` 仍走 `ModelRouter`。
 

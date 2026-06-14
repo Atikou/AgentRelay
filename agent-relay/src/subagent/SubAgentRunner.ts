@@ -17,7 +17,9 @@ import type {
   SubAgentRunOptions,
   SubAgentRunResult,
   SubAgentStatus,
+  SubAgentWriteConflict,
 } from "./types.js";
+import { detectWriteConflicts } from "./writeConflictMerge.js";
 
 const DEFAULT_TIMEOUT_MS = 120_000;
 
@@ -246,6 +248,7 @@ export function aggregateSubAgentResultsStructured(
       timedOut: 0,
       commonFindings: [],
       conflicts: [],
+      writeConflicts: [],
       mergedAnswer: "（无子 Agent 结果）",
     };
   }
@@ -254,8 +257,9 @@ export function aggregateSubAgentResultsStructured(
   const timedOut = results.filter((r) => r.status === "timeout");
   const commonFindings = findCommonFindings(completed);
   const conflicts = detectConflicts(completed);
+  const writeConflicts = detectWriteConflicts(results);
   const status: SubAgentAggregate["status"] =
-    conflicts.length > 0
+    conflicts.length > 0 || writeConflicts.length > 0
       ? "conflict"
       : completed.length === 0
         ? "failed"
@@ -268,8 +272,11 @@ export function aggregateSubAgentResultsStructured(
       ? `共同结论：\n${commonFindings.map((f) => `- ${f}`).join("\n")}`
       : "共同结论：未发现跨角色重复结论。",
     conflicts.length > 0
-      ? `冲突：\n${conflicts.map(renderConflict).join("\n")}`
-      : "冲突：未发现明显相反结论。",
+      ? `文本冲突：\n${conflicts.map(renderConflict).join("\n")}`
+      : "文本冲突：未发现明显相反结论。",
+    writeConflicts.length > 0
+      ? `写入冲突：\n${writeConflicts.map(renderWriteConflict).join("\n")}`
+      : "写入冲突：未发现多角色写入同一文件。",
     results
     .map((r) => {
       const head = `[${r.role}] ${r.status} · ${r.durationMs}ms · 权限 ${r.grantedPermissions.join(",")}`;
@@ -285,6 +292,7 @@ export function aggregateSubAgentResultsStructured(
     timedOut: timedOut.length,
     commonFindings,
     conflicts,
+    writeConflicts,
     mergedAnswer: sections.join("\n\n"),
   };
 }
@@ -400,6 +408,10 @@ function findingPolarity(text: string): "positive" | "negative" | "neutral" {
   if (positive && !negative) return "positive";
   if (negative && !positive) return "negative";
   return "neutral";
+}
+
+function renderWriteConflict(conflict: SubAgentWriteConflict): string {
+  return `- ${conflict.path}（${conflict.roles.join(" vs ")}）：${conflict.reason}`;
 }
 
 function renderConflict(conflict: SubAgentConflict): string {

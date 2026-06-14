@@ -19,6 +19,8 @@ const inputSchema = z.object({
   grantedPermissions: z
     .array(z.enum(["read", "write", "shell", "network", "dangerous"]))
     .optional(),
+  /** 多角色 batch 且存在冲突时启用模型仲裁。 */
+  arbitrateConflicts: z.boolean().optional(),
 });
 
 export type DispatchSubagentInput = z.infer<typeof inputSchema>;
@@ -43,6 +45,8 @@ export interface DispatchSubagentOutput {
     failed: number;
     timedOut: number;
     conflicts: Array<{ topic: string; roles: SubAgentRoleId[]; reason: string }>;
+    writeConflicts?: Array<{ path: string; roles: SubAgentRoleId[]; reason: string }>;
+    arbitration?: { applied: boolean; summary: string };
     mergedAnswer: string;
   };
   durationMs: number;
@@ -85,6 +89,7 @@ export const dispatchSubagentTool: Tool<typeof inputSchema, DispatchSubagentOutp
       sensitive,
       grantedPermissions: input.grantedPermissions,
       dispatchDepth: childDepth,
+      arbitrateConflicts: input.arbitrateConflicts,
     };
 
     if (roles.length === 1) {
@@ -117,6 +122,17 @@ export const dispatchSubagentTool: Tool<typeof inputSchema, DispatchSubagentOutp
           roles: c.roles,
           reason: c.reason,
         })),
+        writeConflicts: batch.aggregate.writeConflicts.map((w) => ({
+          path: w.path,
+          roles: w.roles,
+          reason: w.reason,
+        })),
+        arbitration: batch.aggregate.arbitration
+          ? {
+              applied: batch.aggregate.arbitration.applied,
+              summary: batch.aggregate.arbitration.summary,
+            }
+          : undefined,
         mergedAnswer: batch.aggregate.mergedAnswer,
       },
       durationMs: batch.durationMs,

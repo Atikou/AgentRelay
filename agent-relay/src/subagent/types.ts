@@ -62,6 +62,8 @@ export interface SubAgentBatchOptions {
   timeoutMs?: number;
   sensitive?: boolean;
   dispatchDepth?: number;
+  /** 存在文本/写入冲突时调用模型仲裁复核。 */
+  arbitrateConflicts?: boolean;
 }
 
 export interface SubAgentConflict {
@@ -71,6 +73,20 @@ export interface SubAgentConflict {
   reason: string;
 }
 
+/** 多个子 Agent 写入同一文件时检测到的补丁级冲突。 */
+export interface SubAgentWriteConflict {
+  path: string;
+  roles: SubAgentRoleId[];
+  changeIds: string[];
+  reason: string;
+}
+
+export interface SubAgentArbitration {
+  applied: boolean;
+  summary: string;
+  skippedReason?: string;
+}
+
 export interface SubAgentAggregate {
   status: "completed" | "partial" | "conflict" | "failed";
   completed: number;
@@ -78,6 +94,8 @@ export interface SubAgentAggregate {
   timedOut: number;
   commonFindings: string[];
   conflicts: SubAgentConflict[];
+  writeConflicts: SubAgentWriteConflict[];
+  arbitration?: SubAgentArbitration;
   mergedAnswer: string;
 }
 

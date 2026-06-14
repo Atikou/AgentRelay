@@ -1,15 +1,19 @@
 import { randomUUID } from "node:crypto";
 import { performance } from "node:perf_hooks";
 
+import type { LoopChatFn } from "../agent/AgentLoop.js";
+import { arbitrateSubAgentConflicts } from "./SubAgentArbitrator.js";
 import { aggregateSubAgentResultsStructured, SubAgentRunner, type SubAgentRunnerDeps } from "./SubAgentRunner.js";
 import type { SubAgentBatchOptions, SubAgentBatchResult, SubAgentRoleId, SubAgentRunOptions, SubAgentRunResult } from "./types.js";
 
-/** 并行派生多个只读子 Agent 并汇总结果（M5）。 */
+/** 并行派生多个子 Agent 并汇总结果（M5）。 */
 export class SubAgentCoordinator {
   private readonly runner: SubAgentRunner;
+  private readonly chat: LoopChatFn;
 
-  constructor(deps: SubAgentRunnerDeps) {
+  constructor(private readonly deps: SubAgentRunnerDeps) {
     this.runner = new SubAgentRunner(deps);
+    this.chat = deps.chat;
   }
 
   run(options: SubAgentRunOptions): Promise<SubAgentRunResult> {
@@ -40,7 +44,26 @@ export class SubAgentCoordinator {
       ),
     );
 
-    const aggregate = aggregateSubAgentResultsStructured(settled);
+    let aggregate = aggregateSubAgentResultsStructured(settled);
+    if (options.arbitrateConflicts) {
+      const arbitration = await arbitrateSubAgentConflicts(this.chat, {
+        task: options.task,
+        results: settled,
+        textConflicts: aggregate.conflicts,
+        writeConflicts: aggregate.writeConflicts,
+        sensitive: options.sensitive,
+      });
+      if (arbitration.applied) {
+        aggregate = {
+          ...aggregate,
+          arbitration,
+          mergedAnswer: `${aggregate.mergedAnswer}\n\n## 模型仲裁\n${arbitration.summary}`,
+        };
+      } else if (arbitration.skippedReason) {
+        aggregate = { ...aggregate, arbitration };
+      }
+    }
+
     return {
       parentTaskId,
       results: settled,

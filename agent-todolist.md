@@ -90,7 +90,9 @@
 - [x] 子 Agent 拥有独立上下文窗口。（角色 system + 独立 AgentLoop 消息链）
 - [x] 子 Agent 可被限制为只读、执行命令、代码审查、测试运行等角色。（第一版：`code_review` / `test_analyze` 仅 read）
 - [x] 支持并行派生多个子 Agent。（`SubAgentCoordinator.runBatch`）
-- [x] 支持子 Agent 结果汇总、冲突检测和合并。（`aggregate`：共同结论、冲突列表、mergedAnswer；保留 summary）
+- [x] 支持子 Agent 结果汇总、**结论层**冲突检测和合并。（`aggregate`：共同结论、冲突列表、mergedAnswer）
+- [x] 检测多子 Agent **写入同一文件**的补丁级冲突。（`detectWriteConflicts` + `aggregate.writeConflicts`）
+- [x] 支持 **模型仲裁式**冲突复核。（`arbitrateConflicts` on batch / `dispatch_subagent`）
 - [x] 支持子 Agent 超时、取消和失败上报。（超时；显式 cancel 待后续）
 - [x] 子 Agent 不能默认继承全部权限，必须显式授予。（`resolveGrantedPermissions`）
 - [x] 记录父子 Agent 的任务链路和决策过程。（trace `subagent_start/end` + `parentTaskId`）

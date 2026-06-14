@@ -1284,6 +1284,8 @@ export class Orchestrator {
 
       sensitive?: boolean;
 
+      arbitrateConflicts?: boolean;
+
     };
 
     const taskText = (payload.task ?? "").trim();
@@ -1361,6 +1363,8 @@ export class Orchestrator {
         timeoutMs,
 
         sensitive: payload.sensitive,
+
+        arbitrateConflicts: payload.arbitrateConflicts,
 
       });
 

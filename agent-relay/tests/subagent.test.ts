@@ -203,6 +203,87 @@ test("SubAgentCoordinator 并行汇总多个角色", async () => {
   assert.equal(batch.aggregate.conflicts.length, 0);
 });
 
+test("detectWriteConflicts 检测多角色写入同一文件", async () => {
+  const results = [
+    {
+      id: "a",
+      role: "patch_worker" as const,
+      status: "completed" as const,
+      answer: "ok",
+      steps: [
+        {
+          iteration: 1,
+          tool: "write_file",
+          input: { path: "src/foo.ts" },
+          output: { path: "src/foo.ts", changeId: "c1" },
+          ok: true,
+        },
+      ],
+      iterations: 1,
+      durationMs: 10,
+      grantedPermissions: ["read", "write"] as const,
+    },
+    {
+      id: "b",
+      role: "patch_worker" as const,
+      status: "completed" as const,
+      answer: "ok2",
+      steps: [
+        {
+          iteration: 1,
+          tool: "apply_patch",
+          input: { path: "src/foo.ts" },
+          output: { path: "src/foo.ts", changeId: "c2" },
+          ok: true,
+        },
+      ],
+      iterations: 1,
+      durationMs: 12,
+      grantedPermissions: ["read", "write"] as const,
+    },
+  ];
+  const { detectWriteConflicts } = await import("../src/subagent/writeConflictMerge.js");
+  const conflicts = detectWriteConflicts(results);
+  assert.equal(conflicts.length, 1);
+  assert.equal(conflicts[0]!.path, "src/foo.ts");
+  assert.deepEqual(conflicts[0]!.roles, ["patch_worker", "patch_worker"]);
+});
+
+test("runBatch arbitrateConflicts 在文本冲突时附加仲裁摘要", async () => {
+  let chatCalls = 0;
+  const chat: LoopChatFn = async () => {
+    const scripts = [
+      '{"action":"final","answer":"login 模块通过 ok。"}',
+      '{"action":"final","answer":"login 模块失败 error。"}',
+      "建议以 test_analyze 的失败结论为准，并人工复核 login 模块。",
+    ];
+    const content = scripts[chatCalls] ?? scripts[scripts.length - 1]!;
+    chatCalls += 1;
+    return {
+      content,
+      toolCalls: [],
+      clientName: "fake",
+      modelName: "fake",
+      location: "local",
+      latencyMs: 1,
+    };
+  };
+  const coord = new SubAgentCoordinator({
+    chat,
+    registry: createDefaultRegistry(),
+    workspaceRoot: sandbox,
+  });
+  const batch = await coord.runBatch({
+    roles: ["code_review", "test_analyze"],
+    task: "检查 login 模块",
+    arbitrateConflicts: true,
+  });
+  assert.equal(batch.aggregate.status, "conflict");
+  assert.ok(batch.aggregate.arbitration?.applied);
+  assert.match(batch.summary, /模型仲裁/);
+  assert.match(batch.aggregate.arbitration!.summary, /test_analyze|login/);
+});
+
 test("aggregateSubAgentResultsStructured 检测角色冲突并合并摘要", async () => {
   const aggregate = aggregateSubAgentResultsStructured([
     {
