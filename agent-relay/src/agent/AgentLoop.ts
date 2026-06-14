@@ -13,6 +13,8 @@ import { wrapUntrustedToolOutput } from "../util/injection.js";
 import { redactPreview } from "../util/redact.js";
 import { EditAutoVerificationWorkflow } from "./EditAutoVerificationWorkflow.js";
 import { EditExecutionWorkflow } from "./EditExecutionWorkflow.js";
+import { EditWriteWorkflow } from "./EditWriteWorkflow.js";
+import { DebugFixWorkflow } from "./DebugFixWorkflow.js";
 import { EditVerificationWorkflow } from "./EditVerificationWorkflow.js";
 import { WorkflowCorrectionWorkflow } from "./WorkflowCorrectionWorkflow.js";
 import { hasPlanningPhaseArtifacts, resolveWorkflowTaskState } from "./WorkflowTaskState.js";
@@ -22,6 +24,7 @@ import {
   renderWorkflowSwitchContext,
   resolveWorkflowSwitch,
 } from "./WorkflowSessionSwitch.js";
+import { assessWorkflowWriteGate } from "./WorkflowWriteGate.js";
 import {
   buildToolResultLayers,
   clipModelToolJson,
@@ -43,10 +46,12 @@ import {
   type AgentWorkflowDiffRecord,
   type AgentWorkflowProposal,
   type AgentWorkflowCorrectionRecord,
+  type AgentWorkflowDebugFix,
   type AgentWorkflowInternalPlan,
   type AgentWorkflowRefactorPlan,
   type AgentWorkflowSwitch,
   type AgentWorkflowVerificationRecord,
+  type AgentWorkflowWritePhase,
   type LocationExecutionMeta,
   type RunBudget,
   type RunBudgetKey,
@@ -183,7 +188,10 @@ export class AgentLoop {
   private workflowDebugAnalyses: AgentWorkflowDebugAnalysis[] = [];
   private workflowRefactorPlans: AgentWorkflowRefactorPlan[] = [];
   private workflowInternalPlans: AgentWorkflowInternalPlan[] = [];
+  private workflowWritePhases: AgentWorkflowWritePhase[] = [];
+  private workflowDebugFixes: AgentWorkflowDebugFix[] = [];
   private workflowSwitch?: AgentWorkflowSwitch;
+  private pendingWritePhaseContext?: string;
 
   constructor(private readonly options: AgentLoopOptions) {
     this.policy =
@@ -221,7 +229,10 @@ export class AgentLoop {
     this.workflowDebugAnalyses = [];
     this.workflowRefactorPlans = [];
     this.workflowInternalPlans = [];
+    this.workflowWritePhases = [];
+    this.workflowDebugFixes = [];
     this.workflowSwitch = undefined;
+    this.pendingWritePhaseContext = undefined;
     const isResume = Boolean(this.options.resumeState);
     const effectiveGoal = isResume ? this.options.resumeState!.goal : userMessage;
     const ctx = this.options.contextManager;
@@ -419,7 +430,10 @@ export class AgentLoop {
           userMessage: effectiveGoal,
         });
       }
-      const step = await this.runToolAction(action, iteration, toolCallId);
+      const step = await this.runToolAction(action, iteration, toolCallId, {
+        steps,
+        goal: effectiveGoal,
+      });
       steps.push(step);
       this.options.onStep?.(step);
       this.recordToolStepMessages({
@@ -429,7 +443,7 @@ export class AgentLoop {
         goal: effectiveGoal,
         sessionId,
       });
-      const autoVerificationStep = await this.runEditAutoVerification(step, steps, iteration);
+      const autoVerificationStep = await this.runEditAutoVerification(step, steps, iteration, effectiveGoal);
       if (autoVerificationStep) {
         steps.push(autoVerificationStep);
         this.options.onStep?.(autoVerificationStep);
@@ -617,6 +631,7 @@ export class AgentLoop {
     writeStep: AgentToolStep,
     steps: AgentToolStep[],
     iteration: number,
+    goal: string,
   ): Promise<AgentToolStep | undefined> {
     const planned = new EditAutoVerificationWorkflow().run({
       intent: this.policy.intent,
@@ -648,7 +663,19 @@ export class AgentLoop {
       thought: action.thought,
       inputPreview: redactPreview(action.input ?? {}, 500),
     });
-    return await this.runToolAction(action, iteration, toolCallId);
+    return await this.runToolAction(action, iteration, toolCallId, { steps, goal });
+  }
+
+  private buildWritePhaseBlockedContext(goal: string, reason: string): string | undefined {
+    const intent = this.policy.intent;
+    if (!intent) return undefined;
+    if (intent === "edit" || intent === "generate_file") {
+      return new EditWriteWorkflow().renderBlockedContext(goal, intent, reason);
+    }
+    if (intent === "debug") {
+      return new DebugFixWorkflow().renderBlockedContext(goal, reason);
+    }
+    return undefined;
   }
 
   private recordToolStepMessages(input: {
@@ -660,6 +687,23 @@ export class AgentLoop {
   }): void {
     const toolText = this.renderToolResult(input.step);
     input.messages.push({ role: "user", content: toolText });
+    if (input.step.workflowPhaseBlocked) {
+      const blockedContext = this.buildWritePhaseBlockedContext(
+        input.goal,
+        input.step.error ?? "workflow write gate blocked",
+      );
+      if (blockedContext) {
+        input.messages.push({ role: "user", content: blockedContext });
+      }
+    }
+    if (this.pendingWritePhaseContext && input.step.ok) {
+      const writePhaseContext = this.pendingWritePhaseContext;
+      this.pendingWritePhaseContext = undefined;
+      input.messages.push({ role: "user", content: writePhaseContext });
+      if (input.sessionId && this.options.contextManager) {
+        this.options.contextManager.saveToolMessage(input.sessionId, writePhaseContext);
+      }
+    }
     const editExecutionContext = this.buildEditExecutionContext(input.step, input.goal);
     if (editExecutionContext) {
       input.messages.push({ role: "user", content: editExecutionContext });
@@ -675,6 +719,13 @@ export class AgentLoop {
     const ctx = this.options.contextManager;
     if (ctx && input.sessionId) {
       ctx.saveToolMessage(input.sessionId, toolText);
+      if (input.step.workflowPhaseBlocked) {
+        const blockedContext = this.buildWritePhaseBlockedContext(
+          input.goal,
+          input.step.error ?? "workflow write gate blocked",
+        );
+        if (blockedContext) ctx.saveToolMessage(input.sessionId, blockedContext);
+      }
       if (editExecutionContext) {
         ctx.saveToolMessage(input.sessionId, editExecutionContext);
       }
@@ -691,6 +742,7 @@ export class AgentLoop {
     action: ToolAction,
     iteration: number,
     toolCallId: string,
+    ctx: { steps: AgentToolStep[]; goal: string },
   ): Promise<AgentToolStep> {
     const base: AgentToolStep = {
       iteration,
@@ -706,6 +758,52 @@ export class AgentLoop {
       return { ...base, error: `未知工具：${action.tool}` };
     }
     const withPermission = { ...base, permission: tool.permission };
+
+    const writeGate = assessWorkflowWriteGate({
+      intent: this.policy.intent ?? "answer",
+      goal: ctx.goal,
+      tool: action.tool,
+      steps: ctx.steps,
+      hasProposal: this.workflowProposals.length > 0,
+      hasDebugAnalysis: this.workflowDebugAnalyses.length > 0,
+    });
+    if (writeGate.blocked) {
+      const reason = writeGate.reason ?? "workflow write gate blocked";
+      return {
+        ...withPermission,
+        blocked: true,
+        workflowPhaseBlocked: true,
+        error: reason,
+      };
+    }
+    if (
+      !writeGate.blocked &&
+      writeGate.priorWrites === 0 &&
+      (action.tool === "write_file" || action.tool === "apply_patch")
+    ) {
+      const editWrite = new EditWriteWorkflow().run({
+        goal: ctx.goal,
+        intent: this.policy.intent ?? "answer",
+        permissionPolicy: this.policy.permissionPolicy,
+        gate: writeGate,
+        tool: action.tool,
+      });
+      if (editWrite) {
+        this.workflowWritePhases.push(editWrite.record);
+        this.pendingWritePhaseContext = editWrite.modelContext;
+      }
+      const debugFix = new DebugFixWorkflow().run({
+        goal: ctx.goal,
+        intent: this.policy.intent ?? "answer",
+        permissionPolicy: this.policy.permissionPolicy,
+        gate: writeGate,
+        tool: action.tool,
+      });
+      if (debugFix) {
+        this.workflowDebugFixes.push(debugFix.record);
+        this.pendingWritePhaseContext = debugFix.modelContext;
+      }
+    }
 
     const permissionDecision = evaluatePermissionGuard({
       intent: this.policy.intent,
@@ -904,6 +1002,8 @@ export class AgentLoop {
       workflowDiffs: workflowDiffs.length ? workflowDiffs : undefined,
       workflowVerifications: workflowVerifications.length ? workflowVerifications : undefined,
       workflowCorrections: workflowCorrections.length ? workflowCorrections : undefined,
+      workflowWritePhases: this.workflowWritePhases.length ? this.workflowWritePhases : undefined,
+      workflowDebugFixes: this.workflowDebugFixes.length ? this.workflowDebugFixes : undefined,
       budget: this.budget,
       usage,
       budgetExhausted: input.budgetExhausted,

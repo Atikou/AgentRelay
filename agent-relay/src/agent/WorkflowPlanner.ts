@@ -45,7 +45,7 @@ const REFACTOR_UNICODE_RE =
 const CODE_WORK_UNICODE_RE =
   /\u4fee\u6539|\u5b9e\u73b0|\u4fee\u590d|\u6dfb\u52a0|\u91cd\u6784|\u66f4\u65b0|\u7f16\u5199|\u8c03\u6574|fix|implement|refactor|add|update|patch|debug/;
 
-function hasProjectScope(goal: string): boolean {
+export function hasProjectScope(goal: string): boolean {
   const text = goal.toLowerCase();
   return (
     /当前项目|项目|代码|模块|结构|仓库|路由|上下文|工具|日志|配置|todolist|agent|src|docs|tests/.test(
@@ -56,7 +56,7 @@ function hasProjectScope(goal: string): boolean {
   );
 }
 
-function hasTargetHint(goal: string): boolean {
+export function hasTargetHint(goal: string): boolean {
   return (
     /\.[tj]sx?|src\/|模块|文件|函数|类|工具|路由|循环|AgentLoop|ToolRegistry|handler/.test(goal) ||
     TARGET_HINT_UNICODE_RE.test(goal)

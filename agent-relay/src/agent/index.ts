@@ -45,6 +45,24 @@ export {
   type ResolveWorkflowSwitchInput,
 } from "./WorkflowSessionSwitch.js";
 export {
+  assessWorkflowWriteGate,
+  countSuccessfulReadTools,
+  requiresReadBeforeWrite,
+  READ_WORKFLOW_TOOLS,
+  type WorkflowWriteGateInput,
+  type WorkflowWriteGateResult,
+} from "./WorkflowWriteGate.js";
+export {
+  EditWriteWorkflow,
+  type EditWriteWorkflowInput,
+  type EditWriteWorkflowResult,
+} from "./EditWriteWorkflow.js";
+export {
+  DebugFixWorkflow,
+  type DebugFixWorkflowInput,
+  type DebugFixWorkflowResult,
+} from "./DebugFixWorkflow.js";
+export {
   RefactorPlanWorkflow,
   REFACTOR_PLAN_MAX_STAGES,
   type RefactorPlanWorkflowInput,

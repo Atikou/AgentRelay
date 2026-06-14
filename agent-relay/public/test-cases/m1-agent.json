@@ -1333,6 +1333,33 @@
       }
     },
     {
+      "id": "m1-agent-workflow-write-gate-api-spec",
+      "title": "API 规范登记写入阶段门控",
+      "purpose": "确认 OpenAPI 已说明 edit/generate-file 首次写入会经 WorkflowWriteGate 并返回 workflowWritePhases。",
+      "method": "GET",
+      "path": "/api/api-spec.json",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyContains": ["AgentWorkflowWritePhase", "workflowWritePhases", "AgentWorkflowDebugFix", "workflowDebugFixes"]
+      }
+    },
+    {
+      "id": "m1-agent-debug-fix-phase-doc",
+      "title": "对话循环文档记录 debug 修复闭环",
+      "purpose": "确认文档站已说明 DebugFixWorkflow 会在 analysis 就绪后注入 fix phase 并写入 workflowDebugFixes。",
+      "method": "GET",
+      "path": "/api/docs/content?slug=对话循环",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyPaths": {
+          "markdown": "string"
+        },
+        "bodyContains": ["WorkflowWriteGate", "DebugFixWorkflow", "workflowDebugFixes"]
+      }
+    },
+    {
       "id": "m1-agent-workflow-switch-api-spec",
       "title": "API 规范登记会话内工作流切换",
       "purpose": "确认 OpenAPI 已说明同一会话后续消息意图变化时 executionMeta.workflowSwitch 会返回 from/to 工作流记录。",

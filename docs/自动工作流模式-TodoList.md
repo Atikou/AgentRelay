@@ -31,7 +31,7 @@
 - [x] `planWorkflow`：生成内部计划 JSON 与用户可读 Markdown 计划，不直接执行。
   - [x] 用户可读 Markdown 计划通过 `PlanReportWorkflow` 生成并保存为 `UserVisiblePlan`，不可直接执行。
   - [x] 内部计划 JSON 通过 `PlanCompileWorkflow` 从已确认 Todo 编译为 awaiting_approval `InternalTaskPlan` 草案，仍需 approve 后 execute。
-  - [ ] `editWorkflow` / `generateFileWorkflow`：定位文件、生成修改方案、检查权限、执行修改、记录 diff。（真实写入仍由模型常规写工具触发；已具备写后验证与失败修正迭代，后续可继续收敛为更强的工作流闭环。）
+  - [x] `editWorkflow` / `generateFileWorkflow`：定位文件、生成修改方案、检查权限、执行修改、记录 diff。
   - [x] 首轮前只读预定位：`WorkflowPlanner` 按 intent 选择 `edit_locate` / `generate_file_locate`，`WorkflowExecutor` 通过 `PlanWorkflow` 执行 `locate_relevant_files` → `context_pack`。
   - [x] 写入前方案阶段：`EditProposalWorkflow` 注入 `targetFiles` / `changeSummary` / `permissionCheck` / `diffPlan` / `verificationPlan` 约束，要求模型先形成具体修改方案。
   - [x] 方案阶段可审计记录：`executionMeta.workflowProposals` 返回 `workflowType` / `phase` / `permissionPolicy` / `requiredFields` / `writeAllowedByPolicy` / `requiresConfirmationBeforeWrite`。
@@ -41,12 +41,14 @@
   - [x] 自动读回验证：`EditAutoVerificationWorkflow` 在写工具成功且有目标路径时规划只读 `read_file`，由 `AgentLoop` 通过既有权限、预算与工具链自动读回刚写入文件。
   - [x] 验证阶段上下文与记录：`EditVerificationWorkflow` 观察写入后的 `read_file` / `diff_file` / `shell_run` 等验证工具结果，注入 verification phase，并在 `executionMeta.workflowVerifications` 记录验证工具、状态、错误与输出预览。
   - [x] 验证失败后修正迭代与终止条件：`WorkflowCorrectionWorkflow` 按路径统计 attempt（默认最多 2 轮），注入 correction/termination phase，并在 `executionMeta.workflowCorrections` 记录 `limitReached`。
-  - [ ] 将执行修改阶段进一步收敛为 edit/generate-file 工作流闭环（当前写入仍由模型常规写工具触发，并受 PermissionGuard、工具风险与预算约束）。
-  - [ ] `debugWorkflow`：报错分析、定位文件、最小修复、验证失败后继续迭代。（修复写入仍由模型常规工具链触发；已共享 WorkflowCorrectionWorkflow 修正轮次与终止条件。）
+  - [x] 将执行修改阶段进一步收敛为 edit/generate-file 工作流闭环。
+    - [x] `WorkflowWriteGate` + `EditWriteWorkflow`：proposal 未完成或缺少只读上下文时阻塞首次 `write_file`/`apply_patch`；通过后注入 write phase 并写入 `executionMeta.workflowWritePhases`。
+  - [x] `debugWorkflow`：报错分析、定位文件、最小修复、验证失败后继续迭代。
   - [x] 首轮前只读定位：`WorkflowPlanner` 按 debug intent 选择 `debug_locate`，`WorkflowExecutor` 通过 `PlanWorkflow` 执行 `locate_relevant_files` → `context_pack`。
   - [x] 诊断分析阶段：`DebugAnalysisWorkflow` 注入 `errorSummary` / `suspectedFiles` / `rootCauseHypotheses` / `minimalFixPlan` / `verificationPlan` / `riskAndRollback` 约束，并在 `executionMeta.workflowDebugAnalyses` 返回可审计记录。
   - [x] 验证失败后修正迭代与终止条件：与 edit/generate-file 共用 `WorkflowCorrectionWorkflow`（`debugWorkflow` 类型、`executionMeta.workflowCorrections`）。
-  - [ ] 最小修复执行进一步收敛到 debug 工作流闭环（当前仍由模型常规写工具触发）。
+  - [x] 最小修复执行进一步收敛到 debug 工作流闭环。
+    - [x] `WorkflowWriteGate` + `DebugFixWorkflow`：analysis 未完成或缺少只读上下文时阻塞首次修复写入；通过后注入 fix phase 并写入 `executionMeta.workflowDebugFixes`。
 - [x] `refactorWorkflow`：强制先计划，分阶段修改，每阶段尽量可验证。
   - [x] 首轮前只读预扫描：`WorkflowPlanner` 选择 `refactor_locate`（`project_scan` → `locate_relevant_files` → `context_pack`）。
   - [x] 强制计划阶段：`RefactorPlanWorkflow` 注入 `scopeSummary` / `affectedModules` / `stagedChanges` / `perStageVerification` / `riskAndRollback`，并在 `executionMeta.workflowRefactorPlans` 返回可审计记录。
@@ -86,5 +88,5 @@
   - [x] `workflow-correction-workflow` / `refactor-plan-workflow` / `implicit-plan-workflow` / `workflow-session-switch` / `workflow-executor` / `loop` 已覆盖主路径。
 - [x] 更新 OpenAPI、架构文档、对话循环文档和自审核记录。
   - [x] P0–P4 相关文档与 `api-spec.json` 已同步；P2 非阻塞闭环项仍开放。
-- [ ] 完成全部条目后归档到 `docs/completed/`，并保留 stub。
-  - [ ] 待 P2「更强工作流闭环」子项关闭或明确延期后归档。
+  - [ ] 完成全部条目后归档到 `docs/completed/`，并保留 stub。
+  - [x] P2 工作流闭环子项已完成，可进行归档。

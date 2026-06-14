@@ -1785,6 +1785,41 @@
           "sequence": { "type": "integer" }
         }
       },
+      "AgentWorkflowWritePhase": {
+        "type": "object",
+        "description": "edit/generate-file 工作流首次写入阶段审计记录。",
+        "properties": {
+          "workflowType": { "type": "string", "enum": ["editWorkflow", "generateFileWorkflow"] },
+          "phase": { "type": "string", "enum": ["write"] },
+          "goal": { "type": "string" },
+          "intent": { "type": "string", "enum": ["edit", "generate_file"] },
+          "permissionPolicy": {
+            "type": "string",
+            "enum": ["readOnly", "confirmBeforeEdit", "autoEdit", "confirmBeforeRun", "autoRun"]
+          },
+          "writeTool": { "type": "string", "enum": ["write_file", "apply_patch"] },
+          "proposalReady": { "type": "boolean" },
+          "readToolsBeforeWrite": { "type": "integer" },
+          "gated": { "type": "boolean", "enum": [true] }
+        }
+      },
+      "AgentWorkflowDebugFix": {
+        "type": "object",
+        "description": "debugWorkflow 首次最小修复写入阶段审计记录。",
+        "properties": {
+          "workflowType": { "type": "string", "enum": ["debugWorkflow"] },
+          "phase": { "type": "string", "enum": ["fix"] },
+          "goal": { "type": "string" },
+          "permissionPolicy": {
+            "type": "string",
+            "enum": ["readOnly", "confirmBeforeEdit", "autoEdit", "confirmBeforeRun", "autoRun"]
+          },
+          "writeTool": { "type": "string", "enum": ["write_file", "apply_patch"] },
+          "analysisReady": { "type": "boolean" },
+          "readToolsBeforeWrite": { "type": "integer" },
+          "gated": { "type": "boolean", "enum": [true] }
+        }
+      },
       "AgentWorkflowDiffRecord": {
         "type": "object",
         "description": "write_file/apply_patch 成功执行后的写入审计摘要，来自工具原始输出，用于记录 path/changeId/hash/diff；diff 可能被截断。",
@@ -1879,6 +1914,16 @@
           "workflowSwitch": {
             "$ref": "#/components/schemas/AgentWorkflowSwitch",
             "description": "同一会话后续消息意图变化时返回的工作流切换记录。"
+          },
+          "workflowWritePhases": {
+            "type": "array",
+            "description": "edit/generate-file 工作流首次写入阶段记录。",
+            "items": { "$ref": "#/components/schemas/AgentWorkflowWritePhase" }
+          },
+          "workflowDebugFixes": {
+            "type": "array",
+            "description": "debugWorkflow 首次最小修复写入阶段记录。",
+            "items": { "$ref": "#/components/schemas/AgentWorkflowDebugFix" }
           },
           "workflowDiffs": {
             "type": "array",

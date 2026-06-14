@@ -18,6 +18,8 @@ export interface AgentToolStep {
   error?: string;
   durationMs?: number;
   blocked?: boolean;
+  /** 工作流阶段门控阻塞（proposal/analysis 未完成时尝试写入）。 */
+  workflowPhaseBlocked?: boolean;
   /** 结构化风险（确认门阻塞 / 策略拒绝时填充）。 */
   risk?: StructuredToolRisk;
   /** 结构化确认/拒绝说明，供 UI、SSE 与审计展示。 */

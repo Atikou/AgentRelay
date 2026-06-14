@@ -141,6 +141,29 @@ export interface AgentWorkflowDebugAnalysis {
   requiresConfirmationBeforeWrite: boolean;
 }
 
+export interface AgentWorkflowWritePhase {
+  workflowType: Extract<AgentWorkflowType, "editWorkflow" | "generateFileWorkflow">;
+  phase: "write";
+  goal: string;
+  intent: Extract<AgentIntentType, "edit" | "generate_file">;
+  permissionPolicy: UserPermissionPolicy;
+  writeTool: "write_file" | "apply_patch";
+  proposalReady: boolean;
+  readToolsBeforeWrite: number;
+  gated: true;
+}
+
+export interface AgentWorkflowDebugFix {
+  workflowType: Extract<AgentWorkflowType, "debugWorkflow">;
+  phase: "fix";
+  goal: string;
+  permissionPolicy: UserPermissionPolicy;
+  writeTool: "write_file" | "apply_patch";
+  analysisReady: boolean;
+  readToolsBeforeWrite: number;
+  gated: true;
+}
+
 export interface AgentWorkflowRefactorPlan {
   workflowType: Extract<AgentWorkflowType, "refactorWorkflow">;
   phase: "plan";
@@ -198,6 +221,8 @@ export interface AgentExecutionMeta {
   workflowDiffs?: AgentWorkflowDiffRecord[];
   workflowVerifications?: AgentWorkflowVerificationRecord[];
   workflowCorrections?: AgentWorkflowCorrectionRecord[];
+  workflowWritePhases?: AgentWorkflowWritePhase[];
+  workflowDebugFixes?: AgentWorkflowDebugFix[];
   workflowDebugAnalyses?: AgentWorkflowDebugAnalysis[];
   workflowRefactorPlans?: AgentWorkflowRefactorPlan[];
   workflowInternalPlans?: AgentWorkflowInternalPlan[];

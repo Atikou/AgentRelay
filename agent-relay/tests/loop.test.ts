@@ -91,11 +91,17 @@ test("开启自动确认时写工具可执行", async () => {
     registry: createDefaultRegistry(),
     workspaceRoot: sandbox,
     autoConfirm: true,
+    policy: resolveRunPolicy({
+      message: "新建文件",
+      requestedPermissionPolicy: "autoEdit",
+    }),
   });
   const res = await loop.run("新建文件");
   assert.equal(res.steps[0]!.ok, true);
   assert.equal(await fs.readFile(path.join(sandbox, "w.txt"), "utf-8"), "hello");
   assert.equal(res.executionMeta.workflowDiffs?.length, 1);
+  assert.equal(res.executionMeta.workflowWritePhases?.length, 1);
+  assert.equal(res.executionMeta.workflowWritePhases?.[0]?.phase, "write");
   assert.equal(res.executionMeta.workflowDiffs?.[0]?.tool, "write_file");
   assert.equal(res.executionMeta.workflowDiffs?.[0]?.path, "w.txt");
   assert.ok(res.executionMeta.workflowDiffs?.[0]?.changeId);
@@ -617,6 +623,29 @@ test("session auto-switches workflow from answer to edit on follow-up message", 
   assert.equal(editRes.executionMeta.workflowSwitch?.fromIntent, "answer");
   assert.equal(editRes.executionMeta.workflowSwitch?.toIntent, "edit");
   assert.match(followUpPrompt, /Workflow switched within session/);
+});
+
+test("editWorkflow blocks first write when proposal prerequisites are incomplete", async () => {
+  const chat = scriptedChat([
+    '{"action":"tool","tool":"write_file","input":{"path":"x.txt","content":"bad"},"thought":"skip reads"}',
+    '{"action":"final","answer":"已停止写入"}',
+  ]);
+  const policy = resolveRunPolicy({
+    message: "修改 x.txt 内容为 hello",
+    requestedPermissionPolicy: "autoEdit",
+  });
+  const loop = new AgentLoop({
+    chat,
+    registry: createDefaultRegistry(),
+    workspaceRoot: sandbox,
+    policy,
+  });
+  const res = await loop.run("修改 x.txt 内容为 hello");
+
+  assert.equal(res.executionMeta.intent, "edit");
+  assert.equal(res.steps[0]?.blocked, true);
+  assert.equal(res.steps[0]?.workflowPhaseBlocked, true);
+  assert.equal(res.executionMeta.workflowWritePhases?.length, undefined);
 });
 
 test("editWorkflow injects execution phase after write tool succeeds", async () => {
