@@ -2,44 +2,34 @@
   "milestone": "M5",
   "feature": "子 Agent",
   "featureId": "m5-subagent",
-  "summary": "验证只读子 Agent 角色列表、参数校验与权限边界（运行单条需模型，此处不测成功路径）。",
+  "summary": "验证 DelegatedTask 子 Agent 参数校验、batch aggregate 与权限边界（运行成功路径需模型）。",
   "cases": [
     {
-      "id": "m5-roles-list",
-      "title": "子 Agent 角色列表含三个角色",
-      "purpose": "确认 GET /api/subagent/roles 暴露 code_review、test_analyze 与 patch_worker。",
+      "id": "m5-roles-removed",
+      "title": "旧 roles 端点已移除",
+      "purpose": "确认 GET /api/subagent/roles 不再存在（无角色兼容层）。",
       "method": "GET",
       "path": "/api/subagent/roles",
       "input": null,
-      "expect": {
-        "status": 200,
-        "bodyHasKeys": ["roles"],
-        "bodyPaths": { "roles.length": 3 }
-      }
+      "expect": { "status": 404 }
     },
     {
       "id": "m5-run-empty-task",
-      "title": "空 task 返回 400",
-      "purpose": "确认子 Agent 运行入口拒绝空任务，避免无意义模型调用。",
+      "title": "缺 goal 的 DelegatedTask 返回 400",
+      "purpose": "确认子 Agent 运行入口拒绝无 goal 的 task 对象。",
       "method": "POST",
       "path": "/api/subagent/run",
-      "input": { "role": "code_review", "task": "" },
-      "expect": {
-        "status": 400,
-        "bodyHasKeys": ["error"]
-      }
+      "input": { "task": { "instructions": "only instructions" } },
+      "expect": { "status": 400, "bodyHasKeys": ["error"] }
     },
     {
-      "id": "m5-batch-empty-roles",
-      "title": "batch 空 roles 返回 400",
-      "purpose": "确认并行派生必须指定至少一个角色。",
+      "id": "m5-batch-empty-tasks",
+      "title": "batch 空 tasks 返回 400",
+      "purpose": "确认并行委派必须指定至少一个 DelegatedTask。",
       "method": "POST",
       "path": "/api/subagent/batch",
-      "input": { "task": "检查代码", "roles": [] },
-      "expect": {
-        "status": 400,
-        "bodyHasKeys": ["error"]
-      }
+      "input": { "tasks": [] },
+      "expect": { "status": 400, "bodyHasKeys": ["error"] }
     },
     {
       "id": "m5-batch-aggregate-contract",
@@ -48,8 +38,10 @@
       "method": "POST",
       "path": "/api/subagent/batch",
       "input": {
-        "roles": ["code_review", "test_analyze"],
-        "task": "检查 README.md 的风险",
+        "tasks": [
+          { "goal": "检查 README.md 的风险", "instructions": "只读审查" },
+          { "goal": "分析 README.md 测试相关风险", "instructions": "只读分析" }
+        ],
         "timeoutMs": 120000
       },
       "expect": {
@@ -63,14 +55,54 @@
       }
     },
     {
+      "id": "m5-batch-three-general-tasks",
+      "title": "batch 支持三个通用独立子任务",
+      "purpose": "确认非工程类子 Agent 可按三个 DelegatedTask 并行执行，不依赖固定角色或项目文件定位。",
+      "method": "POST",
+      "path": "/api/subagent/batch",
+      "input": {
+        "tasks": [
+          { "goal": "从学习角度提出一个每日自我提升建议", "instructions": "只输出一个可执行建议", "toolPolicy": { "allowedTools": [] } },
+          { "goal": "从健康角度提出一个每日自我提升建议", "instructions": "只输出一个可执行建议", "toolPolicy": { "allowedTools": [] } },
+          { "goal": "从复盘角度提出一个每日自我提升建议", "instructions": "只输出一个可执行建议", "toolPolicy": { "allowedTools": [] } }
+        ],
+        "timeoutMs": 120000
+      },
+      "expect": {
+        "status": 200,
+        "bodyPaths": {
+          "results": "array",
+          "aggregate.mergedAnswer": "string"
+        }
+      }
+    },
+    {
+      "id": "m5-dispatch-roles-rejected",
+      "title": "旧 roles/task 参数被拒绝",
+      "purpose": "确认 dispatch_subagent 不再兼容旧角色架构，模型错传 roles 或 task 字符串时必须按 tasks[] 重新构造。",
+      "method": "POST",
+      "path": "/api/agent",
+      "input": {
+        "message": "调用旧 roles 子 Agent",
+        "system": "只输出 JSON 工具调用：{\"action\":\"tool\",\"tool\":\"dispatch_subagent\",\"input\":{\"roles\":[\"patch_worker\",\"code_review\"],\"task\":\"旧角色调用\"},\"thought\":\"test\"}",
+        "mode": "chat"
+      },
+      "expect": {
+        "status": 200,
+        "bodyContains": ["roles", "tasks", "final"]
+      }
+    },
+    {
       "id": "m5-batch-conflict-fields",
       "title": "aggregate 暴露冲突检测字段",
       "purpose": "确认 aggregate 至少包含 status/commonFindings/conflicts，供测试台和父 Agent 判断是否需要人工复核。",
       "method": "POST",
       "path": "/api/subagent/batch",
       "input": {
-        "roles": ["code_review", "test_analyze"],
-        "task": "分别审查当前改动是否存在相反结论",
+        "tasks": [
+          { "goal": "审查当前改动风险", "instructions": "只读" },
+          { "goal": "从测试角度审查当前改动", "instructions": "只读" }
+        ],
         "timeoutMs": 120000
       },
       "expect": {
@@ -90,9 +122,12 @@
       "method": "POST",
       "path": "/api/subagent/run",
       "input": {
-        "role": "code_review",
-        "task": "x",
-        "grantedPermissions": ["write"]
+        "task": {
+          "goal": "审查 src/x.ts",
+          "instructions": "只读",
+          "toolPolicy": { "writeAllowed": true, "requireApproval": true }
+        },
+        "grantedPermissions": ["read"]
       },
       "expect": {
         "status": 400,
@@ -119,7 +154,10 @@
       "purpose": "确认子 Agent 显式 clientName 校验不受 Smart 路由影响。",
       "method": "POST",
       "path": "/api/subagent/run",
-      "input": { "role": "code_review", "task": "review", "clientName": "missing" },
+      "input": {
+        "task": { "goal": "review src/foo.ts", "instructions": "只读" },
+        "clientName": "missing"
+      },
       "expect": {
         "status": 404,
         "bodyHasKeys": ["error"]
@@ -150,18 +188,6 @@
           "markdown": "string"
         },
         "bodyContains": ["dispatch_subagent", "子 Agent"]
-      }
-    },
-    {
-      "id": "m5-roles-include-patch-worker",
-      "title": "GET /api/subagent/roles 含 patch_worker",
-      "purpose": "确认写权限子 Agent 角色 patch_worker 已暴露且 allowedPermissions 含 read+write。",
-      "method": "GET",
-      "path": "/api/subagent/roles",
-      "input": null,
-      "expect": {
-        "status": 200,
-        "bodyContains": ["patch_worker", "read", "write"]
       }
     },
     {
@@ -228,6 +254,18 @@
       }
     },
     {
+      "id": "m5-api-spec-model-policy-capabilities",
+      "title": "api-spec 暴露 DelegatedTask 模型能力约束",
+      "purpose": "确认 DelegatedTask.modelPolicy 可显式声明 requiredCapabilities，通用子任务无需默认代码能力，工程子任务可显式要求。",
+      "method": "GET",
+      "path": "/api/api-spec",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyContains": ["requiredCapabilities", "tool_use", "long_context"]
+      }
+    },
+    {
       "id": "m5-subagent-cancel-missing-id",
       "title": "cancel 缺少 subAgentId 返回 400",
       "purpose": "确认显式取消入口校验 subAgentId，避免误操作。",
@@ -277,14 +315,50 @@
     },
     {
       "id": "m5-dispatch-input-normalization-doc",
-      "title": "dispatch_subagent 文档记录错参归一化",
-      "purpose": "确认文档说明 dispatch_subagent 会归一化 task 数组、空对象 context、角色别名和 null 选项，降低模型工具调用错误。",
+      "title": "dispatch_subagent 文档记录旧角色拒绝",
+      "purpose": "确认文档说明 dispatch_subagent 只接受 tasks: DelegatedTask[]，旧 roles/task 字符串和固定角色名已移除。",
       "method": "GET",
       "path": "/api/docs/content?slug=子Agent",
       "input": null,
       "expect": {
         "status": 200,
-        "bodyContains": ["归一化", "task", "context", "writeFilePickStrategy"]
+        "bodyContains": ["tasks", "DelegatedTask", "roles", "固定角色"]
+      }
+    },
+    {
+      "id": "m5-delegated-task-doc",
+      "title": "子 Agent 文档记录 DelegatedTask 与 ExecutionRouter",
+      "purpose": "确认文档以 DelegatedTask 为主路径，无角色列表。",
+      "method": "GET",
+      "path": "/api/docs/content?slug=子Agent",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyContains": ["DelegatedTask", "ExecutionRouter", "createDelegatedTaskChatFn"]
+      }
+    },
+    {
+      "id": "m5-task-split-doc",
+      "title": "子 Agent 文档记录大任务拆小与干净上下文",
+      "purpose": "确认文档以通用子任务工具定位，强调拆分子任务、干净上下文与结构化回收。",
+      "method": "GET",
+      "path": "/api/docs/content?slug=子Agent",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyContains": ["大任务拆小", "干净上下文", "结构化结果", "TaskSplitter"]
+      }
+    },
+    {
+      "id": "m5-agentloop-delegate-hint-doc",
+      "title": "对话循环文档记录委派子任务约定",
+      "purpose": "确认对话循环文档说明 dispatch_subagent 用于可拆分的子步骤，子 Agent 只回收结果。",
+      "method": "GET",
+      "path": "/api/docs/content?slug=对话循环",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyContains": ["dispatch_subagent", "DelegatedTask", "干净上下文"]
       }
     },
     {

@@ -2,6 +2,7 @@ import {
   listProfilesForRole,
   resolveRoleRequirements,
 } from "./model-capabilities.js";
+import type { ModelAvailabilityRegistry } from "./model-availability.js";
 import type { ModelProfile, RuleRouteResult } from "./types.js";
 
 const COST_ORDER: Record<ModelProfile["relativeCost"], number> = {
@@ -37,8 +38,15 @@ function sortReview(a: ModelProfile, b: ModelProfile, requiredLevel: number): nu
   return sortPrimary(a, b, requiredLevel);
 }
 
+export interface ModelRegistryOptions {
+  availability?: ModelAvailabilityRegistry;
+}
+
 export class ModelRegistry {
-  constructor(private profiles: ModelProfile[]) {}
+  constructor(
+    private profiles: ModelProfile[],
+    private readonly options: ModelRegistryOptions = {},
+  ) {}
 
   /** 替换全部 profile（ModelProfileStore.reload 使用，保持 registry 引用不变）。 */
   replaceAll(profiles: ModelProfile[]): void {
@@ -47,7 +55,7 @@ export class ModelRegistry {
 
   listEnabled(localOnly?: boolean): ModelProfile[] {
     return this.profiles.filter(
-      (p) => p.enabled && (!localOnly || p.provider === "local"),
+      (p) => p.enabled && (!localOnly || p.provider === "local") && (this.options.availability?.isAllowed(p.id) ?? true),
     );
   }
 

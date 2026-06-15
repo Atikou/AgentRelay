@@ -9,6 +9,11 @@ export async function modelsCheck(app: AppContext) {
   const entries = app.config.models.clients.map(async (c) => {
     const client = app.clientMap.get(c.name)!;
     const available = await client.isAvailable();
+    if (available) {
+      app.modelAvailability.markAvailable(c.name);
+    } else {
+      app.modelAvailability.markUnavailable(c.name, "modelsCheck returned false");
+    }
     return { name: c.name, provider: c.provider, location: c.location, model: c.model, available };
   });
   return Promise.all(entries);

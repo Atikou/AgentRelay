@@ -127,7 +127,7 @@ export interface AgentLoopOptions {
   allowedPermissions?: ToolPermission[];
   /** 项目级权限上限（来自 config.security.permissions）。 */
   projectAllowedPermissions?: ToolPermission[];
-  /** 子 Agent 角色上限（仅子 Agent 路径传入）。 */
+  /** 子 Agent toolPolicy 推导的权限上限（仅子 Agent 路径传入）。 */
   roleAllowedPermissions?: ToolPermission[];
   /** 当前子 Agent 派生深度（主 Agent 为 0）。 */
   subAgentDispatchDepth?: number;
@@ -225,7 +225,7 @@ export class AgentLoop {
       modeAllowed: this.policy.allowedPermissions,
       modeSource: `run.mode=${this.policy.mode}`,
       roleAllowed: options.roleAllowedPermissions,
-      roleSource: options.roleAllowedPermissions ? "subagent.role" : undefined,
+      roleSource: options.roleAllowedPermissions ? "subagent.toolPolicy" : undefined,
       userGranted: options.allowedPermissions,
       userSource: "agent.allowedPermissions",
       strictUserGrant: options.allowedPermissions != null,
@@ -1187,19 +1187,18 @@ export class AgentLoop {
     if (error.includes("invalid_input")) {
       return [
         `工具「${step.tool}」执行失败：${error}。`,
-        "dispatch_subagent 参数必须遵守：roles 只能是 code_review / test_analyze / patch_worker；task 必须是字符串；context 必须是字符串；writeFilePickStrategy 只能省略或填写 latest / earliest / arbitration。",
-        "不要使用 plan、time_scheduling 等自造角色；只读分析任务使用 code_review / test_analyze。",
+        "dispatch_subagent 参数须为 tasks: DelegatedTask[]，每项含 goal；写操作须 toolPolicy.writeAllowed 且 grantedPermissions 含 write。",
+        "不要使用 roles/role/task 字符串，也不要使用 patch_worker/code_review/test_analyze 等固定角色；需要多个子 Agent 时请传多个 tasks。",
         "如果已经拿到足够子 Agent 结论，请直接输出 final。",
       ].join("\n");
     }
     if (error.includes("grantedPermissions 须包含 write")) {
       return [
         `工具「${step.tool}」执行失败：${error}。`,
-        "patch_worker 是写权限角色，只能在确实需要改文件时使用，并且 grantedPermissions 必须包含 write。",
-        "当前若只是分析/规划，请移除 patch_worker，改用 code_review / test_analyze，并在已有结果足够时直接输出 final。",
+        "写权限子任务须 toolPolicy.writeAllowed=true 且 grantedPermissions 含 write。若只是分析，请设置 writeAllowed=false。",
       ].join("\n");
     }
-    return `工具「${step.tool}」执行失败：${error}。请修正 roles/task/context/grantedPermissions 后再决定下一步；如果已有足够结果，请直接输出 final。`;
+    return `工具「${step.tool}」执行失败：${error}。请修正 tasks 参数后再决定下一步；如果已有足够结果，请直接输出 final。`;
   }
 
   private buildSystemPrompt(extra?: string): string {
@@ -1225,9 +1224,11 @@ export class AgentLoop {
       "4. 一次只能调用一个工具；根据工具返回结果再决定下一步。",
       "5. 不要臆测文件内容或命令输出，先用工具查看再下结论。",
       "6. tool 字段只能填写上方“可用工具”列表中逐字出现的工具名；不要调用内部流程名或编排类名。",
-      "7. 需要专项代码审查或测试分析视角时，使用 dispatch_subagent 派生只读子 Agent（roles: code_review / test_analyze）；子 Agent 结果在工具返回的 summary 与 aggregate 中。",
-      "8. 需要查找相关文件时，优先使用 project_scan / symbol_search / locate_relevant_files / context_pack；写入文件后可用 project_index_update 增量刷新索引；避免连续用 list_files、search_text、read_file 逐个试探。",
-      "9. 已知类名/函数名时优先 symbol_search；locate_relevant_files 已返回 primaryFiles 时，优先用 context_pack 打包这些文件，再分析或修改。",
+      "7. 大任务可拆成若干可独立推进的小步骤时，使用 dispatch_subagent；子 Agent 是独立任务执行单元，接收目标、约束、最小上下文和可用工具，独立分析/搜索/编辑/验证，并以结构化结果返回，由你判断采纳并汇总。",
+      "8. dispatch_subagent 只能传 tasks: DelegatedTask[]，不要传 roles、role、task 字符串或 patch_worker/code_review/test_analyze 之类固定角色。用户明确要求 N 个子 Agent 时，优先一次传入 N 个独立 tasks，每个 task 都要有不同 goal/instructions。",
+      "9. 非工程/非文件任务的子 Agent 默认不要读取项目文件，toolPolicy.allowedTools 可设为空数组或只读工具；只有用户任务明确涉及当前项目、代码、文件、测试或命令时，才使用 locate_relevant_files/context_pack/read_file 等项目工具。",
+      "10. 需要查找相关文件时，优先使用 project_scan / symbol_search / locate_relevant_files / context_pack；写入文件后可用 project_index_update 增量刷新索引；避免连续用 list_files、search_text、read_file 逐个试探。",
+      "11. 已知类名/函数名时优先 symbol_search；locate_relevant_files 已返回 primaryFiles 时，优先用 context_pack 打包这些文件，再分析或修改。",
       this.policy.systemHint,
       extra ? `\n补充要求：${extra}` : "",
     ].join("\n");

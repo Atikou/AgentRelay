@@ -173,7 +173,7 @@ async function attemptPickWriteFileVersion(
     status: "merged",
     changeId,
     pickedChangeId: picked.candidate.changeId,
-    pickedRole: picked.candidate.role,
+    pickedTaskId: picked.candidate.taskId,
     pickStrategy: picked.strategy,
     reason: `write_file 选版：${picked.reason}`,
     appliedPatches: 0,
@@ -285,7 +285,7 @@ export function formatWriteMergeSummary(attempts: SubAgentWriteMergeAttempt[]): 
     const changeHint = attempt.changeId ? ` → changeId=${attempt.changeId}` : "";
     const pickHint =
       attempt.pickedChangeId != null
-        ? `（源 changeId=${attempt.pickedChangeId}${attempt.pickedRole ? `，${attempt.pickedRole}` : ""}）`
+        ? `（源 changeId=${attempt.pickedChangeId}${attempt.pickedTaskId ? `，task=${attempt.pickedTaskId.slice(0, 8)}` : ""}）`
         : "";
     lines.push(`- **${attempt.path}**（${tag}）：${attempt.reason}${pickHint}${changeHint}`);
   }

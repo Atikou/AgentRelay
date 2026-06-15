@@ -85,7 +85,8 @@ npm run docs:screenshots # 用无头浏览器截图到 docs/assets/
 - [工具系统](工具系统.md)：工具协议、内置工具、权限/风险/沙箱安全机制与 HTTP 接口。
 - [对话循环](对话循环.md)：M1 自主对话循环（ReAct JSON 协议、工具调用闭环、安全边界）。
 - [后台任务与通知队列](后台任务与通知队列.md)：M4 长时间命令后台运行、完成通知与安全点消费。
-- [子 Agent](子Agent.md)：M5 只读子 Agent 角色、派生、权限与汇总。
+- [子 Agent](子Agent.md)：M5 子任务委派（大任务拆小、干净上下文、结构化结果回收）。
+- [子 Agent 动态路由修正 TodoList](子Agent动态路由修正-TodoList.md)：按 `sub_agent_dynamic_routing_fix.md` 落地的修正清单（P0–P3 已完成）。
 - [上下文压缩与持久化](上下文压缩与持久化.md)：M6 SQLite + FTS5 + LanceDB、摘要压缩与会话恢复。
 - [安全与审计](安全与审计.md)：M7 日志脱敏、工具审计 trace、导出 API。
 - [数据生命周期与清理](数据生命周期与清理.md)：存储用量、清理预览/安全清理、会话删除联动与 retention 策略。

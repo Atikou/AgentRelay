@@ -1251,28 +1251,6 @@
         }
       }
     },
-    "/api/subagent/roles": {
-      "get": {
-        "tags": ["子 Agent"],
-        "summary": "列出子 Agent 角色",
-        "operationId": "listSubAgentRoles",
-        "responses": {
-          "200": {
-            "description": "角色定义",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "roles": { "type": "array", "items": { "type": "object", "additionalProperties": true } }
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/api/subagent/run": {
       "post": {
         "tags": ["子 Agent"],
@@ -2856,15 +2834,68 @@
           "cronMissPolicy": { "type": "string", "enum": ["skip", "run_once"] }
         }
       },
+      "DelegatedTask": {
+        "type": "object",
+        "required": ["goal"],
+        "properties": {
+          "id": { "type": "string" },
+          "goal": { "type": "string" },
+          "instructions": { "type": "string" },
+          "input": { "type": "string" },
+          "context": {
+            "type": "object",
+            "properties": {
+              "files": { "type": "array", "items": { "type": "string" } },
+              "snippets": { "type": "array", "items": { "type": "string" } },
+              "logs": { "type": "array", "items": { "type": "string" } },
+              "previousResults": { "type": "array", "items": { "type": "string" } },
+              "projectFacts": { "type": "array", "items": { "type": "string" } }
+            }
+          },
+          "limits": {
+            "type": "object",
+            "properties": {
+              "maxIterations": { "type": "integer" },
+              "maxToolCalls": { "type": "integer" },
+              "maxFiles": { "type": "integer" },
+              "maxTokens": { "type": "integer" },
+              "maxRuntimeMs": { "type": "integer" }
+            }
+          },
+          "toolPolicy": {
+            "type": "object",
+            "properties": {
+              "allowedTools": { "type": "array", "items": { "type": "string" } },
+              "writeAllowed": { "type": "boolean" },
+              "shellAllowed": { "type": "boolean" },
+              "requireApproval": { "type": "boolean" }
+            }
+          },
+          "modelPolicy": {
+            "type": "object",
+            "properties": {
+              "prefer": { "type": "string", "enum": ["local", "remote", "auto"] },
+              "allowRemoteEscalation": { "type": "boolean" },
+              "requiredCapabilities": {
+                "type": "array",
+                "items": { "type": "string", "enum": ["reasoning", "code", "vision", "summary", "tool_use", "long_context"] }
+              },
+              "minQuality": { "type": "string", "enum": ["fast", "balanced", "strong"] }
+            }
+          }
+        }
+      },
       "SubAgentRunRequest": {
         "type": "object",
-        "required": ["role", "task"],
+        "required": ["task"],
         "properties": {
-          "role": { "type": "string", "enum": ["code_review", "test_analyze"] },
-          "task": { "type": "string" },
+          "task": { "$ref": "#/components/schemas/DelegatedTask" },
+          "parentTaskId": { "type": "string" },
+          "grantedPermissions": { "type": "array", "items": { "type": "string" } },
           "sensitive": { "type": "boolean" },
           "budget": { "$ref": "#/components/schemas/RunBudget" },
-          "timeoutMs": { "type": "integer" }
+          "timeoutMs": { "type": "integer" },
+          "clientName": { "type": "string" }
         }
       },
       "SubAgentCancelRequest": {
@@ -2878,7 +2909,7 @@
         "type": "object",
         "properties": {
           "subAgentId": { "type": "string" },
-          "role": { "type": "string", "enum": ["code_review", "test_analyze", "patch_worker"] },
+          "goal": { "type": "string" },
           "parentTaskId": { "type": "string" },
           "startedAt": { "type": "string", "format": "date-time" }
         }
@@ -2887,7 +2918,7 @@
         "type": "object",
         "properties": {
           "subAgentId": { "type": "string" },
-          "role": { "type": "string", "enum": ["code_review", "test_analyze", "patch_worker"] },
+          "goal": { "type": "string" },
           "parentTaskId": { "type": "string" },
           "startedAt": { "type": "string", "format": "date-time" },
           "status": { "type": "string", "enum": ["cancelling"] }
@@ -2895,11 +2926,9 @@
       },
       "SubAgentBatchRequest": {
         "type": "object",
-        "required": ["roles", "task"],
+        "required": ["tasks"],
         "properties": {
-          "roles": { "type": "array", "items": { "type": "string", "enum": ["code_review", "test_analyze", "patch_worker"] } },
-          "task": { "type": "string" },
-          "context": { "type": "string" },
+          "tasks": { "type": "array", "items": { "$ref": "#/components/schemas/DelegatedTask" }, "minItems": 1, "maxItems": 3 },
           "parentTaskId": { "type": "string" },
           "grantedPermissions": { "type": "array", "items": { "type": "string" } },
           "budget": { "$ref": "#/components/schemas/RunBudget" },
@@ -2911,21 +2940,23 @@
             "type": "string",
             "enum": ["latest", "earliest", "arbitration"],
             "description": "write_file 全量覆盖冲突选版策略，默认 arbitration"
-          }
+          },
+          "clientName": { "type": "string" }
         }
       },
       "SubAgentConflict": {
         "type": "object",
         "properties": {
           "topic": { "type": "string" },
-          "roles": { "type": "array", "items": { "type": "string", "enum": ["code_review", "test_analyze", "patch_worker"] } },
+          "taskIds": { "type": "array", "items": { "type": "string" } },
           "reason": { "type": "string" },
           "excerpts": {
             "type": "array",
             "items": {
               "type": "object",
               "properties": {
-                "role": { "type": "string", "enum": ["code_review", "test_analyze"] },
+                "taskId": { "type": "string" },
+                "goal": { "type": "string" },
                 "text": { "type": "string" }
               }
             }
@@ -2936,7 +2967,7 @@
         "type": "object",
         "properties": {
           "path": { "type": "string" },
-          "roles": { "type": "array", "items": { "type": "string", "enum": ["code_review", "test_analyze", "patch_worker"] } },
+          "taskIds": { "type": "array", "items": { "type": "string" } },
           "changeIds": { "type": "array", "items": { "type": "string" } },
           "reason": { "type": "string" }
         }
@@ -2951,7 +2982,7 @@
           "appliedPatches": { "type": "integer" },
           "pickStrategy": { "type": "string", "enum": ["latest", "earliest", "arbitration"] },
           "pickedChangeId": { "type": "string" },
-          "pickedRole": { "type": "string", "enum": ["code_review", "test_analyze", "patch_worker"] }
+          "pickedTaskId": { "type": "string" }
         }
       },
       "SubAgentArbitration": {

@@ -126,15 +126,46 @@ function clearWelcome() {
   feed.querySelectorAll(".welcome, .home-page, .test-page-shell").forEach((el) => el.remove());
 }
 
+function parseTimestamp(value) {
+  if (value == null || value === "") return null;
+  if (value instanceof Date) return Number.isNaN(value.getTime()) ? null : value;
+  if (typeof value === "number" && Number.isFinite(value)) {
+    const ms = value < 1e12 ? value * 1000 : value;
+    const d = new Date(ms);
+    return Number.isNaN(d.getTime()) ? null : d;
+  }
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+    if (/^\d+$/.test(trimmed)) {
+      const n = Number(trimmed);
+      const ms = n < 1e12 ? n * 1000 : n;
+      const d = new Date(ms);
+      return Number.isNaN(d.getTime()) ? null : d;
+    }
+    // 无时区后缀的 SQLite/服务端 UTC 文本 → 按 UTC 解析后再转本地显示
+    if (/^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}(\.\d+)?$/.test(trimmed)) {
+      const d = new Date(`${trimmed.replace(" ", "T")}Z`);
+      if (!Number.isNaN(d.getTime())) return d;
+    }
+    const d = new Date(trimmed);
+    return Number.isNaN(d.getTime()) ? null : d;
+  }
+  return null;
+}
+
+/** 将服务端时间戳格式化为浏览器当前系统时区的本地时间。 */
 function formatDateTime(value) {
-  if (!value) return "-";
-  const d = new Date(value);
-  if (Number.isNaN(d.getTime())) return String(value);
+  const d = parseTimestamp(value);
+  if (!d) return value == null || value === "" ? "-" : String(value);
   return d.toLocaleString("zh-CN", {
+    year: "numeric",
     month: "2-digit",
     day: "2-digit",
     hour: "2-digit",
     minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
   });
 }
 
@@ -1123,7 +1154,7 @@ async function handleStorage() {
   async function loadUsage() {
     summary.textContent = "加载中…";
     const data = await api("/api/storage/usage");
-    summary.textContent = `总占用 ${formatStorageBytes(data.totalBytes)} · 更新于 ${formatDateTime(new Date(data.generatedAt).toISOString())}`;
+    summary.textContent = `总占用 ${formatStorageBytes(data.totalBytes)} · 更新于 ${formatDateTime(data.generatedAt)}`;
     const cats = data.categories || [];
     if (cats.length === 0) {
       usageTableHost.innerHTML = `<div class="history-empty">暂无分类数据。</div>`;
@@ -2256,7 +2287,7 @@ async function handleNotifications() {
       list.innerHTML = notes
         .map(
           (n) =>
-            `<div class="plan-step-desc">[${escapeHtml(n.source)}/${escapeHtml(n.level)}] ${escapeHtml(n.timestamp)} — ${escapeHtml(n.message)}${n.consumed ? " (已消费)" : ""}</div>`,
+            `<div class="plan-step-desc">[${escapeHtml(n.source)}/${escapeHtml(n.level)}] ${escapeHtml(formatDateTime(n.timestamp))} — ${escapeHtml(n.message)}${n.consumed ? " (已消费)" : ""}</div>`,
         )
         .join("");
     } catch (err) {
@@ -2324,7 +2355,7 @@ async function handleScheduler() {
       queue.innerHTML = notes
         .map(
           (n) =>
-            `<div class="plan-step-desc">${escapeHtml(n.timestamp)} — ${escapeHtml(n.message)}${n.payload?.requiresConfirmation === false ? " <em>(无人值守)</em>" : ""}</div>`,
+            `<div class="plan-step-desc">${escapeHtml(formatDateTime(n.timestamp))} — ${escapeHtml(n.message)}${n.payload?.requiresConfirmation === false ? " <em>(无人值守)</em>" : ""}</div>`,
         )
         .join("");
     } catch (err) {
@@ -2342,7 +2373,7 @@ async function handleScheduler() {
         list.innerHTML = triggers
           .map(
             (t) =>
-              `<div class="plan-step-desc"><strong>${escapeHtml(t.name)}</strong> [${escapeHtml(t.kind)}/${escapeHtml(t.status)}] · 触发 ${t.fireCount} 次 · ${escapeHtml(t.goal)}</div>`,
+              `<div class="plan-step-desc"><strong>${escapeHtml(t.name)}</strong> [${escapeHtml(t.kind)}/${escapeHtml(t.status)}] · 触发 ${t.fireCount} 次${t.at ? ` · ${escapeHtml(formatDateTime(t.at))}` : ""}${t.lastFiredAt ? ` · 上次 ${escapeHtml(formatDateTime(t.lastFiredAt))}` : ""} · ${escapeHtml(t.goal)}</div>`,
           )
           .join("");
       }
@@ -2364,7 +2395,7 @@ async function handleScheduler() {
           at,
         }),
       });
-      addMessage("system", `已注册一次性触发器，将于 ${at} 写入通知。`);
+      addMessage("system", `已注册一次性触发器，将于 ${formatDateTime(at)} 写入通知。`);
       await load();
     } catch (err) {
       addSystemError(String(err.message || err));
@@ -2741,14 +2772,6 @@ async function handleContext() {
 
 async function handleSubAgent() {
   clearWelcome();
-  let rolesData;
-  try {
-    rolesData = await api("/api/subagent/roles");
-  } catch (err) {
-    addSystemError(String(err.message || err));
-    return;
-  }
-  const roles = rolesData.roles || [];
 
   const panel = document.createElement("div");
   panel.className = "tool-panel";
@@ -2757,47 +2780,38 @@ async function handleSubAgent() {
   modeRow.className = "tool-row";
   const modeSelect = document.createElement("select");
   modeSelect.innerHTML = `
-    <option value="single">单个子 Agent</option>
-    <option value="batch">并行派生（多角色）</option>`;
+    <option value="single">单个子任务</option>
+    <option value="batch">并行多个子任务</option>`;
   modeRow.appendChild(modeSelect);
   panel.appendChild(modeRow);
 
-  const roleRow = document.createElement("div");
-  roleRow.className = "tool-row";
-  roleRow.style.flexWrap = "wrap";
-  roleRow.style.gap = "8px";
-  const roleChecks = roles.map((r) => {
-    const label = document.createElement("label");
-    label.className = "field sensitive-field";
-    label.style.fontSize = "13px";
-    const cb = document.createElement("input");
-    cb.type = "checkbox";
-    cb.value = r.id;
-    cb.dataset.singleDefault = r.id === "code_review" ? "1" : "";
-    if (r.id === "code_review") cb.checked = true;
-    label.appendChild(cb);
-    label.appendChild(document.createTextNode(` ${r.title}`));
-    roleRow.appendChild(label);
-    return cb;
-  });
-  panel.appendChild(roleRow);
+  const goalInput = document.createElement("textarea");
+  goalInput.className = "tool-input";
+  goalInput.style.minHeight = "60px";
+  goalInput.placeholder = "子任务目标 goal，例如：审查 src/agent/AgentLoop.ts 的错误处理";
+  panel.appendChild(goalInput);
 
-  const desc = document.createElement("div");
-  desc.className = "tool-desc";
-  panel.appendChild(desc);
+  const instructionsInput = document.createElement("textarea");
+  instructionsInput.className = "tool-input";
+  instructionsInput.style.minHeight = "50px";
+  instructionsInput.placeholder = "执行说明 instructions（可选，默认同 goal）";
+  panel.appendChild(instructionsInput);
 
-  const taskInput = document.createElement("textarea");
-  taskInput.className = "tool-input";
-  taskInput.style.minHeight = "80px";
-  taskInput.placeholder = "交给子 Agent 的任务描述，例如：审查 src/agent/AgentLoop.ts 的错误处理";
-  panel.appendChild(taskInput);
+  const batchGoalsInput = document.createElement("textarea");
+  batchGoalsInput.className = "tool-input";
+  batchGoalsInput.style.minHeight = "80px";
+  batchGoalsInput.placeholder = "并行模式：每行一个子任务 goal";
+  batchGoalsInput.style.display = "none";
+  panel.appendChild(batchGoalsInput);
 
-  const ctxInput = document.createElement("input");
-  ctxInput.className = "system-input";
-  ctxInput.style.width = "100%";
-  ctxInput.style.marginTop = "8px";
-  ctxInput.placeholder = "附加上下文（可选，来自父 Agent）";
-  panel.appendChild(ctxInput);
+  const writeRow = document.createElement("label");
+  writeRow.className = "field sensitive-field";
+  writeRow.style.fontSize = "13px";
+  const writeCb = document.createElement("input");
+  writeCb.type = "checkbox";
+  writeRow.appendChild(writeCb);
+  writeRow.appendChild(document.createTextNode(" 允许写文件（须服务端 grantedPermissions 含 write）"));
+  panel.appendChild(writeRow);
 
   const runBtn = document.createElement("button");
   runBtn.className = "action-btn";
@@ -2810,75 +2824,56 @@ async function handleSubAgent() {
   result.style.display = "none";
   panel.appendChild(result);
 
-  const syncDesc = () => {
-    const checked = roleChecks.filter((c) => c.checked);
-    const lines = checked
-      .map((c) => roles.find((r) => r.id === c.value))
-      .filter(Boolean)
-      .map((r) => `${r.title}：${r.description}（权限 ${r.allowedPermissions.join(", ")}）`);
-    desc.textContent = lines.join(" · ") || "请至少选择一个角色";
-  };
-
   modeSelect.addEventListener("change", () => {
-    const single = modeSelect.value === "single";
-    roleChecks.forEach((c) => {
-      c.disabled = single;
-      if (single) c.checked = c.dataset.singleDefault === "1";
-    });
-    syncDesc();
+    const batch = modeSelect.value === "batch";
+    goalInput.style.display = batch ? "none" : "block";
+    instructionsInput.style.display = batch ? "none" : "block";
+    batchGoalsInput.style.display = batch ? "block" : "none";
   });
-  roleChecks.forEach((c) => c.addEventListener("change", syncDesc));
-  syncDesc();
 
   runBtn.addEventListener("click", async () => {
-    const task = taskInput.value.trim();
-    if (!task) {
-      result.style.display = "block";
-      result.classList.add("err");
-      result.textContent = "请填写任务描述";
-      return;
-    }
-    const selectedRoles = roleChecks.filter((c) => c.checked).map((c) => c.value);
-    if (selectedRoles.length === 0) {
-      result.style.display = "block";
-      result.classList.add("err");
-      result.textContent = "请至少选择一个角色";
-      return;
-    }
+    const writeAllowed = writeCb.checked;
     runBtn.disabled = true;
     runBtn.textContent = "运行中…";
     result.style.display = "block";
     result.classList.remove("err");
-    result.textContent = "子 Agent 执行中（只读，可能需要模型）…";
+    result.textContent = "子 Agent 执行中…";
     try {
-      const primaryRole = roles.find((r) => r.id === selectedRoles[0]);
-      const body = {
-        task,
-        context: ctxInput.value.trim() || undefined,
-        sensitive: sensitiveInput.checked,
-        budget: primaryRole?.defaultBudget,
-        timeoutMs: primaryRole?.defaultTimeoutMs ?? 180000,
-      };
-      let data;
       if (modeSelect.value === "batch") {
-        data = await api("/api/subagent/batch", {
+        const goals = batchGoalsInput.value.split("\n").map((s) => s.trim()).filter(Boolean);
+        if (!goals.length) throw new Error("请填写至少一个子任务 goal");
+        const data = await api("/api/subagent/batch", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            ...body,
-            roles: selectedRoles,
-            budget: mergeRoleBudgets(selectedRoles.map((id) => roles.find((r) => r.id === id)?.defaultBudget)),
+            tasks: goals.map((goal) => ({
+              goal,
+              instructions: goal,
+              toolPolicy: { writeAllowed },
+            })),
+            sensitive: sensitiveInput.checked,
+            timeoutMs: 180000,
           }),
         });
         result.textContent = `父任务 ${data.parentTaskId} · ${data.durationMs}ms\n\n${data.summary}`;
       } else {
-        data = await api("/api/subagent/run", {
+        const goal = goalInput.value.trim();
+        if (!goal) throw new Error("请填写 goal");
+        const data = await api("/api/subagent/run", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ ...body, role: selectedRoles[0] }),
+          body: JSON.stringify({
+            task: {
+              goal,
+              instructions: instructionsInput.value.trim() || goal,
+              toolPolicy: { writeAllowed },
+            },
+            sensitive: sensitiveInput.checked,
+            timeoutMs: 180000,
+          }),
         });
         const r = data.result;
-        result.textContent = `[${r.role}] ${r.status} · ${r.durationMs}ms · 权限 ${r.grantedPermissions.join(",")}\n\n${r.answer}${r.error ? `\n\n错误：${r.error}` : ""}`;
+        result.textContent = `[${r.goal}] ${r.status} · ${r.durationMs}ms\n\n${r.structured?.summary ?? r.answer}${r.error ? `\n\n错误：${r.error}` : ""}`;
       }
     } catch (err) {
       result.classList.add("err");

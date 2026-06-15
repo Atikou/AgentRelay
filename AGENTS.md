@@ -79,7 +79,7 @@ npm run serve          # 启动后端与测试台 http://localhost:18787
 - 文档站：`/docs` 自动渲染 `docs/*.md`（Mermaid + 截图，ChatGPT 配色 + 深色模式）；**API 参考**：`/api-docs`（本地 Scalar + `public/api-spec.json`），说明总览见 `docs/API参考.md`。
 - 多 profile 配置、测试台网页（配置 / 可用性 / 调用统计 / 敏感开关 / **统一自动工作流入口** / 权限策略 / **测试用例** / 工具系统）。
 - M4 后台任务与通知队列：`BackgroundTaskManager`（spawn/查询/取消/`outputRules`/`triggerOnMatch`）+ `NotificationQueue`（JSONL 持久化）；`AgentLoop` 在安全点消费通知；`/api/background/*`、`/api/notifications/*`；测试台「后台任务」「通知队列」面板。
-- M5 子 Agent（只读 + 写权限 `patch_worker`）：`code_review` / `test_analyze` / `patch_worker`；`SubAgentRunner` + `SubAgentCoordinator`；主 Agent `dispatch_subagent`（含常见模型错参归一化：角色别名、`task` 数组、空对象 `context`、`writeFilePickStrategy: null`；成功收集 3 个子 Agent 结果后阻止继续派生并要求汇总 `final`）；写入冲突检测 + `autoMergeWrites`（`apply_patch` 三路合并 + `write_file` 选版）；`arbitrateConflicts` + `WRITE_PICK`；`POST /api/subagent/cancel` 显式取消；完成通知入 `NotificationQueue`；`security.subagent.maxDispatchDepth` 有界递归（默认 1，不支持无限派生）；`/api/subagent/*`；测试台「子 Agent」面板。
+- M5 子 Agent：**仅** `DelegatedTask` + `ExecutionRouter`；`dispatch_subagent` 只接受 `tasks[]`；无角色/预设兼容层；通用只读子任务不默认绑定代码模型能力。
 - M6 上下文压缩与持久化：`ContextManager`（SQLite + FTS5 + LanceDB）；**`ProjectIndex`**（`project_files`/`project_symbols`/`project_imports`/`project_exports`）；**`ModuleDependencyGraph`** + **`ProjectSemanticIndexer`** + **`HistoryFileRecaller`** 模块依赖/语义/历史记忆文件召回；**`RunState.location`** 续跑定位上下文；`ContextRestorer` → `ContextPackage`；`SystemSectionBuilder` + `PromptBuilder` 动态注入；`MemoryRetriever` / `SemanticRetriever` 多路检索；`AgentLoop` 默认持久化；`/api/context/*`；测试台「上下文与记忆」面板。
 - M7 安全与审计（第一版）：`util/redact` 日志脱敏 + 敏感信息检测；远程模型调用前提示脱敏；`sensitive` / `privacy-first` 本地优先隐私模式；`ToolStorage.tool_logs` 落盘前脱敏；HTTP 工具入口 `highRiskConfirmation` 确认门；`agent_decision` / `agent_model_turn` / `run_usage_summary` / `task_status_change` / `tool_audit` trace；`toolCallId` 串联 `agent_tool` / `task_step` / `tool_audit`；工具失败 `category` 分类；`ShellPolicy` 命令风险 + `security.shell.denyCommands/allowCommands`；`GET /api/trace/recent|export|replay`；测试台「安全与审计」面板。
 - M8 定时与事件触发：`Scheduler`（once/interval/cron/event 含 file_changed、git_changed）；无人值守白名单、`daily_summary` cron；待办队列 UI；`/api/scheduler/*`。
@@ -93,9 +93,9 @@ npm run serve          # 启动后端与测试台 http://localhost:18787
 
 **未实现**（按里程碑推进）：并行投票、多模态附件/OCR、V9 拖拽编排；trace 段 gzip 压缩、scheduler journal 关联 purge、policy 在线编辑 UI。
 
-**路由覆盖面（2026-06-13）**：`/api/chat`、`Planner`、`/api/agent`、子 Agent 默认经 `SmartModelRouter`；显式 `clientName` 仍走 `ModelRouter`。
+**路由覆盖面（2026-06-13）**：`/api/chat`、`Planner`、`/api/agent`、子 Agent（`createDelegatedTaskChatFn` + `DelegatedTask`）默认经 `SmartModelRouter`；显式 `clientName` 仍走 `ModelRouter`。
 
-**V3 已落地**：`RouterModelEvaluator` 启发式接入 `DecisionEngine`（`source=evaluator`，高风险不覆盖）；**V4 已落地**：`AnswerEvaluator` 接入 `ModelOrchestrator` 答案质量 fallback；**V5 已落地**：`model-capabilities.ts` 任务能力矩阵 + `GET /api/routing/profiles`；**V6 已落地**：`RuntimeStatsCollector` + `GET /api/routing/stats`；**V7 已落地**：`EvalSetRunner` + `POST /api/routing/eval/run` 离线评测；**V8 P0 已落地**：`ContextAnalyzer` 多信号接入 `DecisionEngine`；**V8 P1 已落地**：`PromptStrategyBuilder` + `estimateRouterContextTokens` 接入 `/api/chat` Smart 路径与 Agent/Planner 路由输入；**V8 P2 已落地**：`RuntimeStatsFeedback` 只读运行指标降权候选（`source=runtime_stats`）；**V8 P3 已落地**：`/api/agent` 响应暴露首轮 `routerDecision` + `promptStrategy` 并应用提示策略；**V8 P4 已落地**：`CostBudgetManager` 成本友好候选排序（`source=cost_budget`）；**V8 P5 已落地**：`ModelProfileStore` 统一 profile 快照 + `reloadFromClients` 热更新（`modelProfileStoreV8`）。
+**V3 已落地**：`RouterModelEvaluator` 启发式接入 `DecisionEngine`（`source=evaluator`，高风险不覆盖）；**V4 已落地**：`AnswerEvaluator` 接入 `ModelOrchestrator` 答案质量 fallback；**V5 已落地**：`model-capabilities.ts` 任务能力矩阵 + `GET /api/routing/profiles`；**V6 已落地**：`RuntimeStatsCollector` + `GET /api/routing/stats`；**V7 已落地**：`EvalSetRunner` + `POST /api/routing/eval/run` 离线评测；**V8 P0 已落地**：`ContextAnalyzer` 多信号接入 `DecisionEngine`；**V8 P1 已落地**：`PromptStrategyBuilder` + `estimateRouterContextTokens` 接入 `/api/chat` Smart 路径与 Agent/Planner 路由输入；**V8 P2 已落地**：`RuntimeStatsFeedback` 只读运行指标降权候选（`source=runtime_stats`）；**V8 P3 已落地**：`/api/agent` 响应暴露首轮 `routerDecision` + `promptStrategy` 并应用提示策略；**V8 P4 已落地**：`CostBudgetManager` 成本友好候选排序（`source=cost_budget`）；**V8 P5 已落地**：`ModelProfileStore` 统一 profile 快照 + `reloadFromClients` 热更新（`modelProfileStoreV8`）；**V8 P6 已落地**：`ModelAvailabilityRegistry` 将 `/api/models/check` 与调用前预检接入 Smart 路由候选硬过滤（`modelAvailabilityRouting`）。
 
 **V2 已落地**：`FallbackManager` + `fallback_logs` + `strong_model_direct` 升级路径；`POST /api/chat` 可回传 `fallbackCount` / `fallbackLogIds`。
 
@@ -137,7 +137,8 @@ npm run serve          # 启动后端与测试台 http://localhost:18787
   - **最终回复**：若已提交，列出提交哈希与摘要；若因测试失败或存在无关改动无法提交，明确说明阻塞原因和当前未提交文件。
 - **自审核（强制）**：**每次结束任务前**，对照「是否符合当前框架 / 是否达到预定效果 / 是否缺失某个功能模块」做一次自审核，并写入 `docs/自审核记录.md`：
   - 标题格式：`### 时间_目标_模型_本次任务概括`（时间用 `YYYY-MM-DD HH:mm`）。
-  - **写在文件头**（紧跟规范说明、置于旧记录之前），保持最新在上。
+  - **时区（强制）**：标题中的时间必须是 **北京时间 / 上海时区（`Asia/Shanghai`，UTC+8）**，表示任务完成或落笔时的当地时刻。**禁止**使用 UTC、会话默认时区、或随意填写的占位时刻（如固定的 `16:00`）。若 agent 运行环境时区不是中国，须显式按 `Asia/Shanghai` 换算后再写入；不得把「比当前北京时间更晚」的时间写在当天记录上。
+  - **写在文件头**（紧跟 `## 写入规范`、置于旧记录之前），保持最新在上。
   - 正文至少覆盖：改动清单、是否合规、是否达预期、缺失/缺口与后续待办、自检结果。
   - 首次预览项目时必须先浏览该文件。
 
@@ -147,6 +148,6 @@ npm run serve          # 启动后端与测试台 http://localhost:18787
 - **改模型路由/协作**时：先读 `docs/模型路由与协作.md`（**双轨路由边界**章节）与 `docs/模型路由升级TodoList.md`（下一阶段）；按 TodoList **P0 单轮推进**，不要一次性实现 V8 完整自动路由；完成后勾选 TodoList 并更新该文档。
 - **TodoList 全部完成后**：按「关键约定 · TodoList 归档」移入 `docs/completed/` 并在原路径留 stub；登记 `docs/completed/README.md`。
 - **任何改动都要同步对应文档**（见「关键约定 · 文档同步」），把它当作 Definition of Done 的一部分。
-- **结束任务前必做自审核**并追加到 `docs/自审核记录.md`（见「关键约定 · 自审核」）。
+- **结束任务前必做自审核**并追加到 `docs/自审核记录.md`（见「关键约定 · 自审核」）；自审核标题时间一律用 **北京时间（Asia/Shanghai）**。
 - 添加新功能时，同步更新 `agent-todolist.md`、`public/test-cases/` 对应功能页（≥2 条，含 `purpose`）与 `index.json`（新功能页时），并更新本文件「当前进度」。
 - 测试台网页的「规划中」按钮是占位，随对应里程碑落地再点亮。

@@ -5,6 +5,13 @@ export type {
   ModelProfileStoreSnapshot,
   ModelProfileRuntimeHint,
 } from "./model-profile-store.js";
+export {
+  ModelAvailabilityRegistry,
+  ModelUnavailableError,
+  isModelUnavailableError,
+  looksLikeModelUnavailableError,
+} from "./model-availability.js";
+export type { ModelAvailabilityRecord, ModelAvailabilityOptions } from "./model-availability.js";
 export { ModelRegistry } from "./model-registry.js";
 export { RuleRouter } from "./route-rules.js";
 export { DecisionEngine } from "./decision-engine.js";
@@ -90,3 +97,9 @@ export {
   createPlannerChatFn,
   extractPlannerGoalFromMessages,
 } from "./create-planner-chat.js";
+export {
+  buildDelegatedTaskRouterInput,
+  createDelegatedTaskChatFn,
+  type SubAgentChatContext,
+  type DelegatedTaskChatFactory,
+} from "./create-subagent-chat.js";

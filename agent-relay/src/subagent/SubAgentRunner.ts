@@ -7,67 +7,74 @@ import type { RunBudget } from "../agent/RunPolicyTypes.js";
 import type { ToolRegistry } from "../tools/ToolRegistry.js";
 import type { TraceLogger } from "../trace/TraceLogger.js";
 import type { NotificationQueue } from "../background/NotificationQueue.js";
-import { getSubAgentRole, resolveGrantedPermissions } from "./roles.js";
+import { toModelSelection } from "./modelSelection.js";
 import { enqueueSubAgentCompletionNotification } from "./notifyCompletion.js";
 import { runSingleShotReview } from "./singleShot.js";
 import { hasSuccessfulPreload, preloadReferencedFiles } from "./taskContext.js";
+import type { DelegatedTask } from "./delegatedTask.js";
+import { limitsToRunBudget, normalizeDelegatedTask } from "./delegatedTask.js";
+import { defaultContextRouter } from "./ContextRouter.js";
+import { defaultResultCollector } from "./ResultCollector.js";
+import { defaultToolRouter } from "./ToolRouter.js";
+import { buildDelegatedTaskSystemPrompt } from "./taskPrompt.js";
 import type {
+  DelegatedTaskRunOptions,
   SubAgentAggregate,
   SubAgentConflict,
-  SubAgentRoleId,
-  SubAgentRunOptions,
   SubAgentRunResult,
   SubAgentStatus,
   SubAgentWriteConflict,
 } from "./types.js";
 import { detectWriteConflicts } from "./writeConflictMerge.js";
-import {
-  isSubAgentCancelledError,
-  type SubAgentRunRegistry,
-} from "./SubAgentRunRegistry.js";
+import { isSubAgentCancelledError, type SubAgentRunRegistry } from "./SubAgentRunRegistry.js";
 
 const DEFAULT_TIMEOUT_MS = 120_000;
 
 export interface SubAgentRunnerDeps {
   chat: LoopChatFn;
+  createChatForDelegatedTask?: (
+    task: DelegatedTask,
+    ctx: { sensitive?: boolean; parentTaskId?: string },
+  ) => LoopChatFn;
   registry: ToolRegistry;
   workspaceRoot: string;
   trace?: TraceLogger;
   projectAllowedPermissions?: ToolPermission[];
   notificationQueue?: NotificationQueue;
-  /** dispatch_subagent 最大派生深度，默认 1（不支持无限递归）。 */
   maxSubAgentDispatchDepth?: number;
-  /** 运行中子 Agent 注册表，用于显式 cancel。 */
   runRegistry?: SubAgentRunRegistry;
 }
 
-/** 运行单个子 Agent：独立上下文、受限权限、超时与 trace。 */
 export class SubAgentRunner {
   constructor(private readonly deps: SubAgentRunnerDeps) {}
 
-  async run(options: SubAgentRunOptions): Promise<SubAgentRunResult> {
-    const id = randomUUID();
-    const role = getSubAgentRole(options.role);
-    const granted = resolveGrantedPermissions(
-      role,
+  async runDelegated(options: DelegatedTaskRunOptions): Promise<SubAgentRunResult> {
+    const task = normalizeDelegatedTask(options.task);
+    const id = task.id ?? randomUUID();
+    const toolPolicy = task.toolPolicy!;
+    const { permissions: granted } = defaultToolRouter.resolvePermissions(
+      toolPolicy,
       options.grantedPermissions,
       this.deps.projectAllowedPermissions,
     );
-    const timeoutMs = options.timeoutMs ?? role.defaultTimeoutMs ?? DEFAULT_TIMEOUT_MS;
-    const budget = { ...role.defaultBudget, ...options.budget };
+    const budget = limitsToRunBudget(task.limits ?? {}, toolPolicy.writeAllowed);
+    const timeoutMs = options.timeoutMs ?? task.limits?.maxRuntimeMs ?? DEFAULT_TIMEOUT_MS;
     const parentTaskId = options.parentTaskId;
     const start = performance.now();
 
     this.deps.trace?.write({
       type: "subagent_start",
       subAgentId: id,
-      role: options.role,
+      goal: task.goal,
       parentTaskId,
       grantedPermissions: granted,
+      routingCapabilities: task.modelPolicy?.requiredCapabilities,
+      executionMode: options.executionRoute?.mode ?? "delegate",
+      executionReason: options.executionRoute?.reason,
     });
 
     const abortController = this.deps.runRegistry?.register(id, {
-      role: options.role,
+      goal: task.goal,
       parentTaskId,
     });
     const signal = abortController?.signal;
@@ -75,14 +82,16 @@ export class SubAgentRunner {
     try {
       return await this.runInner({
         id,
-        options,
+        task,
         granted,
         timeoutMs,
         budget,
         parentTaskId,
-        role,
+        sensitive: options.sensitive,
+        dispatchDepth: options.dispatchDepth,
         signal,
         start,
+        executionRoute: options.executionRoute,
       });
     } finally {
       this.deps.runRegistry?.unregister(id);
@@ -91,111 +100,72 @@ export class SubAgentRunner {
 
   private async runInner(input: {
     id: string;
-    options: SubAgentRunOptions;
+    task: DelegatedTask;
     granted: ToolPermission[];
     timeoutMs: number;
     budget: RunBudget;
     parentTaskId?: string;
-    role: ReturnType<typeof getSubAgentRole>;
+    sensitive?: boolean;
+    dispatchDepth?: number;
     signal?: AbortSignal;
     start: number;
+    executionRoute?: DelegatedTaskRunOptions["executionRoute"];
   }): Promise<SubAgentRunResult> {
-    const { id, options, granted, timeoutMs, budget, parentTaskId, role, signal, start } = input;
+    const { id, task, granted, timeoutMs, budget, parentTaskId, sensitive, dispatchDepth, signal, start, executionRoute } =
+      input;
 
-    const preloaded = await preloadReferencedFiles(
-      options.task.trim(),
-      this.deps.registry,
-      this.deps.workspaceRoot,
-    );
+    const chatCapture: { routingMeta?: SubAgentRunResult["routingMeta"] } = {};
+    const chat = this.resolveChat(task, { sensitive, parentTaskId }, chatCapture);
 
-    if (role.singleShotWhenPreloaded && hasSuccessfulPreload(preloaded)) {
+    const preloadText = [task.goal, task.input, ...(task.context?.files ?? [])].join("\n");
+    const preloaded = await preloadReferencedFiles(preloadText, this.deps.registry, this.deps.workspaceRoot);
+
+    const packaged = defaultContextRouter.package(task, executionRoute);
+
+    if (!task.toolPolicy?.writeAllowed && hasSuccessfulPreload(preloaded)) {
       try {
         const answer = await raceTimeout(
-          runSingleShotReview(role, options.task.trim(), preloaded, this.deps.chat, {
-            context: options.context,
-            sensitive: options.sensitive,
-          }),
+          runSingleShotReview(task, packaged.userContent, preloaded, chat, { sensitive }),
           timeoutMs,
           signal,
         );
-        const durationMs = Math.round(performance.now() - start);
-        this.deps.trace?.write({
-          type: "subagent_end",
-          subAgentId: id,
-          role: options.role,
-          parentTaskId,
-          status: "completed",
-          mode: "single_shot",
-          durationMs,
-          iterations: 1,
-        });
         return this.finishRun({
           id,
-          role: options.role,
+          taskId: id,
+          goal: task.goal,
           parentTaskId,
           status: "completed",
           answer,
           steps: [],
           iterations: 1,
-          durationMs,
+          durationMs: Math.round(performance.now() - start),
           grantedPermissions: granted,
+          routingMeta: chatCapture.routingMeta,
+          executionRoute: executionRoute ? { mode: executionRoute.mode, reason: executionRoute.reason } : undefined,
         });
       } catch (err) {
         if (isSubAgentCancelledError(err)) {
-          return this.finishCancelled(id, options, granted, parentTaskId, start, err);
+          return this.finishCancelled(id, task.goal, granted, parentTaskId, start, err);
         }
-        const msg = String(err);
-        if (msg.includes("超时")) {
-          const durationMs = Math.round(performance.now() - start);
-          return this.finishRun({
-            id,
-            role: options.role,
-            parentTaskId,
-            status: "timeout",
-            answer: "（子 Agent 执行超时）",
-            steps: [],
-            iterations: 0,
-            durationMs,
-            grantedPermissions: granted,
-            error: msg,
-          });
-        }
-        // 单次模式失败则回退 ReAct 循环
       }
     }
 
-    const userContent = [
-      options.task.trim(),
-      preloaded ? preloaded : "",
-      options.context ? `父 Agent 附加上下文：\n${options.context}` : "",
-    ]
-      .filter(Boolean)
-      .join("\n\n");
-
-    const systemExtra = [
-      role.systemPrompt,
-      parentTaskId ? `父任务 ID：${parentTaskId}` : "",
-      `\n本轮预算：最多 ${budget.maxModelTurns} 次模型轮次、${budget.maxToolCalls} 次工具请求、${budget.maxReadCalls} 次只读工具。请优先基于预读内容给出 final，避免无谓工具调用。`,
-    ]
-      .filter(Boolean)
-      .join("\n");
-
-    const dispatchDepth = options.dispatchDepth ?? 0;
-    const canAutoWrite =
-      granted.includes("write") && role.allowedPermissions.includes("write");
+    const userContent = [packaged.userContent, preloaded ? preloaded : ""].filter(Boolean).join("\n\n");
+    const systemExtra = buildDelegatedTaskSystemPrompt(task, budget, parentTaskId);
+    const roleAllowed = task.toolPolicy?.writeAllowed ? (["read", "write"] as ToolPermission[]) : (["read"] as ToolPermission[]);
 
     const loop = new AgentLoop({
-      chat: this.deps.chat,
+      chat,
       registry: this.deps.registry,
       workspaceRoot: this.deps.workspaceRoot,
       projectAllowedPermissions: this.deps.projectAllowedPermissions,
-      roleAllowedPermissions: role.allowedPermissions,
-      allowedPermissions: options.grantedPermissions,
+      roleAllowedPermissions: roleAllowed,
+      allowedPermissions: granted,
       budget,
-      autoConfirm: canAutoWrite,
-      sensitive: options.sensitive,
+      autoConfirm: granted.includes("write") && task.toolPolicy?.writeAllowed,
+      sensitive,
       trace: this.deps.trace,
-      subAgentDispatchDepth: dispatchDepth,
+      subAgentDispatchDepth: dispatchDepth ?? 0,
       maxSubAgentDispatchDepth: this.deps.maxSubAgentDispatchDepth ?? 1,
       signal,
     });
@@ -207,21 +177,17 @@ export class SubAgentRunner {
     let error: string | undefined;
 
     try {
-      const result = await raceTimeout(
-        loop.run(userContent, systemExtra),
-        timeoutMs,
-        signal,
-      );
+      const result = await raceTimeout(loop.run(userContent, systemExtra), timeoutMs, signal);
       answer = result.answer;
       steps = result.steps;
       iterations = result.iterations;
       if (result.reachedLimit) {
         status = "failed";
-        error = `达到子 Agent 运行预算（耗尽 ${result.executionMeta.budgetExhausted ?? "unknown"}，已执行 ${result.steps.length} 个工具步）；可提高对应预算或换用更擅长 JSON 协议的模型`;
+        error = `达到子 Agent 运行预算（耗尽 ${result.executionMeta.budgetExhausted ?? "unknown"}）`;
       }
     } catch (err) {
       if (isSubAgentCancelledError(err)) {
-        return this.finishCancelled(id, options, granted, parentTaskId, start, err);
+        return this.finishCancelled(id, task.goal, granted, parentTaskId, start, err);
       }
       const msg = String(err);
       status = msg.includes("超时") ? "timeout" : "failed";
@@ -230,11 +196,10 @@ export class SubAgentRunner {
     }
 
     const durationMs = Math.round(performance.now() - start);
-
     this.deps.trace?.write({
       type: "subagent_end",
       subAgentId: id,
-      role: options.role,
+      goal: task.goal,
       parentTaskId,
       status,
       durationMs,
@@ -243,7 +208,8 @@ export class SubAgentRunner {
 
     return this.finishRun({
       id,
-      role: options.role,
+      taskId: id,
+      goal: task.goal,
       parentTaskId,
       status,
       answer,
@@ -252,12 +218,36 @@ export class SubAgentRunner {
       durationMs,
       grantedPermissions: granted,
       error,
+      routingMeta: chatCapture.routingMeta,
+      executionRoute: executionRoute ? { mode: executionRoute.mode, reason: executionRoute.reason } : undefined,
     });
+  }
+
+  private resolveChat(
+    task: DelegatedTask,
+    ctx: { sensitive?: boolean; parentTaskId?: string },
+    capture?: { routingMeta?: SubAgentRunResult["routingMeta"] },
+  ): LoopChatFn {
+    const base = this.deps.createChatForDelegatedTask?.(task, ctx) ?? this.deps.chat;
+    return async (request, chatOpts) => {
+      const response = await base(request, chatOpts);
+      if (capture && !capture.routingMeta && response.routingMeta) {
+        const decision = response.routingMeta.routerDecision;
+        capture.routingMeta = {
+          clientName: response.clientName,
+          modelName: response.modelName,
+          location: response.location,
+          taskType: decision.taskType,
+          reason: decision.reason,
+        };
+      }
+      return response;
+    };
   }
 
   private finishCancelled(
     id: string,
-    options: SubAgentRunOptions,
+    goal: string,
     granted: ToolPermission[],
     parentTaskId: string | undefined,
     start: number,
@@ -268,7 +258,7 @@ export class SubAgentRunner {
     this.deps.trace?.write({
       type: "subagent_end",
       subAgentId: id,
-      role: options.role,
+      goal,
       parentTaskId,
       status: "cancelled",
       durationMs,
@@ -276,7 +266,8 @@ export class SubAgentRunner {
     });
     return this.finishRun({
       id,
-      role: options.role,
+      taskId: id,
+      goal,
       parentTaskId,
       status: "cancelled",
       answer: "（子 Agent 已取消）",
@@ -289,24 +280,34 @@ export class SubAgentRunner {
   }
 
   private finishRun(result: SubAgentRunResult): SubAgentRunResult {
+    const finalized: SubAgentRunResult = {
+      ...result,
+      modelUsed: result.modelUsed ?? toModelSelection(result.routingMeta),
+      structured: defaultResultCollector.collect({
+        taskId: result.taskId,
+        status: result.status,
+        rawAnswer: result.answer,
+        steps: result.steps,
+        modelUsed: result.modelUsed ?? toModelSelection(result.routingMeta),
+        error: result.error,
+      }),
+    };
     if (this.deps.notificationQueue) {
       enqueueSubAgentCompletionNotification(this.deps.notificationQueue, {
-        subAgentId: result.id,
-        role: result.role,
-        parentTaskId: result.parentTaskId,
-        status: result.status,
-        answer: result.answer,
-        error: result.error,
+        subAgentId: finalized.id,
+        goal: finalized.goal,
+        parentTaskId: finalized.parentTaskId,
+        status: finalized.status,
+        answer: finalized.structured?.summary ?? finalized.answer,
+        error: finalized.error,
       });
     }
-    return result;
+    return finalized;
   }
 }
 
 async function raceTimeout<T>(promise: Promise<T>, timeoutMs: number, signal?: AbortSignal): Promise<T> {
-  if (signal?.aborted) {
-    throw signal.reason ?? new Error("子 Agent 已取消");
-  }
+  if (signal?.aborted) throw signal.reason ?? new Error("子 Agent 已取消");
   let timer: ReturnType<typeof setTimeout> | undefined;
   let onAbort: (() => void) | undefined;
   const timeout = new Promise<never>((_, reject) => {
@@ -329,16 +330,11 @@ async function raceTimeout<T>(promise: Promise<T>, timeoutMs: number, signal?: A
   }
 }
 
-/** 汇总多个子 Agent 结果为父 Agent 可消费的文本。 */
-export function aggregateSubAgentResults(
-  results: SubAgentRunResult[],
-): string {
+export function aggregateSubAgentResults(results: SubAgentRunResult[]): string {
   return aggregateSubAgentResultsStructured(results).mergedAnswer;
 }
 
-export function aggregateSubAgentResultsStructured(
-  results: SubAgentRunResult[],
-): SubAgentAggregate {
+export function aggregateSubAgentResultsStructured(results: SubAgentRunResult[]): SubAgentAggregate {
   if (results.length === 0) {
     return {
       status: "failed",
@@ -370,19 +366,19 @@ export function aggregateSubAgentResultsStructured(
     `子 Agent 汇总：${status}（完成 ${completed.length}/${results.length}，失败 ${failed.length}，超时 ${timedOut.length}，取消 ${cancelled.length}）`,
     commonFindings.length > 0
       ? `共同结论：\n${commonFindings.map((f) => `- ${f}`).join("\n")}`
-      : "共同结论：未发现跨角色重复结论。",
+      : "共同结论：未发现跨任务重复结论。",
     conflicts.length > 0
       ? `文本冲突：\n${conflicts.map(renderConflict).join("\n")}`
       : "文本冲突：未发现明显相反结论。",
     writeConflicts.length > 0
       ? `写入冲突：\n${writeConflicts.map(renderWriteConflict).join("\n")}`
-      : "写入冲突：未发现多角色写入同一文件。",
+      : "写入冲突：未发现多任务写入同一文件。",
     results
-    .map((r) => {
-      const head = `[${r.role}] ${r.status} · ${r.durationMs}ms · 权限 ${r.grantedPermissions.join(",")}`;
-      const body = r.error ? `错误：${r.error}` : r.answer;
-      return `${head}\n${body}`;
-    })
+      .map((r) => {
+        const head = `[${r.goal.slice(0, 40)}] ${r.status} · ${r.durationMs}ms`;
+        const body = r.error ? `错误：${r.error}` : r.answer;
+        return `${head}\n${body}`;
+      })
       .join("\n\n---\n\n"),
   ];
   return {
@@ -398,18 +394,18 @@ export function aggregateSubAgentResultsStructured(
 }
 
 function findCommonFindings(results: SubAgentRunResult[]): string[] {
-  const byNormalized = new Map<string, { text: string; roles: Set<SubAgentRoleId> }>();
+  const byNormalized = new Map<string, { text: string; taskIds: Set<string> }>();
   for (const result of results) {
     for (const sentence of splitFindings(result.answer)) {
       const normalized = normalizeFinding(sentence);
       if (normalized.length < 6) continue;
-      const existing = byNormalized.get(normalized) ?? { text: sentence, roles: new Set<SubAgentRoleId>() };
-      existing.roles.add(result.role);
+      const existing = byNormalized.get(normalized) ?? { text: sentence, taskIds: new Set<string>() };
+      existing.taskIds.add(result.taskId);
       byNormalized.set(normalized, existing);
     }
   }
   return [...byNormalized.values()]
-    .filter((item) => item.roles.size >= 2)
+    .filter((item) => item.taskIds.size >= 2)
     .map((item) => item.text)
     .slice(0, 8);
 }
@@ -418,23 +414,16 @@ function detectConflicts(results: SubAgentRunResult[]): SubAgentConflict[] {
   const conflicts: SubAgentConflict[] = [];
   for (let i = 0; i < results.length; i += 1) {
     for (let j = i + 1; j < results.length; j += 1) {
-      const left = results[i]!;
-      const right = results[j]!;
-      const pair = detectPairConflict(left, right);
+      const pair = detectPairConflict(results[i]!, results[j]!);
       if (pair) conflicts.push(pair);
     }
   }
   return conflicts.slice(0, 10);
 }
 
-function detectPairConflict(
-  left: SubAgentRunResult,
-  right: SubAgentRunResult,
-): SubAgentConflict | undefined {
-  const leftFindings = splitFindings(left.answer);
-  const rightFindings = splitFindings(right.answer);
-  for (const l of leftFindings) {
-    for (const r of rightFindings) {
+function detectPairConflict(left: SubAgentRunResult, right: SubAgentRunResult): SubAgentConflict | undefined {
+  for (const l of splitFindings(left.answer)) {
+    for (const r of splitFindings(right.answer)) {
       const topic = sharedTopic(l, r);
       if (!topic) continue;
       const lPolarity = findingPolarity(l);
@@ -442,10 +431,10 @@ function detectPairConflict(
       if (lPolarity === "neutral" || rPolarity === "neutral" || lPolarity === rPolarity) continue;
       return {
         topic,
-        roles: [left.role, right.role],
+        taskIds: [left.taskId, right.taskId],
         excerpts: [
-          { role: left.role, text: l },
-          { role: right.role, text: r },
+          { taskId: left.taskId, goal: left.goal, text: l },
+          { taskId: right.taskId, goal: right.goal, text: r },
         ],
         reason: "同一主题出现相反结论",
       };
@@ -469,8 +458,7 @@ function normalizeFinding(text: string): string {
 function sharedTopic(left: string, right: string): string | undefined {
   const leftTokens = topicTokens(left);
   const rightTokens = topicTokens(right);
-  const shared = [...leftTokens].filter((token) => rightTokens.has(token));
-  return shared[0];
+  return [...leftTokens].find((token) => rightTokens.has(token));
 }
 
 function topicTokens(text: string): Set<string> {
@@ -484,23 +472,7 @@ function topicTokens(text: string): Set<string> {
 
 const POSITIVE_RE = /通过|正常|无问题|没有问题|未发现|可用|成功|pass|passed|ok|green/i;
 const NEGATIVE_RE = /失败|错误|异常|风险|缺陷|不通过|不可用|未通过|fail|failed|error|bug|broken|red/i;
-const POLARITY_WORDS = new Set([
-  "通过",
-  "正常",
-  "无问题",
-  "没有问题",
-  "未发现",
-  "失败",
-  "错误",
-  "异常",
-  "风险",
-  "缺陷",
-  "pass",
-  "passed",
-  "fail",
-  "failed",
-  "error",
-]);
+const POLARITY_WORDS = new Set(["通过", "正常", "无问题", "失败", "错误", "pass", "fail", "error"]);
 
 function findingPolarity(text: string): "positive" | "negative" | "neutral" {
   const positive = POSITIVE_RE.test(text);
@@ -511,11 +483,10 @@ function findingPolarity(text: string): "positive" | "negative" | "neutral" {
 }
 
 function renderWriteConflict(conflict: SubAgentWriteConflict): string {
-  return `- ${conflict.path}（${conflict.roles.join(" vs ")}）：${conflict.reason}`;
+  return `- ${conflict.path}（${conflict.taskIds.length} 个任务）：${conflict.reason}`;
 }
 
 function renderConflict(conflict: SubAgentConflict): string {
-  const roles = conflict.roles.join(" vs ");
-  const excerpts = conflict.excerpts.map((e) => `${e.role}: ${e.text}`).join(" / ");
-  return `- ${conflict.topic}（${roles}）：${conflict.reason}；${excerpts}`;
+  const excerpts = conflict.excerpts.map((e) => `${e.goal.slice(0, 30)}: ${e.text}`).join(" / ");
+  return `- ${conflict.topic}：${conflict.reason}；${excerpts}`;
 }

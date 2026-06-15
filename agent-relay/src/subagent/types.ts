@@ -1,87 +1,78 @@
 import type { AgentToolStep } from "../agent/toolStep.js";
 import type { ToolPermission } from "../agent/permissions.js";
-import type { RunBudget } from "../agent/RunPolicyTypes.js";
 import type { WriteFilePickStrategy } from "./writeFileVersionPick.js";
+import type { DelegatedTask, SubAgentStructuredResult } from "./delegatedTask.js";
+import type { ExecutionRoute } from "./executionRoute.js";
 
-/** 第一版子 Agent 角色；`patch_worker` 为父 Agent 显式授权下的写权限子 Agent。 */
-export type SubAgentRoleId = "code_review" | "test_analyze" | "patch_worker";
+/** ModelRouter 选型结果摘要（具体模型名来自配置，非子 Agent 硬编码）。 */
+export interface ModelSelection {
+  provider: "local" | "remote";
+  clientName: string;
+  model: string;
+  reason: string;
+  taskType?: string;
+  fallbackModels?: string[];
+}
 
 export type SubAgentStatus = "completed" | "failed" | "timeout" | "cancelled";
 
-export interface SubAgentRoleDefinition {
-  id: SubAgentRoleId;
-  title: string;
-  description: string;
-  /** 父 Agent 可授予的权限（须为角色允许集的子集）。 */
-  allowedPermissions: ToolPermission[];
-  systemPrompt: string;
-  /** 该角色推荐的运行预算。 */
-  defaultBudget: RunBudget;
-  defaultTimeoutMs: number;
-  /** 任务中文件已预读成功时，跳过 ReAct 循环，单次模型调用直接出结论。 */
-  singleShotWhenPreloaded: boolean;
-  /** 为 true 时父 Agent 必须显式传入 grantedPermissions（如 patch_worker 须含 write）。 */
-  requiresExplicitGrant?: boolean;
-  /** 显式授予时必须包含的权限（如 patch_worker 须含 write）。 */
-  requiredGrantIncludes?: ToolPermission[];
-}
-
-export interface SubAgentRunOptions {
-  role: SubAgentRoleId;
-  task: string;
-  context?: string;
+export interface DelegatedTaskRunOptions {
+  task: DelegatedTask;
   parentTaskId?: string;
-  /** 显式授予权限，必须是角色允许集的子集；默认等于角色权限。 */
   grantedPermissions?: ToolPermission[];
-  budget?: Partial<RunBudget>;
   timeoutMs?: number;
   sensitive?: boolean;
-  /** 当前派生深度（主 Agent 为 0）；用于有界递归门控。 */
   dispatchDepth?: number;
+  executionRoute?: ExecutionRoute;
 }
 
 export interface SubAgentRunResult {
   id: string;
-  role: SubAgentRoleId;
+  taskId: string;
+  goal: string;
   parentTaskId?: string;
   status: SubAgentStatus;
   answer: string;
+  structured?: SubAgentStructuredResult;
   steps: AgentToolStep[];
   iterations: number;
   durationMs: number;
   grantedPermissions: ToolPermission[];
   error?: string;
+  routingMeta?: {
+    clientName?: string;
+    modelName?: string;
+    location?: string;
+    taskType?: string;
+    selectedLevel?: number;
+    reason?: string;
+  };
+  modelUsed?: ModelSelection;
+  executionRoute?: Pick<ExecutionRoute, "mode" | "reason">;
 }
 
 export interface SubAgentBatchOptions {
-  roles: SubAgentRoleId[];
-  task: string;
-  context?: string;
+  tasks: DelegatedTask[];
   parentTaskId?: string;
   grantedPermissions?: ToolPermission[];
-  budget?: Partial<RunBudget>;
   timeoutMs?: number;
   sensitive?: boolean;
   dispatchDepth?: number;
-  /** 存在文本/写入冲突时调用模型仲裁复核。 */
   arbitrateConflicts?: boolean;
-  /** 对 writeConflicts 尝试 apply_patch 三路合并或 write_file 选版。 */
   autoMergeWrites?: boolean;
-  /** write_file 全量覆盖冲突选版：latest / earliest / arbitration（默认 arbitration）。 */
   writeFilePickStrategy?: WriteFilePickStrategy;
 }
 
 export interface SubAgentConflict {
   topic: string;
-  roles: SubAgentRoleId[];
-  excerpts: Array<{ role: SubAgentRoleId; text: string }>;
+  taskIds: string[];
+  excerpts: Array<{ taskId: string; goal: string; text: string }>;
   reason: string;
 }
 
-/** 多个子 Agent 写入同一文件时检测到的补丁级冲突。 */
 export interface SubAgentWriteConflict {
   path: string;
-  roles: SubAgentRoleId[];
+  taskIds: string[];
   changeIds: string[];
   reason: string;
 }
@@ -93,14 +84,13 @@ export interface SubAgentArbitration {
   writeFilePicks?: Array<{
     path: string;
     changeId?: string;
-    role?: SubAgentRoleId;
+    taskId?: string;
     manual?: boolean;
   }>;
 }
 
 export type SubAgentWriteMergeStatus = "merged" | "manual_required" | "skipped";
 
-/** 单文件写入冲突自动合并尝试结果。 */
 export interface SubAgentWriteMergeAttempt {
   path: string;
   status: SubAgentWriteMergeStatus;
@@ -108,7 +98,7 @@ export interface SubAgentWriteMergeAttempt {
   reason: string;
   appliedPatches: number;
   pickedChangeId?: string;
-  pickedRole?: SubAgentRoleId;
+  pickedTaskId?: string;
   pickStrategy?: WriteFilePickStrategy;
 }
 

@@ -75,6 +75,16 @@ test("inferIntent supports real UTF-8 Chinese edit and generate-file messages", 
   assert.equal(generateFile.workflowPlan?.id, "generate_file_locate");
 });
 
+test("general subagent collaboration request stays in answer workflow", () => {
+  const route = defaultIntentRouter.route({
+    message: "调用3子agnet实现我每天应该如何提升自我，三个子agent每个都写一个条，主angent负责汇总",
+  });
+  assert.equal(route.mode, "chat");
+  assert.equal(route.intent, "answer");
+  assert.equal(route.workflowType, "answerWorkflow");
+  assert.equal(route.workflowPlan, null);
+});
+
 let passed = 0;
 let failed = 0;
 for (const { name, fn } of tests) {

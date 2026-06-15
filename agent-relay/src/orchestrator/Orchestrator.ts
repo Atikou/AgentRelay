@@ -50,7 +50,6 @@ import type { ToolPermission } from "../agent/permissions.js";
 
 import type { SubAgentCoordinator } from "../subagent/SubAgentCoordinator.js";
 
-import type { SubAgentRoleId } from "../subagent/index.js";
 
 import type { ToolRegistry } from "../tools/ToolRegistry.js";
 
@@ -1330,97 +1329,50 @@ export class Orchestrator {
 
 
   async runSubAgent(body: unknown, forceClient?: string): Promise<ApiResult> {
-
     const payload = (body ?? {}) as {
-
-      role?: SubAgentRoleId;
-
-      task?: string;
-
-      context?: string;
-
+      task?: import("../subagent/delegatedTask.js").DelegatedTask;
       parentTaskId?: string;
-
       grantedPermissions?: string[];
-
-      budget?: Partial<RunBudget>;
-
       timeoutMs?: number;
-
       sensitive?: boolean;
-
     };
 
-    const taskText = (payload.task ?? "").trim();
-
-    if (!payload.role) return { status: 400, body: { error: "role 不能为空" } };
-
-    if (!taskText) return { status: 400, body: { error: "task 不能为空" } };
-
-
+    if (!payload.task?.goal?.trim()) {
+      return { status: 400, body: { error: "task 须为含 goal 的 DelegatedTask 对象" } };
+    }
 
     const coord = this.deps.subAgentCoordinatorFor?.(forceClient) ?? this.deps.subAgentCoordinator;
-
     if (!coord) return { status: 503, body: { error: "子 Agent 未启用" } };
 
-
-
+    const goalLabel = payload.task.goal.slice(0, 200);
     const run = this.deps.runs.create({
-
       kind: "agent",
-
       status: "running",
-
-      goal: taskText.slice(0, 200),
-
+      goal: goalLabel,
       taskId: payload.parentTaskId,
-
       correlation: this.correlationFor("", { taskId: payload.parentTaskId }),
-
     });
-
     this.deps.runs.update(run.id, {
-
       correlationJson: JSON.stringify(this.correlationFor(run.id, { taskId: payload.parentTaskId })),
-
     });
-
-
 
     try {
+      this.deps.trace?.write({ type: "run_start", runId: run.id, kind: "subagent", goal: goalLabel });
 
-      this.deps.trace?.write({ type: "run_start", runId: run.id, kind: "subagent", role: payload.role });
-
-      const { getSubAgentRole } = await import("../subagent/index.js");
-
-      const roleDef = getSubAgentRole(payload.role);
-
-      const result = await coord.run({
-
-        role: payload.role,
-
-        task: taskText,
-
-        context: payload.context,
-
+      const result = await coord.runDelegated(payload.task, {
         parentTaskId: payload.parentTaskId,
-
         grantedPermissions: payload.grantedPermissions as ToolPermission[] | undefined,
-
-        budget: payload.budget ?? roleDef.defaultBudget,
-
-        timeoutMs: payload.timeoutMs ?? roleDef.defaultTimeoutMs,
-
+        timeoutMs: payload.timeoutMs,
         sensitive: payload.sensitive,
-
       });
 
       this.deps.runs.update(run.id, {
-
         status: result.status === "cancelled" ? "cancelled" : "completed",
-
-        resultJson: JSON.stringify({ role: payload.role, summary: result.answer?.slice(0, 500), subAgentId: result.id }),
-
+        resultJson: JSON.stringify({
+          goal: result.goal,
+          summary: result.structured?.summary ?? result.answer?.slice(0, 500),
+          subAgentId: result.id,
+        }),
       });
 
       this.deps.trace?.write({
@@ -1431,155 +1383,73 @@ export class Orchestrator {
       });
 
       return { status: 200, body: { runId: run.id, result } };
-
     } catch (error) {
-
       this.deps.runs.update(run.id, { status: "failed", error: String(error) });
-
       this.deps.trace?.write({ type: "run_end", runId: run.id, kind: "subagent", status: "failed" });
-
       return { status: 400, body: { error: String(error), runId: run.id } };
-
     }
-
   }
 
 
 
   async runSubAgentBatch(body: unknown, forceClient?: string): Promise<ApiResult> {
-
     const payload = (body ?? {}) as {
-
-      roles?: SubAgentRoleId[];
-
-      task?: string;
-
-      context?: string;
-
+      tasks?: import("../subagent/delegatedTask.js").DelegatedTask[];
       parentTaskId?: string;
-
       grantedPermissions?: string[];
-
-      budget?: Partial<RunBudget>;
-
       timeoutMs?: number;
-
       sensitive?: boolean;
-
       arbitrateConflicts?: boolean;
-
       autoMergeWrites?: boolean;
-
       writeFilePickStrategy?: "latest" | "earliest" | "arbitration";
-
     };
 
-    const taskText = (payload.task ?? "").trim();
-
-    if (!taskText) return { status: 400, body: { error: "task 不能为空" } };
-
-    if (!payload.roles?.length) return { status: 400, body: { error: "roles 不能为空" } };
-
-
-
-    const coord = this.deps.subAgentCoordinatorFor?.(forceClient) ?? this.deps.subAgentCoordinator;
-
-    if (!coord) return { status: 503, body: { error: "子 Agent 未启用" } };
-
-
-
-    const run = this.deps.runs.create({
-
-      kind: "agent",
-
-      status: "running",
-
-      goal: taskText.slice(0, 200),
-
-      taskId: payload.parentTaskId,
-
-      correlation: this.correlationFor("", { taskId: payload.parentTaskId }),
-
-    });
-
-    this.deps.runs.update(run.id, {
-
-      correlationJson: JSON.stringify(this.correlationFor(run.id, { taskId: payload.parentTaskId })),
-
-    });
-
-
-
-    try {
-
-      const { getSubAgentRole } = await import("../subagent/index.js");
-
-      const timeoutMs =
-
-        payload.timeoutMs ??
-
-        Math.max(...payload.roles.map((r) => getSubAgentRole(r).defaultTimeoutMs));
-
-      this.deps.trace?.write({
-
-        type: "run_start",
-
-        runId: run.id,
-
-        kind: "subagent_batch",
-
-        roles: payload.roles,
-
-      });
-
-      const batch = await coord.runBatch({
-
-        roles: payload.roles,
-
-        task: taskText,
-
-        context: payload.context,
-
-        parentTaskId: payload.parentTaskId,
-
-        grantedPermissions: payload.grantedPermissions as ToolPermission[] | undefined,
-
-        budget: payload.budget,
-
-        timeoutMs,
-
-        sensitive: payload.sensitive,
-
-        arbitrateConflicts: payload.arbitrateConflicts,
-
-        autoMergeWrites: payload.autoMergeWrites,
-
-        writeFilePickStrategy: payload.writeFilePickStrategy,
-
-      });
-
-      this.deps.runs.update(run.id, {
-
-        status: "completed",
-
-        resultJson: JSON.stringify({ roleCount: payload.roles.length }),
-
-      });
-
-      this.deps.trace?.write({ type: "run_end", runId: run.id, kind: "subagent_batch", status: "completed" });
-
-      return { status: 200, body: { runId: run.id, ...batch } };
-
-    } catch (error) {
-
-      this.deps.runs.update(run.id, { status: "failed", error: String(error) });
-
-      this.deps.trace?.write({ type: "run_end", runId: run.id, kind: "subagent_batch", status: "failed" });
-
-      return { status: 400, body: { error: String(error), runId: run.id } };
-
+    if (!payload.tasks?.length) {
+      return { status: 400, body: { error: "tasks 不能为空" } };
     }
 
+    const coord = this.deps.subAgentCoordinatorFor?.(forceClient) ?? this.deps.subAgentCoordinator;
+    if (!coord) return { status: 503, body: { error: "子 Agent 未启用" } };
+
+    const run = this.deps.runs.create({
+      kind: "agent",
+      status: "running",
+      goal: payload.tasks[0]!.goal.slice(0, 200),
+      taskId: payload.parentTaskId,
+      correlation: this.correlationFor("", { taskId: payload.parentTaskId }),
+    });
+    this.deps.runs.update(run.id, {
+      correlationJson: JSON.stringify(this.correlationFor(run.id, { taskId: payload.parentTaskId })),
+    });
+
+    try {
+      this.deps.trace?.write({
+        type: "run_start",
+        runId: run.id,
+        kind: "subagent_batch",
+        taskCount: payload.tasks.length,
+      });
+      const batch = await coord.runBatch({
+        tasks: payload.tasks,
+        parentTaskId: payload.parentTaskId,
+        grantedPermissions: payload.grantedPermissions as ToolPermission[] | undefined,
+        timeoutMs: payload.timeoutMs ?? 180_000,
+        sensitive: payload.sensitive,
+        arbitrateConflicts: payload.arbitrateConflicts,
+        autoMergeWrites: payload.autoMergeWrites,
+        writeFilePickStrategy: payload.writeFilePickStrategy,
+      });
+      this.deps.runs.update(run.id, {
+        status: "completed",
+        resultJson: JSON.stringify({ taskCount: payload.tasks.length }),
+      });
+      this.deps.trace?.write({ type: "run_end", runId: run.id, kind: "subagent_batch", status: "completed" });
+      return { status: 200, body: { runId: run.id, ...batch } };
+    } catch (error) {
+      this.deps.runs.update(run.id, { status: "failed", error: String(error) });
+      this.deps.trace?.write({ type: "run_end", runId: run.id, kind: "subagent_batch", status: "failed" });
+      return { status: 400, body: { error: String(error), runId: run.id } };
+    }
   }
 
 
@@ -1599,7 +1469,7 @@ export class Orchestrator {
     this.deps.trace?.write({
       type: "subagent_cancel",
       subAgentId,
-      role: result.role,
+      goal: result.goal,
       parentTaskId: result.parentTaskId,
     });
 

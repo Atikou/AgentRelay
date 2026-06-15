@@ -40,7 +40,9 @@ import {
   createModelChatFn,
   createAgentChatFn,
   createPlannerChatFn,
+  createDelegatedTaskChatFn,
   ModelCallLogStore,
+  ModelAvailabilityRegistry,
   ModelRegistry,
   ModelProfileStore,
   RouteLogStore,
@@ -100,6 +102,7 @@ export class AppContext {
   readonly planService: PlanService;
   readonly routeLogStore: RouteLogStore;
   readonly modelCallLogStore: ModelCallLogStore;
+  readonly modelAvailability: ModelAvailabilityRegistry;
   readonly collaborationRunStore: CollaborationRunStore;
   readonly fallbackLogStore: FallbackLogStore;
   readonly modelEvalStore: ModelEvalStore;
@@ -142,6 +145,7 @@ export class AppContext {
     planService: PlanService;
     routeLogStore: RouteLogStore;
     modelCallLogStore: ModelCallLogStore;
+    modelAvailability: ModelAvailabilityRegistry;
     collaborationRunStore: CollaborationRunStore;
     fallbackLogStore: FallbackLogStore;
     modelEvalStore: ModelEvalStore;
@@ -183,6 +187,7 @@ export class AppContext {
     this.planService = opts.planService;
     this.routeLogStore = opts.routeLogStore;
     this.modelCallLogStore = opts.modelCallLogStore;
+    this.modelAvailability = opts.modelAvailability;
     this.collaborationRunStore = opts.collaborationRunStore;
     this.fallbackLogStore = opts.fallbackLogStore;
     this.modelEvalStore = opts.modelEvalStore;
@@ -239,6 +244,7 @@ export class AppContext {
         provider: c.provider,
         location: c.location,
         model: c.model,
+        availability: this.modelAvailability.get(c.name),
       })),
       capabilities: {
         traceAudit: true,
@@ -281,6 +287,7 @@ export class AppContext {
         agentPromptStrategyV8: true,
         costBudgetManagerV8: true,
         modelProfileStoreV8: true,
+        modelAvailabilityRouting: true,
         runPolicyManager: true,
         budgetManager: true,
         finalizer: true,
@@ -380,6 +387,7 @@ export function createAppContext(): AppContext {
   }
 
   const metrics = new MetricsRegistry();
+  const modelAvailability = new ModelAvailabilityRegistry();
   const notificationQueue = new NotificationQueue(
     path.join(dataDir, "notifications", "notifications.jsonl"),
   );
@@ -461,6 +469,7 @@ export function createAppContext(): AppContext {
   const modelProfileStore = ModelProfileStore.fromClients(config.models.clients, {
     db: contextManager.db.connection,
     metrics,
+    availability: modelAvailability,
   });
   const profileRegistry = modelProfileStore.registry;
   const routeLogStore = new RouteLogStore(contextManager.db.connection);
@@ -476,8 +485,12 @@ export function createAppContext(): AppContext {
     routeLogStore,
     runtimeStatsFeedback,
   );
-  const modelChatFn = createModelChatFn(clientMap, modelCallLogStore, trace);
+  const modelChatFn = createModelChatFn(clientMap, modelCallLogStore, trace, modelAvailability);
   const defaultAgentChat = createAgentChatFn({ smartRouter: smartModelRouter, modelChatFn });
+  const createChatForDelegatedTask = createDelegatedTaskChatFn({
+    smartRouter: smartModelRouter,
+    modelChatFn,
+  });
   const planner = new Planner(
     createPlannerChatFn({ smartRouter: smartModelRouter, modelChatFn }),
   );
@@ -503,6 +516,7 @@ export function createAppContext(): AppContext {
 
   const subAgentCoordinator = new SubAgentCoordinator({
     chat: defaultAgentChat,
+    createChatForDelegatedTask,
     registry,
     workspaceRoot,
     trace,
@@ -516,6 +530,13 @@ export function createAppContext(): AppContext {
     subAgentCoordinator,
     projectAllowedPermissions,
     maxSubAgentDispatchDepth,
+  });
+
+  void modelAvailability.refreshAll(clientMap).catch((error) => {
+    trace.write({
+      type: "model_availability_refresh_error",
+      error: String(error),
+    });
   });
 
   const planStore = new PlanStore(contextManager.db);
@@ -548,16 +569,18 @@ export function createAppContext(): AppContext {
     makeChatFn,
     subAgentCoordinator,
     subAgentCoordinatorFor: (forceClient) =>
-      new SubAgentCoordinator({
-        chat: makeChatFn(forceClient),
-        registry,
-        workspaceRoot,
-        trace,
-        projectAllowedPermissions,
-        notificationQueue,
-        maxSubAgentDispatchDepth,
-        runRegistry: subAgentRunRegistry,
-      }),
+      forceClient
+        ? new SubAgentCoordinator({
+            chat: makeChatFn(forceClient),
+            registry,
+            workspaceRoot,
+            trace,
+            projectAllowedPermissions,
+            notificationQueue,
+            maxSubAgentDispatchDepth,
+            runRegistry: subAgentRunRegistry,
+          })
+        : subAgentCoordinator,
     smartModelRouter,
     modelOrchestrator,
     planService,
@@ -630,6 +653,7 @@ export function createAppContext(): AppContext {
     planService,
     routeLogStore,
     modelCallLogStore,
+    modelAvailability,
     collaborationRunStore,
     fallbackLogStore,
     modelEvalStore,

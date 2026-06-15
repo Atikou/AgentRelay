@@ -12,7 +12,11 @@ import {
   resolveEffectivePermissions,
   resolveProjectAllowedPermissions,
 } from "../src/policy/PermissionPolicy.js";
-import { getSubAgentRole, resolveGrantedPermissions } from "../src/subagent/roles.js";
+import {
+  DEFAULT_PATCH_TOOL_POLICY,
+  DEFAULT_READONLY_TOOL_POLICY,
+  defaultToolRouter,
+} from "../src/subagent/index.js";
 
 const tests: Array<{ name: string; fn: () => void }> = [];
 function test(name: string, fn: () => void) {
@@ -62,17 +66,32 @@ test("resolveProjectAllowedPermissions defaults to all", () => {
   assert.deepEqual(resolveProjectAllowedPermissions({ allowed: ["read"] }), ["read"]);
 });
 
-test("subagent role + project ceiling", () => {
-  const role = getSubAgentRole("code_review");
-  const granted = resolveGrantedPermissions(role, undefined, ["read", "write"]);
-  assert.deepEqual(granted, ["read"]);
+test("subagent readonly toolPolicy + project ceiling", () => {
+  const { permissions } = defaultToolRouter.resolvePermissions(
+    DEFAULT_READONLY_TOOL_POLICY,
+    undefined,
+    ["read", "write"],
+  );
+  assert.deepEqual(permissions, ["read"]);
 });
 
-test("subagent user grant cannot exceed role", () => {
-  const role = getSubAgentRole("code_review");
+test("subagent write toolPolicy requires explicit write grant", () => {
   assert.throws(
-    () => resolveGrantedPermissions(role, ["write"], ALL_PERMISSIONS),
-    /不允许授予|超出允许范围/,
+    () => defaultToolRouter.resolvePermissions(DEFAULT_PATCH_TOOL_POLICY, ["read"], ALL_PERMISSIONS),
+    /write|显式授予/,
+  );
+  const { permissions } = defaultToolRouter.resolvePermissions(
+    DEFAULT_PATCH_TOOL_POLICY,
+    ["read", "write"],
+    ALL_PERMISSIONS,
+  );
+  assert.deepEqual(permissions, ["read", "write"]);
+});
+
+test("subagent user grant cannot exceed toolPolicy ceiling", () => {
+  assert.throws(
+    () => defaultToolRouter.resolvePermissions(DEFAULT_READONLY_TOOL_POLICY, ["write"], ALL_PERMISSIONS),
+    /超出允许范围/,
   );
 });
 

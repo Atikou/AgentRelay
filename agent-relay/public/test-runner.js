@@ -137,16 +137,17 @@ const MANUAL_APIS_BY_FEATURE = {
     { label: "POST /api/notifications/consume", method: "POST", path: "/api/notifications/consume", sample: {} },
   ],
   "m5-subagent": [
-    { label: "GET /api/subagent/roles", method: "GET", path: "/api/subagent/roles", sample: null },
     {
       label: "POST /api/subagent/run",
       method: "POST",
       path: "/api/subagent/run",
       sample: {
-        role: "code_review",
-        task: "审查 src/agent/AgentLoop.ts 的错误处理",
+        task: {
+          goal: "审查 src/agent/AgentLoop.ts 的错误处理",
+          instructions: "只读审查",
+          toolPolicy: { writeAllowed: false },
+        },
         sensitive: false,
-        budget: { maxModelTurns: 16, maxToolCalls: 20, maxReadCalls: 20, maxWriteCalls: 0, maxShellCalls: 0, maxRuntimeMs: 180000 },
         timeoutMs: 180000,
       },
     },
@@ -155,8 +156,10 @@ const MANUAL_APIS_BY_FEATURE = {
       method: "POST",
       path: "/api/subagent/batch",
       sample: {
-        roles: ["code_review", "test_analyze"],
-        task: "分析 agent-relay 测试失败原因",
+        tasks: [
+          { goal: "分析 agent-relay 测试失败原因", instructions: "只读分析日志" },
+          { goal: "审查相关源码", instructions: "只读审查" },
+        ],
       },
     },
   ],
@@ -250,39 +253,14 @@ const MODEL_AWARE_PATHS = new Set([
   "/api/subagent/batch",
 ]);
 
-let subAgentRolesCache = null;
+let subAgentDefaultTimeoutMs = 180_000;
 
-async function getSubAgentRolesCached() {
-  if (!subAgentRolesCache) {
-    const res = await fetch("/api/subagent/roles");
-    const data = await res.json();
-    subAgentRolesCache = data.roles || [];
-  }
-  return subAgentRolesCache;
-}
-
-/** 测试台手动验证：为子 Agent 请求补全角色默认 budget / timeoutMs。 */
+/** 测试台手动验证：为子 Agent 请求补全默认 timeoutMs。 */
 async function enrichSubAgentInput(path, input) {
   if (!input || typeof input !== "object") return input;
   if (path !== "/api/subagent/run" && path !== "/api/subagent/batch") return input;
-  const roles = await getSubAgentRolesCached();
-  if (path === "/api/subagent/run" && input.role) {
-    const role = roles.find((r) => r.id === input.role);
-    if (!role) return input;
-    return {
-      ...input,
-      budget: input.budget ?? role.defaultBudget,
-      timeoutMs: input.timeoutMs ?? role.defaultTimeoutMs ?? 180000,
-    };
-  }
-  if (path === "/api/subagent/batch" && Array.isArray(input.roles) && input.roles.length > 0) {
-    const budget = input.budget ?? mergeBudgets(input.roles.map((id) => roles.find((r) => r.id === id)?.defaultBudget));
-    const timeoutMs =
-      input.timeoutMs ??
-      Math.max(...input.roles.map((id) => roles.find((r) => r.id === id)?.defaultTimeoutMs ?? 120000));
-    return { ...input, budget, timeoutMs };
-  }
-  return input;
+  if (input.timeoutMs != null) return input;
+  return { ...input, timeoutMs: subAgentDefaultTimeoutMs };
 }
 
 function mergeBudgets(budgets) {

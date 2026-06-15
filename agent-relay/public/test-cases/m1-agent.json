@@ -1584,7 +1584,7 @@
       "input": null,
       "expect": {
         "status": 200,
-        "bodyContains": ["dispatch_subagent", "code_review", "test_analyze"]
+        "bodyContains": ["dispatch_subagent", "DelegatedTask", "tasks"]
       }
     },
     {

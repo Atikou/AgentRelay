@@ -1,4 +1,25 @@
-export { SUB_AGENT_ROLES, getSubAgentRole, listSubAgentRoles, resolveGrantedPermissions } from "./roles.js";
+export { analyzeTaskRoutingSignals } from "./routingSignals.js";
+export { toModelSelection } from "./modelSelection.js";
+export {
+  type DelegatedTask,
+  type DelegatedTaskContext,
+  type ModelPolicy,
+  type ToolPolicy,
+  type TaskLimits,
+  type OutputContract,
+  type SubAgentStructuredResult,
+  normalizeDelegatedTask,
+  limitsToRunBudget,
+  DEFAULT_READONLY_TOOL_POLICY,
+  DEFAULT_PATCH_TOOL_POLICY,
+} from "./delegatedTask.js";
+export { type ExecutionRoute, type ExecutionMode, type TaskStateSnapshot } from "./executionRoute.js";
+export { ExecutionRouter, routeDelegatedExecution } from "./ExecutionRouter.js";
+export { ContextRouter, defaultContextRouter } from "./ContextRouter.js";
+export { ToolRouter, defaultToolRouter } from "./ToolRouter.js";
+export { TaskSplitter, defaultTaskSplitter } from "./TaskSplitter.js";
+export { ResultCollector, defaultResultCollector } from "./ResultCollector.js";
+export { buildDelegatedTaskSystemPrompt } from "./taskPrompt.js";
 export {
   SubAgentRunner,
   aggregateSubAgentResults,
@@ -38,9 +59,8 @@ export type {
   SubAgentWriteMergeAttempt,
   SubAgentWriteMergeStatus,
   SubAgentArbitration,
-  SubAgentRoleDefinition,
-  SubAgentRoleId,
-  SubAgentRunOptions,
   SubAgentRunResult,
+  DelegatedTaskRunOptions,
   SubAgentStatus,
+  ModelSelection,
 } from "./types.js";

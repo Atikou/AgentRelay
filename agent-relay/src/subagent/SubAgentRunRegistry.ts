@@ -1,10 +1,6 @@
-import type { SubAgentRoleId } from "./types.js";
-
-export const SUB_AGENT_CANCELLED_MESSAGE = "子 Agent 已取消";
-
 export interface SubAgentRunningRecord {
   subAgentId: string;
-  role: SubAgentRoleId;
+  goal: string;
   parentTaskId?: string;
   startedAt: string;
 }
@@ -15,24 +11,24 @@ export interface SubAgentCancelResult extends SubAgentRunningRecord {
 
 interface ActiveRun {
   controller: AbortController;
-  role: SubAgentRoleId;
+  goal: string;
   parentTaskId?: string;
   startedAt: string;
 }
 
-/** 跟踪运行中的子 Agent，支持显式 cancel（AbortSignal）。 */
+export const SUB_AGENT_CANCELLED_MESSAGE = "子 Agent 已取消";
+
 export class SubAgentRunRegistry {
   private readonly active = new Map<string, ActiveRun>();
 
-  /** 注册运行中子 Agent，返回用于取消的 AbortController。 */
   register(
     subAgentId: string,
-    meta: { role: SubAgentRoleId; parentTaskId?: string },
+    meta: { goal: string; parentTaskId?: string },
   ): AbortController {
     const controller = new AbortController();
     this.active.set(subAgentId, {
       controller,
-      role: meta.role,
+      goal: meta.goal,
       parentTaskId: meta.parentTaskId,
       startedAt: new Date().toISOString(),
     });
@@ -48,34 +44,32 @@ export class SubAgentRunRegistry {
   }
 
   listRunning(): SubAgentRunningRecord[] {
-    return [...this.active.entries()].map(([subAgentId, entry]) => ({
+    return [...this.active.entries()].map(([subAgentId, run]) => ({
       subAgentId,
-      role: entry.role,
-      parentTaskId: entry.parentTaskId,
-      startedAt: entry.startedAt,
+      goal: run.goal,
+      parentTaskId: run.parentTaskId,
+      startedAt: run.startedAt,
     }));
   }
 
-  /** 请求取消；运行中的子 Agent 将在安全点以 cancelled 结束。 */
   cancel(subAgentId: string): SubAgentCancelResult | undefined {
-    const entry = this.active.get(subAgentId);
-    if (!entry) return undefined;
-    if (!entry.controller.signal.aborted) {
-      entry.controller.abort(new Error(SUB_AGENT_CANCELLED_MESSAGE));
-    }
+    const run = this.active.get(subAgentId);
+    if (!run) return undefined;
+    run.controller.abort(new Error(SUB_AGENT_CANCELLED_MESSAGE));
     return {
       subAgentId,
-      role: entry.role,
-      parentTaskId: entry.parentTaskId,
-      startedAt: entry.startedAt,
+      goal: run.goal,
+      parentTaskId: run.parentTaskId,
+      startedAt: run.startedAt,
       status: "cancelling",
     };
   }
 }
 
 export function isSubAgentCancelledError(err: unknown): boolean {
-  const msg = String(err);
-  if (msg.includes(SUB_AGENT_CANCELLED_MESSAGE)) return true;
-  if (err instanceof Error && err.name === "AbortError") return true;
+  if (err instanceof Error && err.message === SUB_AGENT_CANCELLED_MESSAGE) return true;
+  if (typeof err === "object" && err != null && "message" in err) {
+    return String((err as { message: unknown }).message) === SUB_AGENT_CANCELLED_MESSAGE;
+  }
   return false;
 }

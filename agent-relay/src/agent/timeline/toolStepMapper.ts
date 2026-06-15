@@ -93,15 +93,16 @@ export function mapToolToActivityStep(
         content: path ?? toolName,
         ...base,
       };
-    case "dispatch_subagent":
+    case "dispatch_subagent": {
+      const tasks = Array.isArray(input.tasks) ? (input.tasks as Array<{ goal?: string }>) : [];
+      const goals = tasks.map((t) => t.goal).filter(Boolean);
       return {
         type: "tool_call",
         title: "正在派生子 Agent",
-        content: Array.isArray(input.roles)
-          ? `角色：${(input.roles as string[]).join(", ")}`
-          : "子 Agent 协作",
+        content: goals.length > 0 ? `任务：${goals.join("；")}` : "子 Agent 协作",
         ...base,
       };
+    }
     default:
       return {
         type: "tool_call",

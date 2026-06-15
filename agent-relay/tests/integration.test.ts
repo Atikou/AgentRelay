@@ -156,8 +156,10 @@ test("集成：子 Agent 并行执行并汇总", async () => {
     workspaceRoot: sandbox,
   });
   const result = await coordinator.runBatch({
-    roles: ["code_review", "test_analyze"],
-    task: "审查 src/a.ts",
+    tasks: [
+      { goal: "审查 src/a.ts", instructions: "代码审查 src/a.ts" },
+      { goal: "分析 src/a.ts 相关测试输出", instructions: "测试分析" },
+    ],
   });
   assert.equal(result.results.length, 2);
   assert.ok(result.results.every((r) => r.status === "completed"));

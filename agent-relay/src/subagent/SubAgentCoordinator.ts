@@ -3,26 +3,36 @@ import { performance } from "node:perf_hooks";
 
 import type { LoopChatFn } from "../agent/AgentLoop.js";
 import { arbitrateSubAgentConflicts } from "./SubAgentArbitrator.js";
+import { normalizeDelegatedTask } from "./delegatedTask.js";
+import { ExecutionRouter } from "./ExecutionRouter.js";
 import { aggregateSubAgentResultsStructured, SubAgentRunner, type SubAgentRunnerDeps } from "./SubAgentRunner.js";
-import type { SubAgentBatchOptions, SubAgentBatchResult, SubAgentRoleId, SubAgentRunOptions, SubAgentRunResult } from "./types.js";
-import {
-  attemptAutoMergeWriteConflicts,
-  formatWriteMergeSummary,
-} from "./writeConflictAutoMerge.js";
+import type { DelegatedTask } from "./delegatedTask.js";
+import type { SubAgentBatchOptions, SubAgentBatchResult } from "./types.js";
+import { attemptAutoMergeWriteConflicts, formatWriteMergeSummary } from "./writeConflictAutoMerge.js";
 import type { SubAgentCancelResult, SubAgentRunRegistry, SubAgentRunningRecord } from "./SubAgentRunRegistry.js";
 
-/** 并行派生多个子 Agent 并汇总结果（M5）。 */
+const executionRouter = new ExecutionRouter();
+
 export class SubAgentCoordinator {
   private readonly runner: SubAgentRunner;
-  private readonly chat: LoopChatFn;
 
   constructor(private readonly deps: SubAgentRunnerDeps) {
     this.runner = new SubAgentRunner(deps);
-    this.chat = deps.chat;
   }
 
-  run(options: SubAgentRunOptions): Promise<SubAgentRunResult> {
-    return this.runner.run(options);
+  runDelegated(task: DelegatedTask, opts?: Omit<import("./types.js").DelegatedTaskRunOptions, "task">) {
+    const route = executionRouter.route({
+      goal: task.goal,
+      contextSnippet: task.input,
+      forceDelegate: true,
+      needsWrite: task.toolPolicy?.writeAllowed,
+      needsShell: task.toolPolicy?.shellAllowed,
+    });
+    return this.runner.runDelegated({
+      task,
+      ...opts,
+      executionRoute: route.mode === "delegate" ? route : opts?.executionRoute,
+    });
   }
 
   cancel(subAgentId: string): SubAgentCancelResult | undefined {
@@ -34,34 +44,42 @@ export class SubAgentCoordinator {
   }
 
   async runBatch(options: SubAgentBatchOptions): Promise<SubAgentBatchResult> {
+    if (!options.tasks.length) throw new Error("tasks 不能为空");
+
     const parentTaskId = options.parentTaskId ?? randomUUID();
-    const roles = dedupeRoles(options.roles);
-    if (roles.length === 0) {
-      throw new Error("roles 不能为空");
-    }
+    const entries = options.tasks.map((t) => {
+      const task = normalizeDelegatedTask(t);
+      const route = executionRouter.route({
+        goal: task.goal,
+        contextSnippet: task.input,
+        forceDelegate: true,
+        needsWrite: task.toolPolicy?.writeAllowed,
+      });
+      return { task, route: route.mode === "delegate" ? route : undefined };
+    });
 
     const start = performance.now();
     const settled = await Promise.all(
-      roles.map((role) =>
-        this.runner.run({
-          role,
-          task: options.task,
-          context: options.context,
+      entries.map((entry) =>
+        this.runner.runDelegated({
+          task: entry.task,
           parentTaskId,
           grantedPermissions: options.grantedPermissions,
-          budget: options.budget,
           timeoutMs: options.timeoutMs,
           sensitive: options.sensitive,
           dispatchDepth: options.dispatchDepth,
+          executionRoute: entry.route,
         }),
       ),
     );
 
     let aggregate = aggregateSubAgentResultsStructured(settled);
+    const summaryGoal = options.tasks.map((t) => t.goal).join(" | ");
 
     if (options.arbitrateConflicts) {
-      const arbitration = await arbitrateSubAgentConflicts(this.chat, {
-        task: options.task,
+      const arbitrationChat = resolveArbitrationChat(this.deps, options.sensitive, summaryGoal);
+      const arbitration = await arbitrateSubAgentConflicts(arbitrationChat, {
+        task: summaryGoal,
         results: settled,
         textConflicts: aggregate.conflicts,
         writeConflicts: aggregate.writeConflicts,
@@ -96,17 +114,14 @@ export class SubAgentCoordinator {
           },
         );
         const unresolved = aggregate.writeConflicts.filter(
-          (conflict) =>
-            writeMerges.find((attempt) => attempt.path === conflict.path)?.status !== "merged",
+          (conflict) => writeMerges.find((attempt) => attempt.path === conflict.path)?.status !== "merged",
         );
         const mergeSummary = formatWriteMergeSummary(writeMerges);
         aggregate = {
           ...aggregate,
           writeConflicts: unresolved,
           writeMerges,
-          mergedAnswer: mergeSummary
-            ? `${aggregate.mergedAnswer}\n\n${mergeSummary}`
-            : aggregate.mergedAnswer,
+          mergedAnswer: mergeSummary ? `${aggregate.mergedAnswer}\n\n${mergeSummary}` : aggregate.mergedAnswer,
         };
       }
     }
@@ -121,6 +136,14 @@ export class SubAgentCoordinator {
   }
 }
 
-function dedupeRoles(roles: SubAgentRoleId[]): SubAgentRoleId[] {
-  return [...new Set(roles)];
+function resolveArbitrationChat(deps: SubAgentRunnerDeps, sensitive?: boolean, goal?: string): LoopChatFn {
+  if (deps.createChatForDelegatedTask) {
+    const taskObj = normalizeDelegatedTask({
+      goal: goal ?? "仲裁子任务冲突",
+      instructions: "只读复核多子任务冲突并给出建议",
+      input: "",
+    });
+    return deps.createChatForDelegatedTask(taskObj, { sensitive, parentTaskId: randomUUID() });
+  }
+  return deps.chat;
 }

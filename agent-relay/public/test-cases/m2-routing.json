@@ -302,6 +302,37 @@
       }
     },
     {
+      "id": "m2-config-model-availability-routing",
+      "title": "配置暴露模型可用性路由过滤",
+      "purpose": "确认服务端声明 /api/models/check 与调用前预检已接入 SmartModelRouter 候选过滤，避免选中未安装本地模型。",
+      "method": "GET",
+      "path": "/api/config",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyPaths": {
+          "capabilities.modelAvailabilityRouting": true,
+          "clients": "array"
+        }
+      }
+    },
+    {
+      "id": "m2-routing-profiles-availability",
+      "title": "能力矩阵快照含 availability",
+      "purpose": "确认 GET /api/routing/profiles 返回 availability 记录，供测试台解释某个配置模型为何未进入候选。",
+      "method": "GET",
+      "path": "/api/routing/profiles",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyHasKeys": ["availability", "profiles"],
+        "bodyPaths": {
+          "availability": "array",
+          "profiles": "array"
+        }
+      }
+    },
+    {
       "id": "m2-config-model-capabilities-v5",
       "title": "配置暴露 modelCapabilitiesV5 能力",
       "purpose": "确认 V5 能力矩阵 API 已落地，capabilities 声明 modelCapabilitiesV5。",

@@ -6,6 +6,7 @@ import {
   buildCapabilityMatrixSnapshot,
   type CapabilityMatrixSnapshot,
 } from "./model-capabilities.js";
+import type { ModelAvailabilityRecord, ModelAvailabilityRegistry } from "./model-availability.js";
 import { ModelRegistry } from "./model-registry.js";
 import { buildModelProfiles, validateModelProfiles } from "./model-profiles.js";
 import type { ModelProfile } from "./types.js";
@@ -23,11 +24,13 @@ export interface ModelProfileStoreSnapshot extends CapabilityMatrixSnapshot {
   enabledCount: number;
   validationErrors: string[];
   runtimeHintsByModelId: Record<string, ModelProfileRuntimeHint>;
+  availability?: ModelAvailabilityRecord[];
 }
 
 export interface ModelProfileStoreOptions {
   db?: DatabaseSync;
   metrics?: MetricsRegistry;
+  availability?: ModelAvailabilityRegistry;
 }
 
 /**
@@ -39,7 +42,7 @@ export class ModelProfileStore {
 
   constructor(profiles: ModelProfile[], private readonly opts: ModelProfileStoreOptions = {}) {
     this.profiles = [...profiles];
-    this.registry = new ModelRegistry(this.profiles);
+    this.registry = new ModelRegistry(this.profiles, { availability: opts.availability });
   }
 
   static fromClients(
@@ -72,6 +75,7 @@ export class ModelProfileStore {
       enabledCount: this.profiles.filter((p) => p.enabled).length,
       validationErrors: validateModelProfiles(this.profiles),
       runtimeHintsByModelId: this.collectRuntimeHints(),
+      availability: this.opts.availability?.snapshot(),
     };
   }
 

@@ -1,11 +1,10 @@
 import type { AgentToolStep } from "../agent/toolStep.js";
-import type { SubAgentRoleId, SubAgentRunResult, SubAgentWriteConflict } from "./types.js";
+import type { SubAgentRunResult, SubAgentWriteConflict } from "./types.js";
 
 export type { SubAgentWriteConflict };
 
 const WRITE_TOOLS = new Set(["write_file", "apply_patch"]);
 
-/** 从子 Agent 工具步骤中提取成功写入的文件路径。 */
 export function extractWritePathsFromSteps(steps: AgentToolStep[]): Array<{ path: string; changeId?: string }> {
   const out: Array<{ path: string; changeId?: string }> = [];
   for (const step of steps) {
@@ -25,19 +24,15 @@ export function extractWritePathsFromSteps(steps: AgentToolStep[]): Array<{ path
   return out;
 }
 
-/** 检测多个子 Agent 是否写入了同一文件（按子 Agent 运行实例计数，不限于不同角色）。 */
 export function detectWriteConflicts(results: SubAgentRunResult[]): SubAgentWriteConflict[] {
-  const byPath = new Map<
-    string,
-    { resultIds: Set<string>; roles: SubAgentRoleId[]; changeIds: string[] }
-  >();
+  const byPath = new Map<string, { resultIds: Set<string>; taskIds: string[]; changeIds: string[] }>();
   for (const result of results) {
     if (result.status !== "completed") continue;
     for (const { path, changeId } of extractWritePathsFromSteps(result.steps)) {
-      const entry = byPath.get(path) ?? { resultIds: new Set<string>(), roles: [], changeIds: [] };
+      const entry = byPath.get(path) ?? { resultIds: new Set<string>(), taskIds: [], changeIds: [] };
       if (!entry.resultIds.has(result.id)) {
         entry.resultIds.add(result.id);
-        entry.roles.push(result.role);
+        entry.taskIds.push(result.taskId);
       }
       if (changeId) entry.changeIds.push(changeId);
       byPath.set(path, entry);
@@ -48,12 +43,12 @@ export function detectWriteConflicts(results: SubAgentRunResult[]): SubAgentWrit
     if (entry.resultIds.size < 2) continue;
     conflicts.push({
       path,
-      roles: entry.roles,
+      taskIds: entry.taskIds,
       changeIds: entry.changeIds,
-      reason: `${entry.resultIds.size} 个子 Agent 运行写入了同一文件，需父 Agent 或仲裁合并`,
+      reason: "多个子任务写入同一文件",
     });
   }
-  return conflicts.slice(0, 20);
+  return conflicts;
 }
 
 export function normalizeRelPath(path: string): string {

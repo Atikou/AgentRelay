@@ -338,7 +338,7 @@ DELETE /api/runs/{runId}
 
 | --- | --- | --- |
 
-| 配置与模型 | `/api/config`、`/api/models/check`、`/api/models/catalog`、`/api/metrics` | Profile、路由策略、连通性、**本地已安装模型目录**与调用统计 |
+| 配置与模型 | `/api/config`、`/api/models/check`、`/api/models/catalog`、`/api/metrics` | Profile、路由策略、连通性、**本地已安装模型目录**、availability 路由过滤与调用统计 |
 
 | 对话与智能体 | `/api/chat`、`/api/agent`、`/api/agent/stream` | 单次对话、自主循环与 SSE 逐步推送 |
 
@@ -353,7 +353,7 @@ DELETE /api/runs/{runId}
 
 | 调度 | `/api/scheduler/triggers/*` | M8 定时/事件触发器 |
 
-| 子 Agent | `/api/subagent/*` | M5 只读角色派生、结构化汇总、共同结论与冲突检测 |
+| 子 Agent | `/api/subagent/*` | M5 `DelegatedTask` 委派、大任务拆小、干净上下文、结构化汇总与冲突检测 |
 
 | 上下文与记忆 | `/api/context/*` | M6 会话持久化、压缩与检索；`POST .../purge` 隐私清除 |
 

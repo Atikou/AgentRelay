@@ -1,0 +1,13 @@
+{
+  "runId": "8128563c-f1cd-4590-83f7-2fcfa675d9b7",
+  "sessionId": "e1fd70bc-86bb-4312-9fc3-fd8b32c0d771",
+  "projectPath": "D:\\Learn\\AgentTest",
+  "status": "success",
+  "createdAt": 1781513827122,
+  "completedAt": 1781513848119,
+  "summaryPath": "summary.md",
+  "eventsPath": "events.jsonl",
+  "artifactPaths": [],
+  "pinned": false,
+  "retentionClass": "default"
+}

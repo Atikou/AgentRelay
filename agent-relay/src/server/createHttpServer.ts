@@ -63,7 +63,7 @@ import {
   handlePlanPreview,
   handlePlanReject,
 } from "./handlers/plan.handlers.js";
-import { handleSubAgentBatch, handleSubAgentCancel, handleSubAgentRoles, handleSubAgentRun, handleSubAgentRunning } from "./handlers/subagent.handlers.js";
+import { handleSubAgentBatch, handleSubAgentCancel, handleSubAgentRun, handleSubAgentRunning } from "./handlers/subagent.handlers.js";
 import { handleToolsList, handleToolRun } from "./handlers/tools.handlers.js";
 import { handleTraceExport, handleTraceRecent, handleTraceReplay, handleTraceRotate } from "./handlers/trace.handlers.js";
 import { readBody } from "./http/body.js";
@@ -381,10 +381,6 @@ export function createHttpServer(app: AppContext, opts?: HttpServerOptions): Ser
             sendJson(res, result.status, result.body);
             return;
           }
-        }
-        if (pathname === "/api/subagent/roles" && method === "GET") {
-          sendJson(res, 200, handleSubAgentRoles());
-          return;
         }
         if (pathname === "/api/subagent/run" && method === "POST") {
           const result = await handleSubAgentRun(app, await readBody(req, maxBodyBytes));

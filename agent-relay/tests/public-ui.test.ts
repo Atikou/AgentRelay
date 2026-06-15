@@ -130,6 +130,15 @@ test("测试台历史会话支持重命名与删除", async () => {
   assert.ok(css.includes(".sidebar-session-more"));
 });
 
+test("app.js 时间显示经 parseTimestamp 转本地时区", async () => {
+  const js = await readFile(path.join(publicDir, "app.js"), "utf-8");
+  assert.ok(js.includes("function parseTimestamp(value)"));
+  assert.ok(js.includes("function formatDateTime(value)"));
+  assert.ok(js.includes('toLocaleString("zh-CN"'));
+  assert.ok(js.includes("formatDateTime(n.timestamp)"));
+  assert.ok(js.includes("year: \"numeric\""));
+});
+
 let passed = 0;
 for (const { name, fn } of tests) {
   try {

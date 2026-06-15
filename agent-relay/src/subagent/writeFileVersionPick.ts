@@ -1,4 +1,4 @@
-import type { SubAgentRoleId, SubAgentRunResult, SubAgentWriteConflict } from "./types.js";
+import type { SubAgentRunResult, SubAgentWriteConflict } from "./types.js";
 import { normalizeRelPath } from "./writeConflictMerge.js";
 
 export type WriteFilePickStrategy = "latest" | "earliest" | "arbitration";
@@ -6,22 +6,21 @@ export type WriteFilePickStrategy = "latest" | "earliest" | "arbitration";
 export interface WriteFilePickHint {
   path: string;
   changeId?: string;
-  role?: SubAgentRoleId;
+  taskId?: string;
   manual?: boolean;
 }
 
 export interface WriteFileCandidate {
   changeId?: string;
-  role: SubAgentRoleId;
+  taskId: string;
+  goal: string;
   content: string;
   sortKey: number;
   createdAt: string;
 }
 
-const ROLE_IDS: SubAgentRoleId[] = ["code_review", "test_analyze", "patch_worker"];
 const WRITE_PICK_RE = /^WRITE_PICK:\s*(.+)$/gim;
 
-/** 从仲裁摘要解析 WRITE_PICK 行（见 SubAgentArbitrator 提示）。 */
 export function parseWriteFilePickHints(summary: string): WriteFilePickHint[] {
   const hints: WriteFilePickHint[] = [];
   for (const match of summary.matchAll(WRITE_PICK_RE)) {
@@ -37,18 +36,16 @@ export function parseWriteFilePickHints(summary: string): WriteFilePickHint[] {
     const path = parts.path;
     if (!path) continue;
     const manual = parts.manual === "true" || parts.manual === "1" || body.includes("manual");
-    const role = ROLE_IDS.find((id) => id === parts.role);
     hints.push({
       path: normalizeRelPath(path),
       changeId: parts.changeId,
-      role,
+      taskId: parts.taskId,
       manual,
     });
   }
   return hints;
 }
 
-/** 从子 Agent 步骤收集 write_file 候选版本。 */
 export function collectWriteFileCandidates(
   results: SubAgentRunResult[],
   targetPath: string,
@@ -63,8 +60,7 @@ export function collectWriteFileCandidates(
       if (!step.ok || step.tool !== "write_file") continue;
       const input = step.input as Record<string, unknown> | undefined;
       const output = step.output as Record<string, unknown> | undefined;
-      const stepPath =
-        typeof input?.path === "string" ? normalizeRelPath(input.path) : undefined;
+      const stepPath = typeof input?.path === "string" ? normalizeRelPath(input.path) : undefined;
       if (stepPath !== norm) continue;
       const content = typeof input?.content === "string" ? input.content : undefined;
       if (content == null) continue;
@@ -72,7 +68,8 @@ export function collectWriteFileCandidates(
       const createdAt = changeId ? getCreatedAt(changeId) ?? "" : "";
       candidates.push({
         changeId,
-        role: result.role,
+        taskId: result.taskId,
+        goal: result.goal,
         content,
         sortKey: ri * 1000 + step.iteration,
         createdAt,
@@ -109,21 +106,13 @@ export function pickWriteFileCandidate(
     if (hint.changeId) {
       const byId = candidates.find((c) => c.changeId === hint.changeId);
       if (byId) {
-        return {
-          candidate: byId,
-          strategy: "arbitration",
-          reason: `仲裁选定 changeId=${hint.changeId}`,
-        };
+        return { candidate: byId, strategy: "arbitration", reason: `仲裁选定 changeId=${hint.changeId}` };
       }
     }
-    if (hint.role) {
-      const byRole = [...candidates].reverse().find((c) => c.role === hint.role);
-      if (byRole) {
-        return {
-          candidate: byRole,
-          strategy: "arbitration",
-          reason: `仲裁选定角色 ${hint.role}`,
-        };
+    if (hint.taskId) {
+      const byTask = [...candidates].reverse().find((c) => c.taskId === hint.taskId);
+      if (byTask) {
+        return { candidate: byTask, strategy: "arbitration", reason: `仲裁选定 taskId=${hint.taskId}` };
       }
     }
     if (arbitrationSummary) {
@@ -131,10 +120,8 @@ export function pickWriteFileCandidate(
     }
   }
 
-  const fallback: WriteFilePickStrategy =
-    strategy === "arbitration" ? "latest" : strategy;
-  const picked =
-    fallback === "earliest" ? candidates[0]! : candidates[candidates.length - 1]!;
+  const fallback: WriteFilePickStrategy = strategy === "arbitration" ? "latest" : strategy;
+  const picked = fallback === "earliest" ? candidates[0]! : candidates[candidates.length - 1]!;
   return {
     candidate: picked,
     strategy: fallback,

@@ -88,9 +88,9 @@
 
 - [x] 支持从主 Agent 派生子 Agent。（`/api/subagent/run` / `batch` + 主循环 `dispatch_subagent` 工具）
 - [x] 子 Agent 拥有独立上下文窗口。（角色 system + 独立 AgentLoop 消息链）
-- [x] 子 Agent 可被限制为只读、执行命令、代码审查、测试运行等角色。（第一版：`code_review` / `test_analyze` 仅 read）
+- [x] 子 Agent 大任务拆小委派（`DelegatedTask` + `dispatch_subagent` `tasks[]`）；干净上下文 + 结构化结果回收；`toolPolicy` 控制工具权限
 - [x] 支持并行派生多个子 Agent。（`SubAgentCoordinator.runBatch`）
-- [x] `dispatch_subagent` 对模型常见错参做系统级容错，并在已收集足够子 Agent 结果后阻止继续派生。（角色别名 / `task` 数组 / 空对象 `context` / `writeFilePickStrategy: null` 归一化；3 个成功结果后要求 `final`）
+- [x] `dispatch_subagent` 强制使用 `tasks: DelegatedTask[]`，旧 `roles` / `task` 字符串参数直接拒绝，并在已收集足够子 Agent 结果后阻止继续派生。（`writeFilePickStrategy: null` 清理；3 个成功结果后要求 `final`）
 - [x] 支持子 Agent 结果汇总、**结论层**冲突检测和合并。（`aggregate`：共同结论、冲突列表、mergedAnswer）
 - [x] 检测多子 Agent **写入同一文件**的补丁级冲突。（`detectWriteConflicts` + `aggregate.writeConflicts`）
 - [x] 非重叠 **apply_patch** 写入冲突自动三路合并。（`autoMergeWrites` + `writeConflictAutoMerge` → `aggregate.writeMerges`）

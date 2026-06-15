@@ -1,27 +1,20 @@
 import type { AppContext } from "../../app/createAppContext.js";
 import type { ApiResult } from "../../orchestrator/Orchestrator.js";
-import { listSubAgentRoles, type SubAgentRoleId } from "../../subagent/index.js";
-import type { RunBudget } from "../../agent/RunPolicyTypes.js";
-
-export function handleSubAgentRoles() {
-  return { roles: listSubAgentRoles() };
-}
+import type { DelegatedTask } from "../../subagent/delegatedTask.js";
 
 export async function handleSubAgentRun(app: AppContext, body: unknown): Promise<ApiResult> {
   const payload = (body ?? {}) as {
-    role?: SubAgentRoleId;
-    task?: string;
-    context?: string;
+    task?: DelegatedTask;
     parentTaskId?: string;
     grantedPermissions?: string[];
-    budget?: Partial<RunBudget>;
     timeoutMs?: number;
     sensitive?: boolean;
     clientName?: string;
   };
-  const task = (payload.task ?? "").trim();
-  if (!payload.role) return { status: 400, body: { error: "role 不能为空" } };
-  if (!task) return { status: 400, body: { error: "task 不能为空" } };
+
+  if (!payload.task || typeof payload.task !== "object" || !payload.task.goal?.trim()) {
+    return { status: 400, body: { error: "task 须为含 goal 的 DelegatedTask 对象" } };
+  }
 
   const { forceClient, error } = app.resolveForceClient(payload.clientName);
   if (error) return { status: 404, body: { error } };
@@ -30,20 +23,10 @@ export async function handleSubAgentRun(app: AppContext, body: unknown): Promise
 }
 
 export async function handleSubAgentBatch(app: AppContext, body: unknown): Promise<ApiResult> {
-  const payload = (body ?? {}) as {
-    roles?: SubAgentRoleId[];
-    task?: string;
-    context?: string;
-    parentTaskId?: string;
-    grantedPermissions?: string[];
-    budget?: Partial<RunBudget>;
-    timeoutMs?: number;
-    sensitive?: boolean;
-    clientName?: string;
-  };
-  const task = (payload.task ?? "").trim();
-  if (!task) return { status: 400, body: { error: "task 不能为空" } };
-  if (!payload.roles?.length) return { status: 400, body: { error: "roles 不能为空" } };
+  const payload = (body ?? {}) as { tasks?: DelegatedTask[]; clientName?: string };
+  if (!payload.tasks?.length) {
+    return { status: 400, body: { error: "tasks 不能为空" } };
+  }
 
   const { forceClient, error } = app.resolveForceClient(payload.clientName);
   if (error) return { status: 404, body: { error } };

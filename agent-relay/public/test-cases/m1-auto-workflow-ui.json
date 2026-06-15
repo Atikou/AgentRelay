@@ -118,6 +118,30 @@
         "status": 200,
         "bodyContains": ["positionAdvancedPanel", "--advanced-panel-left", "summaryRect.top - panelRect.height - 8"]
       }
+    },
+    {
+      "id": "m1-auto-ui-local-datetime-helper",
+      "title": "app.js 提供本地时区时间格式化",
+      "purpose": "确认测试台通过 parseTimestamp/formatDateTime 将服务端 ISO/Unix 时间转为浏览器当前系统时区显示。",
+      "method": "GET",
+      "path": "/app.js",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyContains": ["parseTimestamp", "formatDateTime", "toLocaleString(\"zh-CN\""]
+      }
+    },
+    {
+      "id": "m1-auto-ui-notification-local-time",
+      "title": "通知列表使用 formatDateTime",
+      "purpose": "确认通知队列与调度待办不再直接展示 UTC ISO 字符串，而是经 formatDateTime 本地化。",
+      "method": "GET",
+      "path": "/app.js",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyContains": ["formatDateTime(n.timestamp)", "formatDateTime(t.at)", "formatDateTime(t.lastFiredAt)"]
+      }
     }
   ]
 }

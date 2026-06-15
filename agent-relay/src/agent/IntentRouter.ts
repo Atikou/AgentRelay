@@ -41,6 +41,11 @@ const SEARCH_INTENT_RE =
   /\u641c\u7d22|\u67e5\u627e|\u5b9a\u4f4d|\u5f15\u7528|\u5728\u54ea\u91cc|\u627e\u4e00\u4e0b|search/;
 const SUMMARIZE_INTENT_RE =
   /\u603b\u7ed3|\u6982\u62ec|\u5f53\u524d\u9879\u76ee\u8fdb\u5ea6|\u9879\u76ee\u5982\u4f55|summarize/;
+const SUBAGENT_COLLAB_RE = /\u5b50\s*(agent|agnet)|sub\s*agent/i;
+const GENERAL_ADVICE_RE =
+  /\u6bcf\u5929|\u63d0\u5347\u81ea\u6211|\u6210\u957f|\u5b66\u4e60|\u751f\u6d3b|\u4e60\u60ef|\u5efa\u8bae|\u65b9\u6cd5|\u5982\u4f55|advice|self[-\s]?improve/i;
+const PROJECT_CONTEXT_RE =
+  /\u5f53\u524d\u9879\u76ee|\u9879\u76ee|\u4ee3\u7801|\u4ed3\u5e93|\u6587\u4ef6|\u6a21\u5757|\u67b6\u6784|\u6d4b\u8bd5|src|docs|tests|codebase|repository/i;
 
 /**
  * 用户意图路由：统一入口下先识别内部意图，再映射到当前已实现的运行模式与预扫描工作流。
@@ -56,7 +61,7 @@ export class IntentRouter {
       modeSource: explicit ? "explicit" : "inferred",
       intent,
       workflowType: defaultWorkflowRouter.routeIntent(intent).workflowType,
-      workflowPlan: defaultWorkflowPlanner.plan(goal, mode),
+      workflowPlan: defaultWorkflowPlanner.plan(goal, mode, intent),
     };
   }
 
@@ -67,6 +72,7 @@ export class IntentRouter {
   inferIntent(input: IntentRouteInput): AgentIntentType {
     const text = normalizeText(input.message ?? "");
     if (!text && input.taskType === "codegen") return "edit";
+    if (isGeneralSubagentCollaborationRequest(text)) return "answer";
     const unicodeIntent = inferUnicodeIntent(text);
     if (unicodeIntent) return unicodeIntent;
 
@@ -127,6 +133,10 @@ function normalizeText(text: string): string {
 
 function hasAny(text: string, needles: string[]): boolean {
   return needles.some((needle) => text.includes(needle.toLowerCase()));
+}
+
+function isGeneralSubagentCollaborationRequest(text: string): boolean {
+  return SUBAGENT_COLLAB_RE.test(text) && GENERAL_ADVICE_RE.test(text) && !PROJECT_CONTEXT_RE.test(text);
 }
 
 function intentForExplicitMode(mode: AgentRunMode): AgentIntentType {
