@@ -84,7 +84,10 @@ export function createDelegatedTaskChatFn(deps: {
         const routingMeta = buildAgentRoutingMeta(decision, promptStrategy);
 
         if (decision.executionStrategy === "rule_only") {
-          const content = resolveRuleOnlyAnswer(decision.taskType, userInput);
+          const content = JSON.stringify({
+            action: "final",
+            answer: resolveRuleOnlyAnswer(decision.taskType, userInput),
+          });
           return {
             content,
             toolCalls: [],

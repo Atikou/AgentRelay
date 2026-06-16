@@ -99,7 +99,10 @@ export function createSmartSingleModelChatFn(deps: {
 
       const modelId = decision.selectedModelId;
       if (decision.executionStrategy === "rule_only") {
-        const content = resolveRuleOnlyAnswer(decision.taskType, userInput);
+        const content = JSON.stringify({
+          action: "final",
+          answer: resolveRuleOnlyAnswer(decision.taskType, userInput),
+        });
         return {
           content,
           toolCalls: [],
