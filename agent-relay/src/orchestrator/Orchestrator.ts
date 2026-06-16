@@ -31,7 +31,8 @@ import type { TaskRecord } from "../context/types.js";
 import type { CorrelationContext } from "../core/correlation.js";
 
 import type { ModelOrchestrator } from "../model-orchestrator/index.js";
-import type { ModelRouter } from "../model/ModelRouter.js";
+import type { RouteOptions } from "../model/routeOptions.js";
+import type { ChatRequest, ModelResponse } from "../model/types.js";
 import type { SmartModelRouter } from "../model-router/smart-model-router.js";
 import { parseModelTaskTypeOrError } from "../model/taskType.js";
 import { detectPlanReportRequest } from "../plan/planIntent.js";
@@ -67,7 +68,7 @@ export interface OrchestratorDeps {
 
   workspaceRoot: string;
 
-  modelRouter: ModelRouter;
+  directChat: (request: ChatRequest, opts?: RouteOptions) => Promise<ModelResponse>;
 
   planner: Planner;
 
@@ -135,7 +136,7 @@ export class Orchestrator {
     this.chatService = new ChatService({
       runs: deps.runs,
       contextManager: deps.contextManager,
-      modelRouter: deps.modelRouter,
+      directChat: deps.directChat,
       smartModelRouter: deps.smartModelRouter,
       modelOrchestrator: deps.modelOrchestrator,
       agentRunRegistry: deps.agentRunRegistry,

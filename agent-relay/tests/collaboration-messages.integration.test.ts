@@ -178,7 +178,7 @@ async function createHarness(chatFn: ModelChatFn): Promise<Harness> {
   const toolRegistry = createDefaultRegistry();
   const { orchestrator } = createTestOrchestrator({
     workspaceRoot,
-    modelRouter: { chat: async () => { throw new Error("应走 Smart 路径"); } } as never,
+    directChat: { chat: async () => { throw new Error("应走 Smart 路径"); } } as never,
     planner: {} as never,
     registry: toolRegistry,
     contextManager: ctx,

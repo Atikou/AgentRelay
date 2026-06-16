@@ -2,7 +2,8 @@ import type { ContextManager } from "../context/ContextManager.js";
 import type { CorrelationContext } from "../core/correlation.js";
 import type { ModelOrchestrator } from "../model-orchestrator/index.js";
 import type { OrchestratorInput } from "../model-orchestrator/types.js";
-import type { ModelRouter } from "../model/ModelRouter.js";
+import type { RouteOptions } from "../model/routeOptions.js";
+import type { ChatRequest, ModelResponse } from "../model/types.js";
 import { buildRouterInputFromChat } from "../model-router/router-input.js";
 import {
   applyPromptStrategyToSystemText,
@@ -36,7 +37,7 @@ type ChatMessage = { role: string; content: string };
 export interface ChatServiceDeps {
   runs: RunStore;
   contextManager: ContextManager;
-  modelRouter: ModelRouter;
+  directChat: (request: ChatRequest, opts?: RouteOptions) => Promise<ModelResponse>;
   smartModelRouter?: SmartModelRouter;
   modelOrchestrator?: ModelOrchestrator;
   agentRunRegistry: AgentRunRegistry;
@@ -231,7 +232,7 @@ export class ChatService {
         fallbackCount = orchestrated.fallbackCount;
         fallbackLogIds = orchestrated.fallbackLogIds;
       } else {
-        const response = await this.deps.modelRouter.chat(
+        const response = await this.deps.directChat(
           { messages, temperature: 0.3 },
           {
             forceClient,
@@ -399,7 +400,7 @@ export class ChatService {
         return;
       }
 
-      const response = await this.deps.modelRouter.chat(
+      const response = await this.deps.directChat(
         {
           messages,
           temperature: 0.3,

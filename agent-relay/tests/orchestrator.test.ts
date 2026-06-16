@@ -39,7 +39,7 @@ function baseOrchestrator(
   const agentRunRegistry = new AgentRunRegistry();
   const orchestrator = new Orchestrator({
     workspaceRoot: sandbox,
-    modelRouter: {} as never,
+    directChat: {} as never,
     planner: {} as never,
     registry,
     contextManager: ctx,
@@ -257,11 +257,9 @@ test("Orchestrator runChatStream 推送 token 与 done", async () => {
       };
     },
   };
-  const modelRouter = {
-    chat: async (req: { onToken?: (d: string) => void }) => fakeClient.chat(req),
-  } as never;
+  const directChat = (req: { onToken?: (d: string) => void }) => fakeClient.chat(req);
   const { orchestrator } = baseOrchestrator(registry, {
-    modelRouter,
+    directChat,
     notificationQueue: { drain: () => [] } as never,
   });
   const events: import("../src/orchestrator/ChatStream.js").ChatStreamEvent[] = [];
@@ -376,11 +374,9 @@ test("Orchestrator cancelRun 终止流式 Chat", async () => {
       };
     },
   };
-  const modelRouter = {
-    chat: async (req: { signal?: AbortSignal }) => fakeClient.chat(req),
-  } as never;
+  const directChat = (req: { signal?: AbortSignal }) => fakeClient.chat(req);
   const { orchestrator } = baseOrchestrator(registry, {
-    modelRouter,
+    directChat,
     notificationQueue: { drain: () => [] } as never,
   });
   const events: import("../src/orchestrator/ChatStream.js").ChatStreamEvent[] = [];

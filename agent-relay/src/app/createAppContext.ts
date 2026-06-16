@@ -10,7 +10,7 @@ import type { AppConfig } from "../config/types.js";
 import { ContextManager } from "../context/index.js";
 import { createModelClient } from "../model/ModelFactory.js";
 import { MetricsRegistry } from "../model/MetricsRegistry.js";
-import { ModelRouter, type ClientPricing } from "../model/ModelRouter.js";
+import { createDirectChatFn, type ClientPricing } from "../model/directChat.js";
 import type { ModelClient } from "../model/types.js";
 import {
   PlanApprovalManager,
@@ -84,7 +84,7 @@ export class AppContext {
   readonly notificationQueue: NotificationQueue;
   readonly scheduler: Scheduler;
   readonly backgroundTasks: BackgroundTaskManager;
-  readonly modelRouter: ModelRouter;
+  readonly directChat: ReturnType<typeof createDirectChatFn>;
   readonly planner: Planner;
   readonly registry: ReturnType<typeof createDefaultRegistry>;
   readonly contextManager: ContextManager;
@@ -126,7 +126,7 @@ export class AppContext {
     notificationQueue: NotificationQueue;
     scheduler: Scheduler;
     backgroundTasks: BackgroundTaskManager;
-    modelRouter: ModelRouter;
+    directChat: ReturnType<typeof createDirectChatFn>;
     planner: Planner;
     registry: ReturnType<typeof createDefaultRegistry>;
     contextManager: ContextManager;
@@ -167,7 +167,7 @@ export class AppContext {
     this.notificationQueue = opts.notificationQueue;
     this.scheduler = opts.scheduler;
     this.backgroundTasks = opts.backgroundTasks;
-    this.modelRouter = opts.modelRouter;
+    this.directChat = opts.directChat;
     this.planner = opts.planner;
     this.registry = opts.registry;
     this.contextManager = opts.contextManager;
@@ -201,7 +201,7 @@ export class AppContext {
   makeChatFn(forceClient?: string): LoopChatFn {
     if (forceClient) {
       return (req, opts) =>
-        this.modelRouter.chat(req, {
+        this.directChat(req, {
           sensitive: opts?.sensitive,
           taskType: opts?.taskType,
           forceClient,
@@ -431,7 +431,7 @@ export function createAppContext(): AppContext {
     shellPolicy,
   );
 
-  const modelRouter = new ModelRouter([...clientMap.values()], {
+  const directChat = createDirectChatFn([...clientMap.values()], {
     strategy: config.routing.strategy,
     fallback: config.routing.fallback,
     metrics,
@@ -500,7 +500,7 @@ export function createAppContext(): AppContext {
   const makeChatFn = (forceClient?: string): LoopChatFn =>
     forceClient
       ? (req, opts) =>
-          modelRouter.chat(req, {
+          directChat(req, {
             sensitive: opts?.sensitive,
             taskType: opts?.taskType,
             forceClient,
@@ -552,7 +552,7 @@ export function createAppContext(): AppContext {
 
   const orchestrator = new Orchestrator({
     workspaceRoot,
-    modelRouter,
+    directChat,
     planner,
     registry,
     contextManager,
@@ -632,7 +632,7 @@ export function createAppContext(): AppContext {
     notificationQueue,
     scheduler,
     backgroundTasks,
-    modelRouter,
+    directChat,
     planner,
     registry,
     contextManager,

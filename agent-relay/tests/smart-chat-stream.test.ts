@@ -26,7 +26,7 @@ async function main(): Promise<void> {
     const chatService = new ChatService({
       runs,
       contextManager: ctx,
-      modelRouter: {
+      directChat: {
         chat: async () => {
           legacyCalled.value = true;
           throw new Error("不应走 legacy ModelRouter");

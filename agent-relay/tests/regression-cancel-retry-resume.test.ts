@@ -97,7 +97,7 @@ function makeOrchestrator(chat: LoopChatFn) {
   const planService = createTestPlanService({ workspaceRoot: sandbox, db: ctx.db, registry });
   const { orchestrator } = createTestOrchestrator({
     workspaceRoot: sandbox,
-    modelRouter: {} as never,
+    directChat: {} as never,
     planner: {} as never,
     registry,
     contextManager: ctx,

@@ -84,7 +84,7 @@ test("Orchestrator fallbackToPlanOnUncertainty 返回 revisedPlan", async () => 
 
   const { orchestrator } = createTestOrchestrator({
     workspaceRoot: sandbox,
-    modelRouter: {} as never,
+    directChat: {} as never,
     planner: stubPlanner,
     registry,
     contextManager: ctx,
@@ -132,7 +132,7 @@ test("Orchestrator 未开启 fallback 时不生成 modeFallback", async () => {
   const registry = createDefaultRegistry({ dataDir });
   const { orchestrator } = createTestOrchestrator({
     workspaceRoot: sandbox,
-    modelRouter: {} as never,
+    directChat: {} as never,
     planner: {} as never,
     registry,
     contextManager: ctx,

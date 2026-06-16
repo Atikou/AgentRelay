@@ -1,4 +1,4 @@
-import type { RouteOptions } from "../model/ModelRouter.js";
+import type { RouteOptions } from "../model/routeOptions.js";
 import type { ChatRequest, ModelResponse } from "../model/types.js";
 import type { ModelChatFn } from "../model-orchestrator/types.js";
 import { estimateRouterContextTokens } from "./router-context-estimate.js";

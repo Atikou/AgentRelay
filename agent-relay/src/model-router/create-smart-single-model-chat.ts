@@ -1,5 +1,5 @@
 import type { LoopChatFn, LoopChatResponse } from "../agent/AgentLoop.js";
-import type { RouteOptions } from "../model/ModelRouter.js";
+import type { RouteOptions } from "../model/routeOptions.js";
 import type { ModelTaskType } from "../model/taskType.js";
 import type { ChatRequest, ModelResponse } from "../model/types.js";
 import type { ModelChatFn } from "../model-orchestrator/types.js";
