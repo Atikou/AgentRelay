@@ -8,13 +8,13 @@
 ## 0. 5 分钟上手
 
 - **项目**：`agent-relay/`（TypeScript ESM，NodeNext）。所有命令在 `agent-relay/` 下跑。
-- **基线状态**：**全量 `npm test` 绿（exit 0）**。
-- **核心命令**：`npm run typecheck`；`npm test`；`npx tsx tests/xxx.test.ts`
+- **基线状态**：**全量 `npm test` 绿（exit 0）**（含本轮新增专项测试）。
+- **核心命令**：`npm run typecheck`；`npm test`；`npx tsx tests/smart-chat-redact.test.ts`；`npx tsx tests/trace-rotation.test.ts`
 - **PowerShell**：`git commit -F 文件`（不用 heredoc）。
 
 ---
 
-## 1. 已完成（§4 共 12 项中 10 项已落地或部分落地）
+## 1. 已完成（§4 共 12 项）
 
 | commit | 项 | 摘要 |
 |---|---|---|
@@ -26,27 +26,28 @@
 | `ea5ea8d` | §4-12 | intentPatterns 共享模块 |
 | `27c7b57` | §4-11 | locationTools 拆分为 tools/location/ |
 | `f672b16` | §4-8 | ExecutableTaskPlan + toTaskRunnerPlan |
-| `da70a9a` | §4-9 部分 | scheduler journal 压紧；loadPreviewsFromDisk；compress 默认 false |
+| `da70a9a` | §4-9 部分 | scheduler journal 压紧；loadPreviewsFromDisk |
+| **工作区** | §4-1 第一步 | `prepareRemoteChatRequest` + Smart `create-model-chat` 脱敏 |
+| **工作区** | §4-9 续 | trace `.jsonl.gz` + reader；cleanup 后 `runSqliteMaintenance` |
 
 ---
 
-## 2. 剩余待办（仅 3 类）
+## 2. 剩余待办（2 类暂缓 + 1 类局部）
 
-### 🔴 §4-1 退役 `ModelRouter` 双轨（暂缓，需联调）
+### 🔴 §4-1 退役 `ModelRouter` 双轨（脱敏已对齐，仍暂缓）
 
-Smart 栈须先补齐：**远程 prompt 脱敏** → 流式/fallback 对齐 → 再切换显式 clientName → 最后删 `ModelRouter`。
+**已完成第一步**：远程 prompt 脱敏已接入 Smart 栈。后续：流式/fallback 对齐 → 显式 `clientName` 切换 → 删 `ModelRouter`。
 
-### 🔴 §4-3 抽 `AgentLoop` 工作流编排（暂缓，需联调）
+### 🔴 §4-3 抽 `AgentLoop` 工作流编排（暂缓）
 
 ~1650 行执行核心，小步抽离，每步全量回归。
 
-### 🟡 §4-9 lifecycle 剩余未接线项
+### 🟡 §4-9 lifecycle 局部剩余
 
-- gzip/zstd trace 段压缩（**级联**：`traceReader` 须能读 `.gz`）
-- `delete_db_rows` / `vacuum_db` 清理动作（executor 尚未支持）
-- trace 行级保留（`traceRaw*` / `toolArgs` / `routeDetails` 等 retention 字段）
+- `delete_db_rows`（planner 尚未生成此类 action）
+- trace 行级保留（`traceRaw*` / `toolArgs` / `routeDetails`）
 
-**已做**：scheduler journal compact、preview 磁盘恢复、policy 默认不再承诺 trace gzip。
+**已做（工作区）**：gzip segment（`lifecycle.trace.compressOldSegments: true` 时生效）、`traceReader`/`traceQuery` 读 `.gz`、cleanup apply 后 WAL/VACUUM（`sqliteMaintenance.ts`）。
 
 ---
 
@@ -58,4 +59,4 @@ Smart 栈须先补齐：**远程 prompt 脱敏** → 流式/fallback 对齐 → 
 
 ## 4. 一句话
 
-> 审核修复清单 **§4-1 / §4-3 暂缓**；**§4-9 剩 trace gzip + db 行级清理**；其余 §4 项已提交且全量测试绿。
+> **§4-1 / §4-3 仍暂缓**；**§4-9 剩 db 行级删除 + trace 行级保留**；其余 §4 项（含脱敏与 gzip）已在工作区落地且全量测试绿，**待用户确认后分 commit 提交**。
