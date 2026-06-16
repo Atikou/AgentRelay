@@ -11,6 +11,12 @@ export function handleStorageUsage(app: AppContext): ApiResult {
   return { status: 200, body: app.dataLifecycle.getUsage() };
 }
 
+export function handleStorageCleanupRuns(app: AppContext, url: URL): ApiResult {
+  const rawLimit = Number(url.searchParams.get("limit"));
+  const limit = Number.isFinite(rawLimit) && rawLimit > 0 ? Math.min(rawLimit, 200) : 50;
+  return { status: 200, body: { runs: app.dataLifecycle.listCleanupRuns(limit) } };
+}
+
 export function handleStorageCleanupPreview(app: AppContext, body: unknown): ApiResult {
   const payload = (body ?? {}) as CleanupPreviewRequest;
   const report = app.dataLifecycle.preview(payload);

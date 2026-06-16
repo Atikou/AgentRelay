@@ -206,6 +206,37 @@
         }
       }
     },
+    "/api/storage/cleanup/runs": {
+      "get": {
+        "tags": ["安全与审计"],
+        "summary": "查询已执行的清理批次历史",
+        "operationId": "listStorageCleanupRuns",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "integer", "minimum": 1, "maximum": 200, "default": 50 },
+            "description": "返回的批次数量上限（最近优先），最多 200。"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "清理批次历史（最近优先）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "runs": { "type": "array", "items": { "type": "object", "additionalProperties": true } }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/chat": {
       "post": {
         "tags": ["对话与智能体"],

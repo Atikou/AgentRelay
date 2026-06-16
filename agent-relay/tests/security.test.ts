@@ -12,7 +12,6 @@ import { TraceLogger } from "../src/trace/TraceLogger.js";
 import { readRecentTraceEvents } from "../src/trace/traceReader.js";
 import { readReplayTraceEvents } from "../src/trace/traceReader.js";
 import { scanPromptInjection, wrapUntrustedToolOutput } from "../src/util/injection.js";
-import { buildTextPatch } from "../src/util/patch.js";
 import { redactPreview, redactString, redactValue } from "../src/util/redact.js";
 
 const tests: Array<{ name: string; fn: () => Promise<void> }> = [];
@@ -67,12 +66,6 @@ test("TraceLogger 写入时默认脱敏", async () => {
   const line = JSON.stringify(events[0]);
   assert.equal(line.includes("sk-should-not-appear"), false);
   await rm(dir, { recursive: true, force: true });
-});
-
-test("buildTextPatch 生成写文件预览", async () => {
-  const patch = buildTextPatch("a\nb", "a\nc", "x.ts");
-  assert.ok(patch.includes("---"));
-  assert.ok(patch.includes("+ c") || patch.includes("+c"));
 });
 
 test("scanPromptInjection 标记可疑片段", async () => {

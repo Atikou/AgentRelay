@@ -74,6 +74,11 @@ export class DataLifecycleService {
     return this.inventory.scan();
   }
 
+  /** 已执行清理批次的历史（最近优先），用于审计「实际删了什么」。 */
+  listCleanupRuns(limit = 50) {
+    return this.journal.listRecent(limit);
+  }
+
   preview(request: CleanupPreviewRequest = {}): CleanupPreviewReport {
     const planner = new CleanupPlanner(
       {

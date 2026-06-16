@@ -60,6 +60,8 @@
         "bodyHasKeys": ["error", "hint"]
       }
     },
+    {
+      "id": "m10-trace-rotate",
       "title": "手动轮转 trace active 段",
       "purpose": "确认可将当前 trace-current.jsonl 封存到 segments，避免单文件无限增长。",
       "method": "POST",
@@ -68,6 +70,30 @@
       "expect": {
         "status": 200,
         "bodyHasKeys": ["rotated", "activeFile"]
+      }
+    },
+    {
+      "id": "m10-storage-cleanup-runs",
+      "title": "查询清理批次历史",
+      "purpose": "确认已执行的清理批次（apply 后写入 cleanup-runs.jsonl）可被读回，提供「实际删了什么」的审计入口。",
+      "method": "GET",
+      "path": "/api/storage/cleanup/runs",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyHasKeys": ["runs"]
+      }
+    },
+    {
+      "id": "m10-storage-cleanup-runs-limit",
+      "title": "清理批次历史支持 limit 参数",
+      "purpose": "确认 limit 查询参数被解析且上限受控（最多 200），避免一次性读回过多历史记录。",
+      "method": "GET",
+      "path": "/api/storage/cleanup/runs?limit=5",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyHasKeys": ["runs"]
       }
     }
   ]

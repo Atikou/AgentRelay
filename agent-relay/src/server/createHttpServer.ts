@@ -40,6 +40,7 @@ import {
 import {
   handleStorageCleanupApply,
   handleStorageCleanupPreview,
+  handleStorageCleanupRuns,
   handleStorageUsage,
   handleContextSessionDeleteWithLifecycle,
   handleContextSessionPurge,
@@ -121,6 +122,11 @@ export function createHttpServer(app: AppContext, opts?: HttpServerOptions): Ser
         }
         if (pathname === "/api/storage/cleanup/apply" && method === "POST") {
           const result = handleStorageCleanupApply(app, await readBody(req, maxBodyBytes));
+          sendJson(res, result.status, result.body);
+          return;
+        }
+        if (pathname === "/api/storage/cleanup/runs" && method === "GET") {
+          const result = handleStorageCleanupRuns(app, url);
           sendJson(res, result.status, result.body);
           return;
         }
