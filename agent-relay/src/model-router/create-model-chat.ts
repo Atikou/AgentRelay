@@ -10,9 +10,12 @@ import {
   looksLikeModelUnavailableError,
 } from "./model-availability.js";
 import type { ModelCallLogStore } from "./route-stores.js";
+import { redactString } from "../util/redact.js";
 
 function preview(text: string, max = 400): string {
-  return text.length <= max ? text : `${text.slice(0, max)}…`;
+  // 落库前一律脱敏，避免 model_call_logs 的输入/输出预览泄露密钥/隐私。
+  const safe = redactString(text);
+  return safe.length <= max ? safe : `${safe.slice(0, max)}…`;
 }
 
 export function createModelChatFn(
@@ -83,7 +86,7 @@ export function createModelChatFn(
         role: meta.role,
         inputPreview,
         status: "error",
-        errorMessage: String(error),
+        errorMessage: redactString(String(error)),
         durationMs,
       });
       trace?.write({

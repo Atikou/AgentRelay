@@ -59,6 +59,8 @@ export class TraceLogger {
   private bytesWritten = 0;
   private openedAt = Date.now();
   private closed = false;
+  // 防止 write()→maybeRotate() 与显式 rotate() 在同一段上重入造成 fd/重命名错乱。
+  private rotating = false;
 
   constructor(traceFileOrDir: string, options: TraceLoggerOptions = {}) {
     this.redact = options.redact !== false;
@@ -146,38 +148,42 @@ export class TraceLogger {
   }
 
   private performRotation(): { rotated: boolean; segmentPath?: string } {
-    if (!this.layout || this.bytesWritten === 0) return { rotated: false };
+    if (!this.layout || this.bytesWritten === 0 || this.rotating) return { rotated: false };
+    this.rotating = true;
+    try {
+      const segRel = nextSegmentRelPath(this.layout.tracesDir).replace(/\\/g, "/");
+      const segAbs = path.join(this.layout.tracesDir, segRel);
+      mkdirSync(path.dirname(segAbs), { recursive: true });
 
-    const segRel = nextSegmentRelPath(this.layout.tracesDir).replace(/\\/g, "/");
-    const segAbs = path.join(this.layout.tracesDir, segRel);
-    mkdirSync(path.dirname(segAbs), { recursive: true });
-
-    if (this.fd != null) {
-      closeSync(this.fd);
-      this.fd = undefined;
-    }
-    if (existsSync(this.activePath)) {
-      renameSync(this.activePath, segAbs);
-    }
-    if (this.index) {
-      this.index.reassignSegment(this.activeRel, segRel);
-    }
-
-    let finalSegRel = segRel;
-    if (this.rotation?.compressOldSegments && existsSync(segAbs)) {
-      gzipTraceSegmentInPlace(segAbs);
-      finalSegRel = `${segRel}.gz`;
-      if (this.index) {
-        this.index.reassignSegment(segRel, finalSegRel);
+      if (this.fd != null) {
+        closeSync(this.fd);
+        this.fd = undefined;
       }
-    }
+      if (existsSync(this.activePath)) {
+        renameSync(this.activePath, segAbs);
+      }
+      if (this.index) {
+        this.index.reassignSegment(this.activeRel, segRel);
+      }
 
-    this.activeRel = ACTIVE_SEGMENT_PATH;
-    this.activePath = this.layout.activeFile;
-    this.bytesWritten = 0;
-    this.openedAt = Date.now();
-    this.fd = openSync(this.activePath, "a");
-    return { rotated: true, segmentPath: finalSegRel };
+      let finalSegRel = segRel;
+      if (this.rotation?.compressOldSegments && existsSync(segAbs)) {
+        gzipTraceSegmentInPlace(segAbs);
+        finalSegRel = `${segRel}.gz`;
+        if (this.index) {
+          this.index.reassignSegment(segRel, finalSegRel);
+        }
+      }
+
+      this.activeRel = ACTIVE_SEGMENT_PATH;
+      this.activePath = this.layout.activeFile;
+      this.bytesWritten = 0;
+      this.openedAt = Date.now();
+      this.fd = openSync(this.activePath, "a");
+      return { rotated: true, segmentPath: finalSegRel };
+    } finally {
+      this.rotating = false;
+    }
   }
 
   private shouldRotate(): boolean {

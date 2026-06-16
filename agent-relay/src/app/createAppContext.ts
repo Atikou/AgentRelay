@@ -333,13 +333,48 @@ export class AppContext {
     };
   }
 
-  shutdown(): void {
+  /**
+   * 有序优雅关闭：先停调度器、取消进行中的运行与后台任务并给收尾时间，
+   * 再 flush/关闭 trace 与索引，最后关数据库连接——避免「关库后仍有写入」与孤儿进程。
+   */
+  async shutdown(): Promise<void> {
     this.scheduler.stop();
-    void this.trace.close().then(() => {
-      this.trace.getIndexStore()?.close();
-    });
+
+    try {
+      for (const r of this.orchestrator.listRunningAgentRuns()) {
+        this.orchestrator.cancelRun(r.runId);
+      }
+    } catch {
+      /* best-effort 取消 */
+    }
+    try {
+      for (const t of this.backgroundTasks.list()) {
+        if (t.status === "running") this.backgroundTasks.cancel(t.id);
+      }
+    } catch {
+      /* best-effort 取消 */
+    }
+
+    await this.waitForActiveRuns(5_000);
+
+    await this.trace.close();
+    this.trace.getIndexStore()?.close();
     this.registry.close();
     this.contextManager.db.close();
+  }
+
+  private async waitForActiveRuns(timeoutMs: number): Promise<void> {
+    const start = Date.now();
+    while (Date.now() - start < timeoutMs) {
+      let running = 0;
+      try {
+        running = this.orchestrator.listRunningAgentRuns().length;
+      } catch {
+        return;
+      }
+      if (running === 0) return;
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
   }
 }
 

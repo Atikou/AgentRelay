@@ -67,7 +67,24 @@ export class NotificationQueue {
 
   /** 返回全部未消费通知并标记为已消费（安全点调用）。 */
   drain(): AgentNotification[] {
-    const pending = this.sort([...this.items.values()].filter((n) => !this.consumed.has(n.id)));
+    return this.consumePending([...this.items.values()].filter((n) => !this.consumed.has(n.id)));
+  }
+
+  /**
+   * 仅消费属于该 run 的通知（或未绑定 run 的全局通知），避免并发运行互相「偷」掉
+   * 对方的 run 级通知导致漏投。runId 缺省时退化为 drain()。
+   */
+  drainForRun(runId: string | undefined): AgentNotification[] {
+    if (!runId) return this.drain();
+    return this.consumePending(
+      [...this.items.values()].filter(
+        (n) => !this.consumed.has(n.id) && (n.runId === runId || n.runId === undefined),
+      ),
+    );
+  }
+
+  private consumePending(candidates: AgentNotification[]): AgentNotification[] {
+    const pending = this.sort(candidates);
     if (pending.length === 0) return [];
 
     const ids = pending.map((n) => n.id);

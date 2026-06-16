@@ -1,9 +1,10 @@
-import { createReadStream, existsSync } from "node:fs";
+import { existsSync } from "node:fs";
 import path from "node:path";
 import { createInterface } from "node:readline";
 
 import type { FallbackLogRow, RouteLogRow } from "../model-router/route-stores.js";
 import { redactValue } from "../util/redact.js";
+import { createTraceSegmentReadStream } from "../util/traceSegmentIo.js";
 import { resolveFilesForFilter, type TraceCatalog } from "./traceCatalog.js";
 import type { TraceEvent } from "./TraceLogger.js";
 
@@ -364,7 +365,7 @@ export async function buildRunReport(
 
   for (const file of targets) {
     if (!existsSync(file)) continue;
-    const rl = createInterface({ input: createReadStream(file, { encoding: "utf-8" }) });
+    const rl = createInterface({ input: createTraceSegmentReadStream(file) });
     for await (const line of rl) {
       const trimmed = line.trim();
       if (!trimmed) continue;

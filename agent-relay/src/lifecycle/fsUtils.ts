@@ -70,9 +70,13 @@ export function safeDeleteDirectory(dirPath: string): void {
 }
 
 /** tmp 写入后原子 rename 替换目标文件。 */
-export function atomicWriteFile(targetPath: string, content: string): void {
+export function atomicWriteFile(targetPath: string, content: string | Buffer): void {
   const tmpPath = `${targetPath}.tmp-${process.pid}-${Date.now()}`;
-  writeFileSync(tmpPath, content, "utf-8");
+  if (typeof content === "string") {
+    writeFileSync(tmpPath, content, "utf-8");
+  } else {
+    writeFileSync(tmpPath, content);
+  }
   renameSync(tmpPath, targetPath);
 }
 

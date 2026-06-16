@@ -280,7 +280,7 @@ export function createHttpServer(app: AppContext, opts?: HttpServerOptions): Ser
           return;
         }
         if (pathname === "/api/agent/stream" && method === "POST") {
-          await handleAgentStream(app, await readBody(req, maxBodyBytes), res);
+          await handleAgentStream(app, await readBody(req, maxBodyBytes), res, req);
           return;
         }
         if (pathname === "/api/agent/resume" && method === "POST") {

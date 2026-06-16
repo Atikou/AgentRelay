@@ -209,7 +209,11 @@ function normalizeDelegatedTaskFromInput(partial: z.infer<typeof delegatedTaskSc
           allowedTools: partial.toolPolicy.allowedTools ?? DEFAULT_READONLY_TOOL_POLICY.allowedTools,
           writeAllowed: partial.toolPolicy.writeAllowed ?? false,
           shellAllowed: partial.toolPolicy.shellAllowed ?? false,
-          requireApproval: partial.toolPolicy.requireApproval ?? false,
+          // 副作用子任务默认须经审批：模型不显式声明时，写/命令型子任务一律 requireApproval=true，
+          // 避免「模型自行关闭审批」绕过父级授权与确认门。
+          requireApproval:
+            partial.toolPolicy.requireApproval ??
+            Boolean(partial.toolPolicy.writeAllowed || partial.toolPolicy.shellAllowed),
         }
       : undefined,
         modelPolicy: partial.modelPolicy

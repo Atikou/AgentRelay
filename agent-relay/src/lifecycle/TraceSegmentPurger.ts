@@ -1,4 +1,5 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync } from "node:fs";
+import { gzipSync } from "node:zlib";
 import path from "node:path";
 
 import { atomicWriteFile } from "./fsUtils.js";
@@ -8,6 +9,7 @@ import {
   type TraceCatalog,
 } from "../trace/traceCatalog.js";
 import { resolveTracePaths } from "../trace/tracePaths.js";
+import { isGzipTraceSegment, readTraceSegmentUtf8 } from "../util/traceSegmentIo.js";
 
 export interface TracePurgeResult {
   segmentsRewritten: number;
@@ -31,7 +33,9 @@ function rewriteTraceFile(
   runIds: Set<string>,
 ): { removed: number; rewritten: boolean } {
   if (!existsSync(filePath)) return { removed: 0, rewritten: false };
-  const text = readFileSync(filePath, "utf-8");
+  // 同时支持明文 .jsonl 与压缩 .jsonl.gz 段，避免对 gzip 段静默跳过隐私清除。
+  const gz = isGzipTraceSegment(filePath);
+  const text = readTraceSegmentUtf8(filePath);
   const lines = text.split("\n").filter((l) => l.trim());
   const kept: string[] = [];
   let removed = 0;
@@ -48,7 +52,8 @@ function rewriteTraceFile(
     kept.push(line);
   }
   if (removed === 0) return { removed: 0, rewritten: false };
-  atomicWriteFile(filePath, kept.length > 0 ? `${kept.join("\n")}\n` : "");
+  const outText = kept.length > 0 ? `${kept.join("\n")}\n` : "";
+  atomicWriteFile(filePath, gz ? gzipSync(Buffer.from(outText, "utf-8")) : outText);
   return { removed, rewritten: true };
 }
 

@@ -419,6 +419,92 @@ test("dispatch_subagent 只读 toolPolicy 拒绝未授权写入", async () => {
 
 
 
+test("dispatch_subagent 写子任务缺少 grantedPermissions 直接拒绝（不依赖 requireApproval）", async () => {
+
+  const registry = createDefaultRegistry();
+
+  registry.setDefaultContext({ subAgentCoordinator: makeCoordinator(scriptedChat([])) });
+
+  const res = await registry.run(
+
+    "dispatch_subagent",
+
+    {
+
+      tasks: [
+
+        {
+
+          goal: "修改 src/utils.ts 并应用补丁",
+
+          instructions: "写入修复",
+
+          // 注意：未显式 requireApproval，模型也未传 grantedPermissions。
+
+          toolPolicy: { writeAllowed: true },
+
+        },
+
+      ],
+
+    },
+
+    { workspaceRoot: sandbox },
+
+  );
+
+  assert.equal(res.ok, false);
+
+  if (res.ok) return;
+
+  assert.match(res.error, /write|显式授予/);
+
+});
+
+
+
+test("AgentLoop 在只读权限下阻止派生写文件子 Agent", async () => {
+
+  const registry = createDefaultRegistry();
+
+  registry.setDefaultContext({ subAgentCoordinator: makeCoordinator(scriptedChat([])) });
+
+  const mainChat = scriptedChat([
+
+    '{"action":"tool","tool":"dispatch_subagent","input":{"tasks":[{"goal":"修改 src/x.ts","toolPolicy":{"writeAllowed":true}}],"grantedPermissions":["write"]},"thought":"尝试写"}',
+
+    '{"action":"final","answer":"已停止写操作。"}',
+
+  ]);
+
+  const loop = new AgentLoop({
+
+    chat: mainChat,
+
+    registry,
+
+    workspaceRoot: sandbox,
+
+    roleAllowedPermissions: ["read"],
+
+    allowedPermissions: ["read"],
+
+  });
+
+  const res = await loop.run("用子 Agent 修改文件");
+
+  const dispatchStep = res.steps.find((s) => s.tool === "dispatch_subagent");
+
+  assert.ok(dispatchStep);
+
+  assert.equal(dispatchStep!.blocked, true);
+
+  assert.match(dispatchStep!.error ?? "", /写权限|未授予 write|需要用户确认/);
+
+});
+
+
+
 test("AgentLoop 主循环可经 dispatch_subagent 派生子 Agent", async () => {
 
   await fs.writeFile(path.join(sandbox, "sample.ts"), "export const x = 1;", "utf-8");

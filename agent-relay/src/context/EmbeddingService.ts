@@ -1,3 +1,5 @@
+import { redactString } from "../util/redact.js";
+
 /** Embedding 提供方：测试用 Mock、生产可接 API。 */
 export interface EmbeddingProvider {
   readonly name: string;
@@ -30,6 +32,10 @@ export class ApiEmbeddingProvider implements EmbeddingProvider {
       apiKey?: string;
       baseUrl?: string;
       model?: string;
+      /** 隐私模式：禁止任何文本出网，强制回退本地 Mock 向量。 */
+      sensitive?: boolean;
+      /** 出网前对文本做脱敏（默认开启，符合本地优先/隐私优先原则）。 */
+      redactBeforeSend?: boolean;
     } = {},
   ) {}
 
@@ -40,7 +46,8 @@ export class ApiEmbeddingProvider implements EmbeddingProvider {
 
   async embedBatch(texts: string[]): Promise<number[][]> {
     const apiKey = this.opts.apiKey ?? process.env.OPENAI_API_KEY;
-    if (!apiKey) {
+    // 隐私模式或无 key 时一律走本地 Mock，绝不把原文发往远程。
+    if (this.opts.sensitive || !apiKey) {
       const mock = new MockEmbeddingProvider();
       return mock.embedBatch(texts);
     }
@@ -49,13 +56,15 @@ export class ApiEmbeddingProvider implements EmbeddingProvider {
       "",
     );
     const model = this.opts.model ?? process.env.EMBEDDING_MODEL ?? "text-embedding-3-small";
+    // 出网文本默认脱敏，避免把密钥/隐私随 embedding 请求泄露给远程服务。
+    const payloadTexts = this.opts.redactBeforeSend === false ? texts : texts.map((t) => redactString(t));
     const res = await fetch(`${baseUrl}/embeddings`, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${apiKey}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ model, input: texts }),
+      body: JSON.stringify({ model, input: payloadTexts }),
     });
     if (!res.ok) {
       const mock = new MockEmbeddingProvider();

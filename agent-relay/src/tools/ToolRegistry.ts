@@ -144,6 +144,14 @@ export class ToolRegistry {
       }
     }
 
+    // 把外部取消信号与「工具超时」合流到同一个 controller，超时即 abort，
+    // 让真正尊重 signal 的工具能及时中断，避免超时后仍在后台跑、占用资源/产生副作用。
+    const abortController = new AbortController();
+    if (ctx.signal) {
+      if (ctx.signal.aborted) abortController.abort();
+      else ctx.signal.addEventListener("abort", () => abortController.abort(), { once: true });
+    }
+
     const execCtx: ToolContext = {
       ...this.defaultContext,
       ...ctx,
@@ -151,6 +159,7 @@ export class ToolRegistry {
       storage: ctx.storage ?? this.storage,
       shellPolicy: ctx.shellPolicy ?? this.defaultContext.shellPolicy,
       networkPolicy: ctx.networkPolicy ?? this.defaultContext.networkPolicy,
+      signal: abortController.signal,
     };
 
     this.trace?.write({
@@ -175,7 +184,7 @@ export class ToolRegistry {
     });
 
     try {
-      const output = await this.withTimeout(tool, () => tool.execute(parsed.data, execCtx), ctx.signal);
+      const output = await this.withTimeout(tool, () => tool.execute(parsed.data, execCtx), abortController);
       const durationMs = elapsed();
       this.trace?.write({
         type: "tool_audit",
@@ -274,16 +283,25 @@ export class ToolRegistry {
   private async withTimeout<T>(
     tool: Tool,
     fn: () => Promise<T>,
-    signal?: AbortSignal,
+    controller: AbortController,
   ): Promise<T> {
     if (!tool.timeoutMs) return fn();
+    const signal = controller.signal;
     let timer: NodeJS.Timeout | undefined;
     try {
       return await Promise.race([
         fn(),
         new Promise<T>((_, reject) => {
-          timer = setTimeout(() => reject(new Error("__tool_timeout__")), tool.timeoutMs);
-          if (signal) signal.addEventListener("abort", () => reject(new Error("aborted")), { once: true });
+          timer = setTimeout(() => {
+            // 先以超时 settle race（保证错误分类为 timeout），再 abort 通知工具停止后续工作。
+            reject(new Error("__tool_timeout__"));
+            controller.abort();
+          }, tool.timeoutMs);
+          if (signal.aborted) {
+            reject(new Error("aborted"));
+            return;
+          }
+          signal.addEventListener("abort", () => reject(new Error("aborted")), { once: true });
         }),
       ]);
     } finally {

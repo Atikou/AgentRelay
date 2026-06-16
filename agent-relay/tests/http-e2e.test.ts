@@ -30,7 +30,7 @@ async function startServer(): Promise<void> {
 }
 
 async function stopServer(): Promise<void> {
-  app.shutdown();
+  await app.shutdown();
   await new Promise<void>((resolve) => server.close(() => resolve()));
 }
 

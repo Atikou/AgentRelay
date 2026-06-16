@@ -665,6 +665,9 @@ export class Orchestrator {
     this.deps.runs.update(runId, { status: "running", error: undefined });
     this.deps.tasks.update(task.id, { status: "running" });
 
+    // resume 同样登记可取消运行，并把 signal 注入循环，使 /api/runs/cancel 对续跑生效。
+    const abortController = this.deps.agentRunRegistry.register(runId, "agent");
+
     const loop = new AgentLoop({
       chat: makeChat ?? this.deps.makeChatFn(),
       registry: this.deps.registry,
@@ -687,6 +690,7 @@ export class Orchestrator {
       maxCostUsdPerRun: this.deps.maxCostUsdPerRun,
       subAgentDispatchDepth: 0,
       maxSubAgentDispatchDepth: this.deps.maxSubAgentDispatchDepth ?? 1,
+      signal: abortController.signal,
     });
 
     const ctx = { message, sessionId, task, run: { id: runId }, loop };
@@ -705,6 +709,8 @@ export class Orchestrator {
       return { status: 200, body: this.finalizeAgentRunSuccess(ctx, result, { resumed: true }) };
     } catch (error) {
       return { status: 502, body: this.finalizeAgentRunFailure(ctx, error) };
+    } finally {
+      this.deps.agentRunRegistry.unregister(runId);
     }
   }
 
@@ -843,6 +849,9 @@ export class Orchestrator {
 
 
 
+    // 无人值守运行也登记为可取消，并把 signal 注入循环，使其可被显式取消/关闭。
+    const abortController = this.deps.agentRunRegistry.register(run.id, "agent");
+
     const loop = new AgentLoop({
 
       chat: this.deps.makeChatFn(),
@@ -864,6 +873,8 @@ export class Orchestrator {
       subAgentDispatchDepth: 0,
 
       maxSubAgentDispatchDepth: this.deps.maxSubAgentDispatchDepth ?? 1,
+
+      signal: abortController.signal,
 
     });
 
@@ -914,6 +925,10 @@ export class Orchestrator {
       this.deps.runs.update(run.id, { status: "failed", error: String(error) });
 
       this.deps.trace?.write({ type: "run_end", runId: run.id, kind: "scheduled", status: "failed" });
+
+    } finally {
+
+      this.deps.agentRunRegistry.unregister(run.id);
 
     }
 

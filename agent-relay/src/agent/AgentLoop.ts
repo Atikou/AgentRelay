@@ -687,7 +687,13 @@ export class AgentLoop {
   }
 
   private drainNotifications(): AgentNotification[] {
-    return this.options.notificationQueue?.drain() ?? [];
+    const queue = this.options.notificationQueue;
+    if (!queue) return [];
+    // 按 runId 限定消费，避免并发运行互相截走对方的 run 级通知；兼容仅实现 drain 的 mock。
+    if (typeof queue.drainForRun === "function") {
+      return queue.drainForRun(this.options.runId);
+    }
+    return queue.drain();
   }
 
   private runWorkflowExecutor(userMessage: string, isResume: boolean, sessionId?: string) {
@@ -895,6 +901,16 @@ export class AgentLoop {
       };
     }
 
+    const subagentSideEffectGuard = this.assessSubagentSideEffectGuard(action);
+    if (subagentSideEffectGuard) {
+      failActivity(subagentSideEffectGuard);
+      return {
+        ...withPermission,
+        blocked: true,
+        error: subagentSideEffectGuard,
+      };
+    }
+
     const writeOrchestration = orchestrateWorkflowWrite({
       intent: this.policy.intent ?? "answer",
       goal: ctx.goal,
@@ -1089,6 +1105,45 @@ export class AgentLoop {
     const successfulDispatches = this.countSuccessfulSubagentDispatches(steps);
     if (successfulDispatches < ENOUGH_SUBAGENT_RESULTS_FOR_FINAL) return undefined;
     return `已完成 ${successfulDispatches} 次 dispatch_subagent 并取得足够子 Agent 结果；请直接汇总已有结果并输出 final，不要继续派生子 Agent。`;
+  }
+
+  /**
+   * 写/命令型子任务的派生须受父运行权限与确认策略双重约束：
+   * - 权限上限：子任务请求的 write/shell 必须在当前运行的有效权限内（不能由模型自行突破）；
+   * - 确认门：非交互循环中，写需 autoEdit/autoRun、命令需 autoRun，否则按「需确认」阻塞。
+   * 这弥补了 dispatch_subagent 声明为 read 级、绕过 PermissionGuard 副作用确认的缺口。
+   */
+  private assessSubagentSideEffectGuard(action: ToolAction): string | undefined {
+    if (action.tool !== DISPATCH_SUBAGENT_TOOL_NAME) return undefined;
+    const input = action.input as { tasks?: unknown } | undefined;
+    const tasks = Array.isArray(input?.tasks) ? (input!.tasks as unknown[]) : [];
+    const readPolicyFlag = (task: unknown, key: "writeAllowed" | "shellAllowed"): boolean => {
+      if (!task || typeof task !== "object") return false;
+      const policy = (task as { toolPolicy?: unknown }).toolPolicy;
+      if (!policy || typeof policy !== "object") return false;
+      return (policy as Record<string, unknown>)[key] === true;
+    };
+    const wantsWrite = tasks.some((t) => readPolicyFlag(t, "writeAllowed"));
+    const wantsShell = tasks.some((t) => readPolicyFlag(t, "shellAllowed"));
+    if (!wantsWrite && !wantsShell) return undefined;
+
+    if (wantsWrite && !this.allowed.includes("write")) {
+      return "子任务请求写权限，但当前运行未授予 write，已阻止派生。请改为只读子任务，或在授予写权限后重试。";
+    }
+    if (wantsShell && !this.allowed.includes("shell")) {
+      return "子任务请求 shell 权限，但当前运行未授予 shell，已阻止派生。请改为只读子任务，或在授予 shell 权限后重试。";
+    }
+
+    const policy = this.policy.permissionPolicy;
+    const autoForWrite = policy === "autoEdit" || policy === "autoRun";
+    const autoForShell = policy === "autoRun";
+    if (wantsWrite && !autoForWrite) {
+      return "派生写文件子 Agent 需要用户确认（当前权限策略非自动）。已阻止；请在确认/自动模式下重试。";
+    }
+    if (wantsShell && !autoForShell) {
+      return "派生执行命令子 Agent 需要用户确认（当前权限策略非自动）。已阻止；请在确认/自动模式下重试。";
+    }
+    return undefined;
   }
 
   private countSuccessfulSubagentDispatches(steps: AgentToolStep[]): number {

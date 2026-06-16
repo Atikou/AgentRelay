@@ -20,10 +20,17 @@ server.listen(PORT, HOST, () => {
   console.log(`测试台已启动：http://${HOST}:${PORT}  (profile=${app.profile})`);
 });
 
-function shutdown(): void {
-  app.shutdown();
-  void app.trace.close().finally(() => process.exit(0));
+let shuttingDown = false;
+async function shutdown(): Promise<void> {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  server.close();
+  try {
+    await app.shutdown();
+  } finally {
+    process.exit(0);
+  }
 }
 
-process.on("SIGINT", shutdown);
-process.on("SIGTERM", shutdown);
+process.on("SIGINT", () => void shutdown());
+process.on("SIGTERM", () => void shutdown());

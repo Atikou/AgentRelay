@@ -18,6 +18,12 @@ const UNTRUSTED_TOOLS = new Set([
   "symbol_search",
   "context_pack",
   "notification",
+  // 以下工具同样回灌外部/不可信内容：diff、命令输出、子 Agent 文本都可能携带注入指令。
+  "git_status",
+  "git_diff",
+  "diff_file",
+  "shell_run",
+  "dispatch_subagent",
 ]);
 
 export interface InjectionScanResult {

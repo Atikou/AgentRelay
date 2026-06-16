@@ -25,10 +25,13 @@ export class ToolRouter {
     if (policy.writeAllowed) ceiling.push("write");
     if (policy.shellAllowed) ceiling.push("shell");
 
-    if (policy.requireApproval && policy.writeAllowed && requested) {
-      if (!requested.includes("write")) {
-        throw new Error("写权限子任务须由父 Agent 显式授予 grantedPermissions 含 write");
-      }
+    // 副作用子任务必须由父 Agent 显式授予对应权限——不依赖 requireApproval（模型可关闭该字段），
+    // 也不允许 grantedPermissions 缺省即放行写/命令，否则模型可自行绕过授权。
+    if (policy.writeAllowed && !(requested && requested.includes("write"))) {
+      throw new Error("写权限子任务须由父 Agent 显式授予 grantedPermissions 含 write");
+    }
+    if (policy.shellAllowed && !(requested && requested.includes("shell"))) {
+      throw new Error("shell 子任务须由父 Agent 显式授予 grantedPermissions 含 shell");
     }
 
     if (requested) {

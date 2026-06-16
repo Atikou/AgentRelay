@@ -80,6 +80,7 @@ export async function handleAgentStream(
   app: AppContext,
   body: unknown,
   res: ServerResponse,
+  req?: IncomingMessage,
 ): Promise<void> {
   const payload = (body ?? {}) as { clientName?: string; message?: string };
   const { forceClient, error } = app.resolveForceClient(payload.clientName);
@@ -95,11 +96,32 @@ export async function handleAgentStream(
 
   initSse(res);
   const makeChat = forceClient ? app.makeChatFn(forceClient) : undefined;
-  await app.orchestrator.runAgentStream(
-    body,
-    (event) => writeSseEvent(res, event.type, event),
-    makeChat,
-  );
+
+  // 客户端断线即取消运行：避免 SSE 断开后 Agent 仍在后台消耗模型/工具预算。
+  let streamRunId: string | undefined;
+  let clientGone = false;
+  const onClose = () => {
+    clientGone = true;
+    if (streamRunId) app.orchestrator.cancelRun(streamRunId);
+  };
+  req?.on("close", onClose);
+
+  try {
+    await app.orchestrator.runAgentStream(
+      body,
+      (event) => {
+        if (event.type === "run_start" && typeof event.runId === "string") {
+          streamRunId = event.runId;
+          // 断线发生在 run_start 之前的竞态：拿到 runId 立即补发取消。
+          if (clientGone) app.orchestrator.cancelRun(streamRunId);
+        }
+        writeSseEvent(res, event.type, event);
+      },
+      makeChat,
+    );
+  } finally {
+    req?.off("close", onClose);
+  }
   endSse(res);
 }
 
