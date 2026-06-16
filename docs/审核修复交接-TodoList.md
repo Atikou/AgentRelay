@@ -22,21 +22,18 @@
 | … | §4-2~12 | 见 `docs/项目审核报告.md` §6 |
 | `e022978` | §4-1 第二步 | `/api/chat/stream` Smart + onToken |
 | `0103d88` | §4-1 收尾 | 运行链路移除 ModelRouter 双轨（保留兼容壳） |
+| `43d4eb6` | §4-3 第一刀 | 抽离 `workflowExecutionMeta` |
+| `39aa044` | §4-3 第二刀 | 抽离 `workflowWriteOrchestrator` |
+| `e5c5540` | §4-3 第三刀 | 抽离 `workflowFollowupContexts` |
 
 ---
 
 ## 2. 剩余待办
 
-### §4-3 抽 `AgentLoop` 工作流编排（暂缓）
-
-~1650 行执行核心，小步抽离 + 全量回归。
-
-已完成第一刀：`workflowExecutionMeta.ts`（提取 executionMeta 相关聚合），主循环行为不变。
-已完成第二刀：`workflowWriteOrchestrator.ts`（提取 write gate/phase context 装配），`runToolAction` 降低分支复杂度。
-已完成第三刀：`workflowFollowupContexts.ts`（提取工具后续 workflow 上下文拼装），`recordToolStepMessages` 去重复并收敛状态更新。
+无（§4 全部完成）。
 
 ---
 
 ## 3. 一句话
 
-> 审核 §4 主清单已完成；当前仅剩 §4-3 结构性抽取（暂缓）。
+> 审核 §4 主清单已全部完成，本交接单可转存为历史记录。
