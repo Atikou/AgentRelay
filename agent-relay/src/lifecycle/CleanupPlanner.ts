@@ -2,6 +2,13 @@ import { existsSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 
+import type { DatabaseManager } from "../context/DatabaseManager.js";
+import { listSegmentFiles } from "../trace/traceCatalog.js";
+import {
+  countSoftDeletedMemories,
+  countStaleRoutingRows,
+  estimateDbRowBytes,
+} from "./dbRowCleanup.js";
 import { ActivityRunStore } from "../agent/timeline/ActivityRunStore.js";
 import { fileAgeDays, walkFiles } from "./fsUtils.js";
 import type { LifecyclePolicy } from "./types.js";
@@ -12,7 +19,14 @@ import type {
   StorageCategory,
 } from "./types.js";
 
-const SAFE_CATEGORIES: StorageCategory[] = ["temp", "cache", "reportCache", "notifications", "scheduler"];
+const SAFE_CATEGORIES: StorageCategory[] = [
+  "temp",
+  "cache",
+  "reportCache",
+  "notifications",
+  "scheduler",
+  "sqlite_memory",
+];
 
 const RISK_ORDER: Record<CleanupRisk, number> = { low: 0, medium: 1, high: 2 };
 
@@ -20,8 +34,10 @@ export interface CleanupPlannerDeps {
   dataDir: string;
   workspaceRoot: string;
   traceFile: string;
+  tracesDir: string;
   notificationFile: string;
   schedulerJournalFile: string;
+  memoryDb: DatabaseManager;
   getActiveRunIds: () => string[];
 }
 
@@ -59,6 +75,11 @@ export class CleanupPlanner {
     this.planReportCache(push, now, request.olderThanDays);
     this.planNotifications(push, now);
     this.planSchedulerJournal(push, now);
+    this.planSoftDeletedMemories(push);
+    if (scope !== "safe") {
+      this.planStaleRoutingLogs(push);
+      this.planTraceFieldRetention(push, now);
+    }
     if (scope !== "safe" || include?.includes("timeline")) {
       this.planTimelineRawEvents(push, now, activeRuns);
     }
@@ -274,6 +295,59 @@ export class CleanupPlanner {
       risk: "low",
       category: "scheduler",
     });
+  }
+
+  private planSoftDeletedMemories(
+    push: (a: Omit<CleanupAction, "actionId" | "canDelete"> & { canDelete?: boolean }) => void,
+  ): void {
+    const rows = countSoftDeletedMemories(this.deps.memoryDb, this.policy);
+    if (rows === 0) return;
+    push({
+      type: "delete_db_rows",
+      path: "db:memory:soft_deleted_memories",
+      reason: `purge ${rows} deactivated memory row(s) older than ${this.policy.retentionDays.softDeletedRows} day(s)`,
+      bytes: estimateDbRowBytes(rows),
+      risk: "low",
+      category: "sqlite_memory",
+    });
+  }
+
+  private planStaleRoutingLogs(
+    push: (a: Omit<CleanupAction, "actionId" | "canDelete"> & { canDelete?: boolean }) => void,
+  ): void {
+    const rows = countStaleRoutingRows(this.deps.memoryDb, this.policy);
+    if (rows === 0) return;
+    push({
+      type: "delete_db_rows",
+      path: "db:memory:stale_routing_logs",
+      reason: `purge ${rows} routing log row(s) older than ${this.policy.retentionDays.routeDetails} day(s)`,
+      bytes: estimateDbRowBytes(rows),
+      risk: "low",
+      category: "routing",
+    });
+  }
+
+  private planTraceFieldRetention(
+    push: (a: Omit<CleanupAction, "actionId" | "canDelete"> & { canDelete?: boolean }) => void,
+    now: number,
+  ): void {
+    const minTtl = Math.min(
+      this.policy.retentionDays.toolArgs,
+      this.policy.retentionDays.toolOutput,
+      this.policy.retentionDays.traceRawSuccess,
+    );
+    for (const segment of listSegmentFiles(this.deps.tracesDir)) {
+      if (!existsSync(segment)) continue;
+      if (fileAgeDays(statSync(segment).mtimeMs, now) < minTtl) continue;
+      push({
+        type: "rewrite_file",
+        path: segment,
+        reason: "prune expired trace verbose fields (toolArgs/traceRaw/toolOutput)",
+        bytes: 4096,
+        risk: "low",
+        category: "trace",
+      });
+    }
   }
 
   private planTimelineRawEvents(

@@ -86,8 +86,10 @@ export class DataLifecycleService {
         dataDir: this.deps.dataDir,
         workspaceRoot: this.deps.workspaceRoot,
         traceFile: this.deps.traceFile,
+        tracesDir: this.deps.tracesDir,
         notificationFile: this.deps.notificationFile,
         schedulerJournalFile: this.deps.schedulerJournalFile,
+        memoryDb: this.deps.memoryDb,
         getActiveRunIds: this.deps.getActiveRunIds,
       },
       this.policy,
@@ -100,7 +102,9 @@ export class DataLifecycleService {
       startedAt: Date.now(),
       summary: {
         candidateFiles: deletable.filter((a) => a.type === "delete_file" || a.type === "delete_directory").length,
-        candidateDbRows: 0,
+        candidateDbRows: deletable
+          .filter((a) => a.type === "delete_db_rows")
+          .reduce((s, a) => s + Math.max(1, Math.round(a.bytes / 384)), 0),
         estimatedBytesToFree: deletable.reduce((s, a) => s + a.bytes, 0),
       },
       actions,
@@ -128,7 +132,7 @@ export class DataLifecycleService {
     }
 
     try {
-      const executor = new CleanupExecutor(this.journal, this.policy);
+      const executor = new CleanupExecutor(this.journal, this.policy, this.deps.memoryDb);
       const deletable = stored.report.actions.filter((a) => a.canDelete && a.risk === "low");
       const result = executor.apply(deletable, request.cleanupRunId, stored.report.startedAt);
       if (result.applied > 0) {

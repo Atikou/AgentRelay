@@ -85,6 +85,23 @@
       }
     },
     {
+      "id": "m10-storage-cleanup-preview-all",
+      "title": "全量清理预览含 DB 与 trace 候选",
+      "purpose": "确认 scope=all 时 preview 可返回 delete_db_rows / rewrite_file 等扩展动作类型，且 summary 含 candidateDbRows。",
+      "method": "POST",
+      "path": "/api/storage/cleanup/preview",
+      "input": {
+        "scope": "all"
+      },
+      "expect": {
+        "status": 200,
+        "bodyHasKeys": ["cleanupRunId", "summary", "actions"],
+        "bodyPaths": {
+          "summary.candidateDbRows": "number"
+        }
+      }
+    },
+    {
       "id": "m10-storage-cleanup-runs-limit",
       "title": "清理批次历史支持 limit 参数",
       "purpose": "确认 limit 查询参数被解析且上限受控（最多 200），避免一次性读回过多历史记录。",

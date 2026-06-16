@@ -1,6 +1,6 @@
 export type CleanupRisk = "low" | "medium" | "high";
 
-/** 清理执行器支持的动作类型（`vacuum_db` 由 apply 后 `runSqliteMaintenance` 统一执行；`delete_db_rows` 待 planner 接线）。 */
+/** 清理执行器支持的动作类型（`vacuum_db` 由 apply 后 `runSqliteMaintenance` 统一执行）。 */
 export type CleanupActionType =
   | "delete_file"
   | "delete_directory"
@@ -34,7 +34,7 @@ export interface LifecyclePolicy {
     skipActiveRuns: boolean;
     lockTimeoutSeconds: number;
   };
-  /** 保留天数：部分字段已由 CleanupPlanner 使用；`traceRaw*` / `toolArgs` / `routeDetails` 等待 trace 行级清理。 */
+  /** 保留天数：CleanupPlanner 按类别生成文件/DB/行级裁剪动作。 */
   retentionDays: {
     runRawEventsSuccess: number;
     runRawEventsFailed: number;
@@ -62,7 +62,7 @@ export interface LifecyclePolicy {
   trace: {
     rotationMaxBytes: number;
     rotationMaxAgeHours: number;
-    /** 声明项：段 gzip/zstd 压缩与 reader 解压尚未接线，默认 false 避免过度承诺。 */
+    /** 轮转后将旧 segment gzip 为 `.jsonl.gz`（默认 false，opt-in）。 */
     compressOldSegments: boolean;
     compression: "gzip" | "zstd";
     keepIndex: boolean;

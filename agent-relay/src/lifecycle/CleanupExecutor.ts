@@ -1,13 +1,22 @@
 import { readFileSync } from "node:fs";
 
+import type { DatabaseManager } from "../context/DatabaseManager.js";
 import { atomicWriteFile, fileAgeDays, safeDeleteDirectory, safeDeleteFile } from "./fsUtils.js";
+import {
+  estimateDbRowBytes,
+  parseDbRowCleanupKind,
+  purgeSoftDeletedMemories,
+  purgeStaleRoutingRows,
+} from "./dbRowCleanup.js";
 import { CleanupJournal } from "./CleanupJournal.js";
+import { pruneTraceSegmentFields } from "./traceFieldRetention.js";
 import type { CleanupAction, CleanupApplyResult, LifecyclePolicy } from "./types.js";
 
 export class CleanupExecutor {
   constructor(
     private readonly journal: CleanupJournal,
     private readonly policy: LifecyclePolicy,
+    private readonly memoryDb: DatabaseManager,
   ) {}
 
   apply(actions: CleanupAction[], cleanupRunId: string, startedAt: number): CleanupApplyResult {
@@ -124,9 +133,34 @@ export class CleanupExecutor {
         return action.category === "scheduler"
           ? this.compactSchedulerJournal(action.path)
           : this.compactNotifications(action.path);
+      case "delete_db_rows":
+        return this.deleteDbRows(action);
+      case "rewrite_file":
+        return action.category === "trace"
+          ? this.pruneTraceSegment(action.path)
+          : this.rewriteFilePlaceholder(action);
       default:
         throw new Error(`unsupported action type: ${action.type}`);
     }
+  }
+
+  private deleteDbRows(action: CleanupAction): number {
+    const kind = parseDbRowCleanupKind(action.path);
+    if (!kind) throw new Error(`unknown db cleanup target: ${action.path}`);
+    const rows =
+      kind === "soft_deleted_memories"
+        ? purgeSoftDeletedMemories(this.memoryDb, this.policy)
+        : purgeStaleRoutingRows(this.memoryDb, this.policy);
+    return estimateDbRowBytes(rows);
+  }
+
+  private pruneTraceSegment(filePath: string): number {
+    const result = pruneTraceSegmentFields(filePath, this.policy);
+    return result.bytesSaved;
+  }
+
+  private rewriteFilePlaceholder(action: CleanupAction): number {
+    throw new Error(`rewrite_file not supported for category: ${action.category}`);
   }
 
   private compactNotifications(filePath: string): number {
