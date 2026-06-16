@@ -11,7 +11,7 @@ import {
 import {
   MEMORY_DB_MIGRATIONS,
   MEMORY_DB_SCHEMA_VERSION,
-} from "../storage/memoryDbMigrations.js";
+} from "./memoryDbMigrations.js";
 
 /**
  * SQLite 存储层（Node 内置 node:sqlite，含 FTS5）。

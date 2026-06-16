@@ -9,7 +9,7 @@ import path from "node:path";
 
 import { DatabaseManager } from "../src/context/DatabaseManager.js";
 import { ProjectIndex, extractSymbolsFromContent } from "../src/context/ProjectIndex.js";
-import { MEMORY_DB_SCHEMA_VERSION } from "../src/storage/memoryDbMigrations.js";
+import { MEMORY_DB_SCHEMA_VERSION } from "../src/context/memoryDbMigrations.js";
 
 const tests: Array<{ name: string; fn: () => void | Promise<void> }> = [];
 function test(name: string, fn: () => void | Promise<void>) {

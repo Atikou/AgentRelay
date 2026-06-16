@@ -11,7 +11,7 @@ import { DatabaseManager } from "../src/context/DatabaseManager.js";
 import {
   MEMORY_DB_MIGRATIONS,
   MEMORY_DB_SCHEMA_VERSION,
-} from "../src/storage/memoryDbMigrations.js";
+} from "../src/context/memoryDbMigrations.js";
 import {
   applySqliteMigrations,
   getUserVersion,

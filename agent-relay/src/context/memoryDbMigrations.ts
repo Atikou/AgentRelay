@@ -1,9 +1,8 @@
 import type { DatabaseSync } from "node:sqlite";
 
-import { hashRowId } from "./sqliteMigration.js";
 import { ensureRoutingTables } from "../model-router/route-stores.js";
 import { ensureEvalTables } from "../model-router/eval-set-store.js";
-import { addColumnIfMissing, type SqliteMigration } from "./sqliteMigration.js";
+import { addColumnIfMissing, hashRowId, type SqliteMigration } from "../storage/sqliteMigration.js";
 
 export const MEMORY_DB_SCHEMA_VERSION = 11;
 
@@ -43,7 +42,7 @@ function ensureFts(
     .run(`fts_sync:${ftsName}`, new Date().toISOString());
 }
 
-/** memory.db 递增迁移（v1–v7）；每步须幂等。 */
+/** memory.db 递增迁移（v1–v11）；每步须幂等。归属 context/（owns memory.db），不在通用 storage/ 框架层。 */
 export const MEMORY_DB_MIGRATIONS: readonly SqliteMigration[] = [
   {
     version: 1,
