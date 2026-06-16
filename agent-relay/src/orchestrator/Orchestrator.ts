@@ -35,7 +35,7 @@ import type { ModelRouter } from "../model/ModelRouter.js";
 import type { SmartModelRouter } from "../model-router/smart-model-router.js";
 import { parseModelTaskTypeOrError } from "../model/taskType.js";
 import { detectPlanReportRequest } from "../plan/planIntent.js";
-import { legacyPlanFromInternal } from "../plan/planConverter.js";
+import { toTaskRunnerPlan } from "../plan/planConverter.js";
 import type { PlanService } from "../plan/PlanService.js";
 import { PlanValidationError } from "../plan/types.js";
 
@@ -389,7 +389,7 @@ export class Orchestrator {
     const planRun = this.deps.planService.createPlanRun(planId, version);
 
     this.deps.planService.markRunning(planId, version);
-    const plan = legacyPlanFromInternal(internal);
+    const plan = toTaskRunnerPlan(internal);
     const planGoal = plan.goal ?? plan.steps[0]?.title ?? "任务";
 
     const sessionId = payload.sessionId

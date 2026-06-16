@@ -173,6 +173,12 @@ export const InternalTaskPlanSchema = z.object({
 });
 export type InternalTaskPlan = z.infer<typeof InternalTaskPlanSchema>;
 
+/**
+ * 运行时唯一可执行计划表示（与 `InternalTaskPlan` 同构）。
+ * 新代码应以此为准；`agent/types.Plan` 仅保留给 Planner 输出与 TaskRunner 边界。
+ */
+export type ExecutableTaskPlan = InternalTaskPlan;
+
 export const PublicPlanStepSchema = z.object({
   stepId: z.string().optional(),
   title: z.string(),

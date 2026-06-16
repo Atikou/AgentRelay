@@ -64,6 +64,10 @@ export const PlanSchema = z.object({
   dependencies: z.array(z.string()).default([]),
   steps: z.array(PlanStepSchema).default([]),
 });
+/**
+ * Planner / TaskRunner 边界用的 legacy 计划形状。
+ * @deprecated 持久化与执行边界请使用 `plan/types` 的 `ExecutableTaskPlan`（`InternalTaskPlan`）。
+ */
 export type Plan = z.infer<typeof PlanSchema>;
 
 /**

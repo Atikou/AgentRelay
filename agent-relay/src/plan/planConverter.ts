@@ -66,7 +66,7 @@ function toInternalStep(step: PlanStep): InternalPlanStep {
   };
 }
 
-/** 将 Planner 产出的 Plan 转为 InternalTaskPlan（唯一可执行形态）。 */
+/** 将 Planner 产出的 legacy `Plan` 转为 `ExecutableTaskPlan`（唯一可执行形态）。 */
 export function internalPlanFromLegacy(plan: Plan, options: BuildInternalPlanOptions): InternalTaskPlan {
   validateTaskGraph(plan.steps);
   const paths = collectPaths(plan.steps);
@@ -129,7 +129,14 @@ export function internalPlanFromLegacy(plan: Plan, options: BuildInternalPlanOpt
   return attachPlanHash(draft);
 }
 
-/** 供 TaskRunner 使用的 legacy Plan 适配。 */
+/** TaskRunner 边界：从 `ExecutableTaskPlan` 生成 legacy `Plan`（单点转换，避免散落垫片）。 */
+export function toTaskRunnerPlan(internal: InternalTaskPlan): Plan {
+  return legacyPlanFromInternal(internal);
+}
+
+/**
+ * @deprecated 请使用 `toTaskRunnerPlan`。
+ */
 export function legacyPlanFromInternal(internal: InternalTaskPlan): Plan {
   return {
     goal: internal.goal,
