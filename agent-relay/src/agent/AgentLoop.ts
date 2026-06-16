@@ -26,7 +26,7 @@ import {
   resolveWorkflowSwitch,
 } from "./WorkflowSessionSwitch.js";
 import { buildWorkflowState } from "./WorkflowStateCenter.js";
-import { assessWorkflowWriteGate } from "./WorkflowWriteGate.js";
+import { orchestrateWorkflowWrite } from "./workflowWriteOrchestrator.js";
 import {
   buildLocationMeta,
   buildWorkflowCorrections,
@@ -966,17 +966,18 @@ export class AgentLoop {
       };
     }
 
-    const writeGate = assessWorkflowWriteGate({
+    const writeOrchestration = orchestrateWorkflowWrite({
       intent: this.policy.intent ?? "answer",
       goal: ctx.goal,
+      permissionPolicy: this.policy.permissionPolicy,
       tool: action.tool,
       steps: ctx.steps,
       hasProposal: this.workflowProposals.length > 0,
       hasDebugAnalysis: this.workflowDebugAnalyses.length > 0,
       hasRefactorPlan: this.workflowRefactorPlans.length > 0,
     });
-    if (writeGate.blocked) {
-      const reason = writeGate.reason ?? "workflow write gate blocked";
+    if (writeOrchestration.writePhaseBlocked) {
+      const reason = writeOrchestration.blockedReason ?? "workflow write gate blocked";
       failActivity(reason);
       return {
         ...withPermission,
@@ -985,33 +986,14 @@ export class AgentLoop {
         error: reason,
       };
     }
-    if (
-      !writeGate.blocked &&
-      writeGate.priorWrites === 0 &&
-      (action.tool === "write_file" || action.tool === "apply_patch")
-    ) {
-      const editWrite = new EditWriteWorkflow().run({
-        goal: ctx.goal,
-        intent: this.policy.intent ?? "answer",
-        permissionPolicy: this.policy.permissionPolicy,
-        gate: writeGate,
-        tool: action.tool,
-      });
-      if (editWrite) {
-        this.workflowWritePhases.push(editWrite.record);
-        this.pendingWritePhaseContext = editWrite.modelContext;
-      }
-      const debugFix = new DebugFixWorkflow().run({
-        goal: ctx.goal,
-        intent: this.policy.intent ?? "answer",
-        permissionPolicy: this.policy.permissionPolicy,
-        gate: writeGate,
-        tool: action.tool,
-      });
-      if (debugFix) {
-        this.workflowDebugFixes.push(debugFix.record);
-        this.pendingWritePhaseContext = debugFix.modelContext;
-      }
+    if (writeOrchestration.writePhaseRecord) {
+      this.workflowWritePhases.push(writeOrchestration.writePhaseRecord);
+    }
+    if (writeOrchestration.debugFixRecord) {
+      this.workflowDebugFixes.push(writeOrchestration.debugFixRecord);
+    }
+    if (writeOrchestration.pendingWritePhaseContext) {
+      this.pendingWritePhaseContext = writeOrchestration.pendingWritePhaseContext;
     }
 
     const permissionDecision = evaluatePermissionGuard({
