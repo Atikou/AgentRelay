@@ -20,7 +20,7 @@
 | `7363090` | §4-1 第一步 | Smart 路径远程脱敏 |
 | `640e605` | §4-9 续 | trace gzip + sqlite maintenance |
 | … | §4-2~12 | 见 `docs/项目审核报告.md` §6 |
-| **待提交** | §4-1 第二步 | `/api/chat/stream` 无 clientName 走 Smart + onToken |
+| `e022978` | §4-1 第二步 | `/api/chat/stream` Smart + onToken |
 
 ---
 
