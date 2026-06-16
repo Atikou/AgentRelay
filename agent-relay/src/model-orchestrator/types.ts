@@ -15,6 +15,9 @@ export interface OrchestratorInput {
   temperature?: number;
   /** 隐私/敏感任务：fallback 也只能选择本地模型。 */
   localOnly?: boolean;
+  /** 流式 token 回调（仅 single_model / strong_model_direct 管线消费）。 */
+  onToken?: (delta: string) => void;
+  signal?: AbortSignal;
 }
 
 export interface OrchestratorResult {

@@ -18,6 +18,8 @@ export async function runSingleModelPipeline(
     {
       messages: input.renderedPrompt.finalMessages,
       temperature: input.temperature ?? 0.3,
+      onToken: input.onToken,
+      signal: input.signal,
     },
     {
       role: "primary",

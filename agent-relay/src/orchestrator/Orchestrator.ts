@@ -178,7 +178,7 @@ export class Orchestrator {
 
 
 
-  /** SSE：单次对话流式（token + done）；委派给 ChatService（走 ModelRouter 以支持 onToken）。 */
+  /** SSE：单次对话流式（token + done）；委派给 ChatService（无 clientName 时走 Smart 栈）。 */
   async runChatStream(body: unknown, emit: (event: ChatStreamEvent) => void): Promise<void> {
     return this.chatService.runChatStream(body, emit);
   }
