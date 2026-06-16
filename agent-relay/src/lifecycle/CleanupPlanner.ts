@@ -79,6 +79,7 @@ export class CleanupPlanner {
     if (scope !== "safe") {
       this.planStaleRoutingLogs(push);
       this.planTraceFieldRetention(push, now);
+      this.planTraceRawQuota(push);
     }
     if (scope !== "safe" || include?.includes("timeline")) {
       this.planTimelineRawEvents(push, now, activeRuns);
@@ -347,6 +348,29 @@ export class CleanupPlanner {
         risk: "low",
         category: "trace",
       });
+    }
+  }
+
+  private planTraceRawQuota(
+    push: (a: Omit<CleanupAction, "actionId" | "canDelete"> & { canDelete?: boolean }) => void,
+  ): void {
+    const quota = this.policy.quotas.traceRawBytes;
+    const segments = listSegmentFiles(this.deps.tracesDir).filter((p) => existsSync(p));
+    if (segments.length === 0) return;
+    const files = segments.map((p) => ({ path: p, size: statSync(p).size }));
+    let total = files.reduce((sum, f) => sum + f.size, 0);
+    if (total <= quota) return;
+    for (const file of files) {
+      if (total <= quota) break;
+      push({
+        type: "delete_file",
+        path: file.path,
+        reason: `traceRawBytes quota exceeded (${quota}); delete oldest segment first`,
+        bytes: file.size,
+        risk: "low",
+        category: "trace",
+      });
+      total -= file.size;
     }
   }
 

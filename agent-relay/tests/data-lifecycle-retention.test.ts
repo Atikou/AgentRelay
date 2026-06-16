@@ -136,6 +136,44 @@ async function testPlannerAndExecutorDbRows(): Promise<void> {
   }
 }
 
+async function testTraceQuotaPlanning(): Promise<void> {
+  const tmp = await mkdtemp(path.join(os.tmpdir(), "ar-life-trace-quota-"));
+  try {
+    const dataDir = path.join(tmp, "data");
+    const tracesDir = path.join(dataDir, "traces", "segments", "2026", "06");
+    await import("node:fs/promises").then((fs) => fs.mkdir(tracesDir, { recursive: true }));
+    await writeFile(path.join(tracesDir, "trace-1.jsonl"), `${"a".repeat(1200)}\n`, "utf-8");
+    await writeFile(path.join(tracesDir, "trace-2.jsonl"), `${"b".repeat(1200)}\n`, "utf-8");
+    const memoryDb = new DatabaseManager(dataDir);
+    const policy = {
+      ...DEFAULT_LIFECYCLE_POLICY,
+      quotas: { ...DEFAULT_LIFECYCLE_POLICY.quotas, traceRawBytes: 1024 },
+    };
+    const planner = new CleanupPlanner(
+      {
+        dataDir,
+        workspaceRoot: path.join(tmp, "ws"),
+        traceFile: path.join(dataDir, "traces", "active", "trace-current.jsonl"),
+        tracesDir: path.join(dataDir, "traces"),
+        notificationFile: path.join(dataDir, "notifications.jsonl"),
+        schedulerJournalFile: path.join(dataDir, "scheduler", "journal.jsonl"),
+        memoryDb,
+        getActiveRunIds: () => [],
+      },
+      policy,
+    );
+    const actions = planner.plan({ scope: "all", include: ["trace"] });
+    assert.ok(actions.some((a) => a.type === "delete_file" && /quota exceeded/.test(a.reason)));
+    memoryDb.close();
+  } finally {
+    try {
+      await rm(tmp, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
+    } catch {
+      // ignore windows sqlite lock
+    }
+  }
+}
+
 async function main(): Promise<void> {
   await testSoftDeletedMemories();
   console.log("ok - soft deleted memories");
@@ -143,6 +181,8 @@ async function main(): Promise<void> {
   console.log("ok - trace field prune");
   await testPlannerAndExecutorDbRows();
   console.log("ok - planner executor db rows");
+  await testTraceQuotaPlanning();
+  console.log("ok - trace quota planning");
 }
 
 main().catch((error) => {
