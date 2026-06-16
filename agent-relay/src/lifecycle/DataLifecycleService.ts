@@ -16,6 +16,7 @@ import {
 } from "./SessionArtifactCleaner.js";
 import type { TraceCatalog } from "../trace/traceCatalog.js";
 import { purgeSessionPrivacy, type SessionPurgeResult } from "./SessionPrivacyPurger.js";
+import { runSqliteMaintenance } from "./sqliteMaintenance.js";
 import type {
   CleanupApplyRequest,
   CleanupApplyResult,
@@ -129,7 +130,11 @@ export class DataLifecycleService {
     try {
       const executor = new CleanupExecutor(this.journal, this.policy);
       const deletable = stored.report.actions.filter((a) => a.canDelete && a.risk === "low");
-      return executor.apply(deletable, request.cleanupRunId, stored.report.startedAt);
+      const result = executor.apply(deletable, request.cleanupRunId, stored.report.startedAt);
+      if (result.applied > 0) {
+        runSqliteMaintenance(this.deps.memoryDb, this.deps.toolsDbPath, this.policy);
+      }
+      return result;
     } finally {
       lock.release();
       this.previews.delete(request.cleanupRunId);

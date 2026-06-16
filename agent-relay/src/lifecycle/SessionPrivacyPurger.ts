@@ -6,6 +6,7 @@ import { atomicWriteFile } from "./fsUtils.js";
 import { writeTombstone } from "./CleanupJournal.js";
 import { cleanupSessionArtifacts } from "./SessionArtifactCleaner.js";
 import { purgeSessionFromTraceSegments } from "./TraceSegmentPurger.js";
+import { runSqliteMaintenance } from "./sqliteMaintenance.js";
 import type { LifecyclePolicy } from "./types.js";
 import type { TraceCatalog } from "../trace/traceCatalog.js";
 
@@ -62,7 +63,7 @@ export function purgeSessionPrivacy(
     mode: "purge",
   });
 
-  const vacuumed = runWalCheckpointAndVacuum(deps.memoryDb, deps.toolsDbPath, deps.policy);
+  const vacuumed = runSqliteMaintenance(deps.memoryDb, deps.toolsDbPath, deps.policy);
 
   return {
     sessionId,
@@ -160,26 +161,3 @@ function purgeNotificationsJournal(
   return { linesRemoved: removed };
 }
 
-function runWalCheckpointAndVacuum(
-  memoryDb: DatabaseManager,
-  toolsDbPath: string | undefined,
-  policy: LifecyclePolicy,
-): boolean {
-  if (!policy.sqlite.walCheckpointAfterCleanup) return false;
-  memoryDb.connection.exec("PRAGMA wal_checkpoint(TRUNCATE)");
-  if (policy.sqlite.enableVacuum && policy.sqlite.vacuumAfterLargeCleanup) {
-    memoryDb.connection.exec("VACUUM");
-  }
-  if (toolsDbPath && existsSync(toolsDbPath)) {
-    const toolsDb = new DatabaseSync(toolsDbPath);
-    try {
-      toolsDb.exec("PRAGMA wal_checkpoint(TRUNCATE)");
-      if (policy.sqlite.enableVacuum && policy.sqlite.vacuumAfterLargeCleanup) {
-        toolsDb.exec("VACUUM");
-      }
-    } finally {
-      toolsDb.close();
-    }
-  }
-  return true;
-}

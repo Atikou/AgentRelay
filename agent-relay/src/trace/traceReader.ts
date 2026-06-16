@@ -1,7 +1,7 @@
-import { closeSync, existsSync, fstatSync, openSync, readSync } from "node:fs";
+import { existsSync } from "node:fs";
 import path from "node:path";
-
 import { redactValue } from "../util/redact.js";
+import { readTraceTailLines } from "../util/traceSegmentIo.js";
 import { listFilesForTailRead, type TraceCatalog } from "./traceCatalog.js";
 import type { TraceEvent } from "./TraceLogger.js";
 import { REPLAY_EVENT_TYPES } from "./traceReplayTypes.js";
@@ -12,33 +12,6 @@ export interface TraceReadOptions {
   limit?: number;
   redact?: boolean;
   catalog?: TraceCatalog;
-}
-
-const DEFAULT_TAIL_CHUNK_BYTES = 64 * 1024;
-const MAX_TAIL_BYTES = 4 * 1024 * 1024;
-
-function readTailLines(file: string, limit: number): string[] {
-  const fd = openSync(file, "r");
-  try {
-    const size = fstatSync(fd).size;
-    let position = size;
-    let text = "";
-    let bytesReadTotal = 0;
-    while (position > 0 && bytesReadTotal < MAX_TAIL_BYTES) {
-      const chunkSize = Math.min(DEFAULT_TAIL_CHUNK_BYTES, position, MAX_TAIL_BYTES - bytesReadTotal);
-      position -= chunkSize;
-      const buf = Buffer.allocUnsafe(chunkSize);
-      const bytesRead = readSync(fd, buf, 0, chunkSize, position);
-      text = buf.subarray(0, bytesRead).toString("utf-8") + text;
-      bytesReadTotal += bytesRead;
-      const lines = text.split("\n").filter((line) => line.trim().length > 0);
-      if (lines.length > limit) return lines.slice(-limit);
-      if (bytesRead === 0) break;
-    }
-    return text.split("\n").filter((line) => line.trim().length > 0).slice(-limit);
-  } finally {
-    closeSync(fd);
-  }
 }
 
 function parseTraceLines(lines: string[], redact: boolean): TraceEvent[] {
@@ -74,7 +47,7 @@ export function readRecentTraceEvents(
   const files = listFilesForTailRead(catalog);
   if (files.length === 0) {
     if (existsSync(traceFileOrDir)) {
-      return parseTraceLines(readTailLines(traceFileOrDir, limit), redact);
+      return parseTraceLines(readTraceTailLines(traceFileOrDir, limit), redact);
     }
     return [];
   }
@@ -84,7 +57,7 @@ export function readRecentTraceEvents(
     if (!existsSync(file)) continue;
     const need = limit - collected.length;
     if (need <= 0) break;
-    const lines = readTailLines(file, need);
+    const lines = readTraceTailLines(file, need);
     collected.unshift(...lines);
     if (collected.length >= limit) break;
   }

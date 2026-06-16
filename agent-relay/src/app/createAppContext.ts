@@ -364,6 +364,7 @@ export function createAppContext(): AppContext {
   const { logger: trace, index: traceIndex } = createSegmentedTraceLogger(paths.tracesDir, {
     rotationMaxBytes: lifecyclePolicy.trace.rotationMaxBytes,
     rotationMaxAgeHours: lifecyclePolicy.trace.rotationMaxAgeHours,
+    compressOldSegments: lifecyclePolicy.trace.compressOldSegments,
   });
   const traceCatalog: TraceCatalog = { tracesDir: paths.tracesDir, index: traceIndex };
 

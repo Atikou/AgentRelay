@@ -118,6 +118,34 @@ test("readRecentTraceEvents 合并 active 与 segments 尾部", async () => {
   assert.ok(runIds.includes("new"));
 });
 
+test("rotate 且 compressOldSegments 时 segment 为 .jsonl.gz 且可读", async () => {
+  const tracesDir = path.join(tmpRoot, "gzip");
+  const { logger, index } = createSegmentedTraceLogger(tracesDir, {
+    rotationMaxBytes: 1024 * 1024,
+    rotationMaxAgeHours: 24,
+    compressOldSegments: true,
+  });
+  logger.write({ type: "run_start", runId: "run-gz", sessionId: "s1" });
+
+  const rotated = logger.rotate({ force: true });
+  assert.equal(rotated.rotated, true);
+  assert.ok(rotated.segmentPath?.endsWith(".jsonl.gz"));
+
+  const segAbs = path.join(tracesDir, rotated.segmentPath!);
+  assert.ok(existsSync(segAbs));
+  assert.ok(!existsSync(segAbs.replace(/\.gz$/, "")));
+
+  const events = readRecentTraceEvents(resolveTracePaths(tracesDir).activeFile, {
+    limit: 10,
+    redact: false,
+    catalog: { tracesDir, index },
+  });
+  assert.ok(events.some((e) => (e as { runId?: string }).runId === "run-gz"));
+
+  await logger.close();
+  index.close();
+});
+
 async function main(): Promise<void> {
   tmpRoot = await mkdtemp(path.join(os.tmpdir(), "ar-trace-rot-"));
   let failed = 0;

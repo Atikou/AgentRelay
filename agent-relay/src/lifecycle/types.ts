@@ -1,6 +1,6 @@
 export type CleanupRisk = "low" | "medium" | "high";
 
-/** 清理执行器当前支持的动作类型（`delete_db_rows` / `vacuum_db` 尚未接线）。 */
+/** 清理执行器支持的动作类型（`vacuum_db` 由 apply 后 `runSqliteMaintenance` 统一执行；`delete_db_rows` 待 planner 接线）。 */
 export type CleanupActionType =
   | "delete_file"
   | "delete_directory"

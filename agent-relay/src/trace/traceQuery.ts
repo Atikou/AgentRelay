@@ -3,6 +3,7 @@ import { createInterface } from "node:readline";
 import path from "node:path";
 
 import { redactValue } from "../util/redact.js";
+import { createTraceSegmentReadStream } from "../util/traceSegmentIo.js";
 import { resolveFilesForFilter, type TraceCatalog } from "./traceCatalog.js";
 import { readRecentTraceEvents } from "./traceReader.js";
 import {
@@ -174,7 +175,7 @@ export async function scanTraceEvents(
   let scanned = 0;
 
   const scanFile = async (file: string): Promise<void> => {
-    const rl = createInterface({ input: createReadStream(file, { encoding: "utf-8" }) });
+    const rl = createInterface({ input: createTraceSegmentReadStream(file) });
     for await (const line of rl) {
       scanned += 1;
       if (scanned > maxScanLines) return;

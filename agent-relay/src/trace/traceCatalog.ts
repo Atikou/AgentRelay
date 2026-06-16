@@ -2,12 +2,12 @@ import {
   existsSync,
   mkdirSync,
   readdirSync,
-  readFileSync,
   renameSync,
   statSync,
 } from "node:fs";
 import path from "node:path";
 
+import { readTraceSegmentUtf8 } from "../util/traceSegmentIo.js";
 import type { TraceQueryFilter } from "./traceReplayTypes.js";
 import { ACTIVE_REL, resolveTracePaths, toAbsoluteSegment } from "./tracePaths.js";
 import type { TraceIndexStore } from "./TraceIndexStore.js";
@@ -49,7 +49,7 @@ export function indexSegmentFileSync(
   segmentRel: string,
 ): number {
   if (!catalog.index || !existsSync(absPath)) return 0;
-  const text = readFileSync(absPath, "utf-8");
+  const text = readTraceSegmentUtf8(absPath);
   const lines = text.split("\n").filter((l) => l.trim());
   let count = 0;
   for (const trimmed of lines) {
@@ -90,7 +90,7 @@ export function listSegmentFiles(tracesDir: string): string[] {
     for (const name of readdirSync(dir, { withFileTypes: true })) {
       const full = path.join(dir, name.name);
       if (name.isDirectory()) walk(full);
-      else if (name.isFile() && name.name.endsWith(".jsonl")) {
+      else if (name.isFile() && (name.name.endsWith(".jsonl.gz") || name.name.endsWith(".jsonl"))) {
         files.push({ path: full, mtime: statSync(full).mtimeMs });
       }
     }

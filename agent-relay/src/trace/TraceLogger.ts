@@ -13,6 +13,7 @@ import path from "node:path";
 import { randomUUID } from "node:crypto";
 
 import { redactValue } from "../util/redact.js";
+import { gzipTraceSegmentInPlace } from "../util/traceSegmentIo.js";
 import { migrateLegacyTraceFile } from "./traceCatalog.js";
 import { ACTIVE_SEGMENT_PATH, TraceIndexStore } from "./TraceIndexStore.js";
 import {
@@ -29,6 +30,8 @@ export interface TraceEvent {
 export interface TraceRotationPolicy {
   rotationMaxBytes: number;
   rotationMaxAgeHours: number;
+  /** 轮转后将旧 segment gzip 为 `.jsonl.gz`（默认 false，由 lifecycle policy 注入）。 */
+  compressOldSegments?: boolean;
 }
 
 export interface TraceLoggerOptions {
@@ -160,12 +163,21 @@ export class TraceLogger {
       this.index.reassignSegment(this.activeRel, segRel);
     }
 
+    let finalSegRel = segRel;
+    if (this.rotation?.compressOldSegments && existsSync(segAbs)) {
+      gzipTraceSegmentInPlace(segAbs);
+      finalSegRel = `${segRel}.gz`;
+      if (this.index) {
+        this.index.reassignSegment(segRel, finalSegRel);
+      }
+    }
+
     this.activeRel = ACTIVE_SEGMENT_PATH;
     this.activePath = this.layout.activeFile;
     this.bytesWritten = 0;
     this.openedAt = Date.now();
     this.fd = openSync(this.activePath, "a");
-    return { rotated: true, segmentPath: segRel };
+    return { rotated: true, segmentPath: finalSegRel };
   }
 
   private shouldRotate(): boolean {
