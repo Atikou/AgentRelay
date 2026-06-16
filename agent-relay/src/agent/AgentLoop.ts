@@ -30,7 +30,7 @@ import { assessWorkflowWriteGate } from "./WorkflowWriteGate.js";
 import {
   buildToolResultLayers,
   clipModelToolJson,
-} from "./ToolResultLayers.js";
+} from "../util/toolResultLayers.js";
 import type { AgentModelTurnEvent } from "./AgentModelTurn.js";
 import type { AgentTimelineService } from "./timeline/AgentTimelineService.js";
 import { mapToolToActivityStep } from "./timeline/toolStepMapper.js";

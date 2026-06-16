@@ -22,7 +22,6 @@ import { Orchestrator } from "../orchestrator/Orchestrator.js";
 import { RunStore } from "../orchestrator/RunStore.js";
 import { RunStateStore } from "../orchestrator/RunStateStore.js";
 import { ProjectIndex } from "../context/ProjectIndex.js";
-import { ModuleDependencyGraph } from "../context/ModuleDependencyGraph.js";
 import { ProjectSemanticIndexer } from "../context/ProjectSemanticIndexer.js";
 import { HistoryFileRecaller } from "../context/HistoryFileRecaller.js";
 import { Scheduler } from "../scheduler/index.js";
@@ -93,7 +92,6 @@ export class AppContext {
   readonly runStateStore: RunStateStore;
   readonly projectIndex: ProjectIndex;
   readonly projectSemanticIndexer: ProjectSemanticIndexer;
-  readonly moduleDependencyGraph: ModuleDependencyGraph;
   readonly historyFileRecaller: HistoryFileRecaller;
   readonly orchestrator: Orchestrator;
   readonly subAgentCoordinator: SubAgentCoordinator;
@@ -136,7 +134,6 @@ export class AppContext {
     runStateStore: RunStateStore;
     projectIndex: ProjectIndex;
     projectSemanticIndexer: ProjectSemanticIndexer;
-    moduleDependencyGraph: ModuleDependencyGraph;
     historyFileRecaller: HistoryFileRecaller;
     orchestrator: Orchestrator;
     subAgentCoordinator: SubAgentCoordinator;
@@ -178,7 +175,6 @@ export class AppContext {
     this.runStateStore = opts.runStateStore;
     this.projectIndex = opts.projectIndex;
     this.projectSemanticIndexer = opts.projectSemanticIndexer;
-    this.moduleDependencyGraph = opts.moduleDependencyGraph;
     this.historyFileRecaller = opts.historyFileRecaller;
     this.orchestrator = opts.orchestrator;
     this.subAgentCoordinator = opts.subAgentCoordinator;
@@ -451,7 +447,6 @@ export function createAppContext(): AppContext {
     contextManager.embeddings,
     contextManager.vectors,
   );
-  const moduleDependencyGraph = new ModuleDependencyGraph(projectIndex);
   const historyFileRecaller = new HistoryFileRecaller(
     contextManager.db,
     contextManager.memories,
@@ -644,7 +639,6 @@ export function createAppContext(): AppContext {
     runStateStore,
     projectIndex,
     projectSemanticIndexer,
-    moduleDependencyGraph,
     historyFileRecaller,
     orchestrator,
     subAgentCoordinator,

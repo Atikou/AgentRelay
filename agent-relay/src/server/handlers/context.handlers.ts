@@ -29,12 +29,6 @@ export function handleContextSessionUpdate(app: AppContext, id: string, body: un
   return { status: 200, body: { session } };
 }
 
-export function handleContextSessionDelete(app: AppContext, id: string): ApiResult {
-  const ok = app.contextManager.deleteSession(id);
-  if (!ok) return { status: 404, body: { error: "会话不存在", sessionId: id } };
-  return { status: 200, body: { sessionId: id, deleted: true } };
-}
-
 export async function handleContextSessionRestore(
   app: AppContext,
   id: string,

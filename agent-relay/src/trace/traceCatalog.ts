@@ -8,10 +8,9 @@ import {
 } from "node:fs";
 import path from "node:path";
 
-import type { TraceQueryFilter } from "./traceQuery.js";
-import { ACTIVE_REL, LEGACY_FILE, resolveTracePaths, toAbsoluteSegment } from "./tracePaths.js";
+import type { TraceQueryFilter } from "./traceReplayTypes.js";
+import { ACTIVE_REL, resolveTracePaths, toAbsoluteSegment } from "./tracePaths.js";
 import type { TraceIndexStore } from "./TraceIndexStore.js";
-import { ACTIVE_SEGMENT_PATH } from "./TraceIndexStore.js";
 import type { TraceEvent } from "./TraceLogger.js";
 
 export interface TraceCatalog {
@@ -151,8 +150,4 @@ export function resolveFilesForFilter(catalog: TraceCatalog, filter?: TraceQuery
   }
 
   return listFilesForTailRead(catalog, 8);
-}
-
-export function activeSegmentRel(): string {
-  return ACTIVE_SEGMENT_PATH;
 }

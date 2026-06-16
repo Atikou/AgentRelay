@@ -1123,6 +1123,10 @@ export class Orchestrator {
   ): Promise<void> {
     const payload = (body ?? {}) as { streamTokens?: boolean };
     let activeIteration = 0;
+    // run_start 必须是流的首帧；prepareAgentRun 会在准备阶段就启动 timeline 并产生
+    // activity_event，因此先缓冲这些事件，待 run_start 发出后再按序补发，避免乱序。
+    let runStarted = false;
+    const activityBuffer: AgentActivityEvent[] = [];
     const prepared = this.prepareAgentRun(body, makeChat, {
       onStep: (step) => emit({ type: "step", step }),
       onModelTurn: (turn) => {
@@ -1134,12 +1138,21 @@ export class Orchestrator {
         : undefined,
       registerForCancel: true,
       enableTimeline: true,
-      onActivityEvent: (event) => emit({ type: "activity_event", event }),
+      onActivityEvent: (event) => {
+        if (!runStarted) {
+          activityBuffer.push(event);
+          return;
+        }
+        emit({ type: "activity_event", event });
+      },
     });
     if ("error" in prepared) throw new Error(String((prepared.error.body as { error?: string }).error));
     const { ctx } = prepared;
 
     emit({ type: "run_start", runId: ctx.run.id, taskId: ctx.task.id, sessionId: ctx.sessionId });
+    runStarted = true;
+    for (const event of activityBuffer) emit({ type: "activity_event", event });
+    activityBuffer.length = 0;
 
     try {
       this.traceAgentRunStart(ctx);

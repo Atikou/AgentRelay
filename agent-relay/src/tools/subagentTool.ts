@@ -93,11 +93,13 @@ export interface DispatchSubagentOutput {
 export const dispatchSubagentTool: Tool<typeof inputSchema, DispatchSubagentOutput> = {
   name: DISPATCH_SUBAGENT_TOOL_NAME,
   description:
-    "将大任务拆分为子任务委派给子 Agent：子 Agent 在干净、最小上下文中自行执行，只把压缩结构化结果带回。参数 tasks: DelegatedTask[]，每项含 goal/instructions/toolPolicy/modelPolicy。写操作须 toolPolicy.writeAllowed 且 grantedPermissions 含 write。",
+    "将大任务拆分为子任务委派给子 Agent：子 Agent 在干净、最小上下文中自行执行，只把压缩结构化结果带回。参数 tasks: DelegatedTask[]，每项含 goal/instructions/toolPolicy/modelPolicy。⚠️ 可能有副作用：当某个子任务设置 toolPolicy.writeAllowed/shellAllowed 且 grantedPermissions 含 write/shell 时，子 Agent 会写文件或执行命令，因此本工具按「可能有副作用」对待。",
   normalizeInput: normalizeDispatchSubagentInput,
   inputSchema,
+  // 派发动作本身是 read 级（不直接触碰文件系统），但被派发的子 Agent 可在授权下写盘/跑命令，
+  // 故 hasSideEffect 取保守的 true，使工具清单/确认提示如实告知「可能有副作用」。
   permission: "read",
-  hasSideEffect: false,
+  hasSideEffect: true,
   timeoutMs: 300_000,
   async execute(input, context) {
     const depth = context.subAgentDispatchDepth ?? 0;

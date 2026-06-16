@@ -12,7 +12,7 @@ import {
   buildToolResultLayers,
   compactToolOutputForModel,
   isModelCompactTruncated,
-} from "../src/agent/ToolResultLayers.js";
+} from "../src/util/toolResultLayers.js";
 import type { ModelResponse } from "../src/model/types.js";
 import { readRecentTraceEvents } from "../src/trace/traceReader.js";
 import { TraceLogger } from "../src/trace/TraceLogger.js";

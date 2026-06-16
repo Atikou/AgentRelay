@@ -5,58 +5,19 @@ import path from "node:path";
 import { redactValue } from "../util/redact.js";
 import { resolveFilesForFilter, type TraceCatalog } from "./traceCatalog.js";
 import { readRecentTraceEvents } from "./traceReader.js";
+import {
+  REPLAY_EVENT_TYPES,
+  TRACE_CATEGORY_TYPES,
+  type TraceQueryFilter,
+  type TraceReplayCategory,
+} from "./traceReplayTypes.js";
 import type { TraceEvent } from "./TraceLogger.js";
 
-/** 审计回放默认包含的事件类型（过滤 model_call 等噪声）。 */
-export const REPLAY_EVENT_TYPES = new Set([
-  "run_start",
-  "run_end",
-  "agent_decision",
-  "agent_model_turn",
-  "run_usage_summary",
-  "task_status_change",
-  "tool_audit",
-  "agent_tool",
-  "scheduler_fire",
-  "task_step",
-  "background_start",
-  "background_done",
-  "background_trigger_next",
-  "subagent_start",
-  "subagent_end",
-]);
-
-export type TraceReplayCategory =
-  | "run"
-  | "model"
-  | "tool"
-  | "agent"
-  | "task"
-  | "background"
-  | "subagent"
-  | "scheduler";
-
-export const TRACE_CATEGORY_TYPES: Record<TraceReplayCategory, readonly string[]> = {
-  run: ["run_start", "run_end"],
-  model: ["agent_model_turn", "run_usage_summary"],
-  tool: ["agent_tool", "tool_audit"],
-  agent: ["agent_decision"],
-  task: ["task_step", "task_status_change"],
-  background: ["background_start", "background_done", "background_trigger_next"],
-  subagent: ["subagent_start", "subagent_end"],
-  scheduler: ["scheduler_fire"],
-};
-
-export interface TraceQueryFilter {
-  runId?: string;
-  sessionId?: string;
-  taskId?: string;
-  toolCallId?: string;
-  type?: string;
-  types?: string[];
-  category?: TraceReplayCategory;
-  replayOnly?: boolean;
-}
+export {
+  REPLAY_EVENT_TYPES,
+  TRACE_CATEGORY_TYPES,
+} from "./traceReplayTypes.js";
+export type { TraceReplayCategory, TraceQueryFilter } from "./traceReplayTypes.js";
 
 export interface ScanTraceOptions {
   limit?: number;

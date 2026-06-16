@@ -1,4 +1,9 @@
-/** 工具结果三层：raw（审计）/ modelVisible（回灌模型）/ userDisplay（用户展示）。 */
+/**
+ * 工具结果三层：raw（审计）/ modelVisible（回灌模型）/ userDisplay（用户展示）。
+ *
+ * 纯数据整形助手，无任何上层依赖；放在 util/ 作为最底层，供 agent/ 与 context/
+ * 同时依赖，避免 context/ 反向 import agent/（消除层序倒置）。
+ */
 
 export const DEFAULT_LARGE_TOOL_CHARS = 4000;
 export const MODEL_TOOL_RESULT_MAX_CHARS = 4000;

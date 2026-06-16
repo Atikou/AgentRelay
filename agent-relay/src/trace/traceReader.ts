@@ -4,9 +4,9 @@ import path from "node:path";
 import { redactValue } from "../util/redact.js";
 import { listFilesForTailRead, type TraceCatalog } from "./traceCatalog.js";
 import type { TraceEvent } from "./TraceLogger.js";
-import { REPLAY_EVENT_TYPES } from "./traceQuery.js";
+import { REPLAY_EVENT_TYPES } from "./traceReplayTypes.js";
 
-export { REPLAY_EVENT_TYPES } from "./traceQuery.js";
+export { REPLAY_EVENT_TYPES } from "./traceReplayTypes.js";
 
 export interface TraceReadOptions {
   limit?: number;

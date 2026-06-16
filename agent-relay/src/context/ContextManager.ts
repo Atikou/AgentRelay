@@ -2,7 +2,7 @@ import { appendFileSync, mkdirSync } from "node:fs";
 import path from "node:path";
 
 import { redactValue } from "../util/redact.js";
-import { compactToolOutputForModel } from "../agent/ToolResultLayers.js";
+import { compactToolOutputForModel } from "../util/toolResultLayers.js";
 
 import type { ChatMessage } from "../model/types.js";
 import { ContextRestorer } from "./ContextRestorer.js";

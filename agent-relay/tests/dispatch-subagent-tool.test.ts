@@ -601,11 +601,12 @@ test("子 Agent 内 AgentLoop 不暴露 dispatch_subagent", async () => {
 
 
 
-test("dispatchSubagentTool 元信息为 read 且无副作用", async () => {
+test("dispatchSubagentTool 派发为 read 级但如实声明可能有副作用", async () => {
 
   assert.equal(dispatchSubagentTool.permission, "read");
 
-  assert.equal(dispatchSubagentTool.hasSideEffect, false);
+  // 子 Agent 在授权下可写盘/跑命令，故按「可能有副作用」对待，确认门据此提示。
+  assert.equal(dispatchSubagentTool.hasSideEffect, true);
 
   assert.equal(dispatchSubagentTool.name, "dispatch_subagent");
 

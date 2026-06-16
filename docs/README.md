@@ -77,6 +77,7 @@ npm run docs:screenshots # 用无头浏览器截图到 docs/assets/
 
 - [API 参考](API参考.md)：REST 接口总览、能力探测与交互式文档入口（`/api-docs`）。
 - [项目整体架构](项目整体架构.md)：分层设计、模块职责、关键调用链路、目录结构与里程碑路线图。
+- [项目审核报告（独立定义基线）](项目审核报告.md)：以审核人独立给出的模块定义为基线，逐模块判定「符合 / 偏离 / 未兑现」，区分「出发点错 vs 中途漂移」，含子 Agent 工具化确认与优先级修复建议。
 - [数据存储边界](数据存储边界.md)：SQLite / JSONL / LanceDB 职责划分与 `data/` 目录说明。
 - [编排与Run模型](编排与Run模型.md)：Orchestrator、统一 Run/Task、`GET /api/runs`。
 - [计划JSON与Markdown分离](计划JSON与Markdown分离.md)：InternalTaskPlan、PlanStore、预览与执行边界。

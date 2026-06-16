@@ -41,6 +41,7 @@ const EXPECTED_TOOLS = [
   "backup_file",
   "context_pack",
   "diff_file",
+  "dispatch_subagent",
   "git_diff",
   "git_status",
   "list_files",
