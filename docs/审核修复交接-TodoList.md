@@ -33,6 +33,7 @@
 
 已完成第一刀：`workflowExecutionMeta.ts`（提取 executionMeta 相关聚合），主循环行为不变。
 已完成第二刀：`workflowWriteOrchestrator.ts`（提取 write gate/phase context 装配），`runToolAction` 降低分支复杂度。
+已完成第三刀：`workflowFollowupContexts.ts`（提取工具后续 workflow 上下文拼装），`recordToolStepMessages` 去重复并收敛状态更新。
 
 ---
 

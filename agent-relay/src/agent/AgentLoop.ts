@@ -13,10 +13,6 @@ import { assertWithinCostBudget, sumModelTurnCost } from "../util/costBudget.js"
 import { wrapUntrustedToolOutput } from "../util/injection.js";
 import { redactPreview } from "../util/redact.js";
 import { EditAutoVerificationWorkflow } from "./EditAutoVerificationWorkflow.js";
-import { EditExecutionWorkflow } from "./EditExecutionWorkflow.js";
-import { EditWriteWorkflow } from "./EditWriteWorkflow.js";
-import { DebugFixWorkflow } from "./DebugFixWorkflow.js";
-import { EditVerificationWorkflow } from "./EditVerificationWorkflow.js";
 import { MAX_WORKFLOW_CORRECTION_ATTEMPTS, WorkflowCorrectionWorkflow } from "./WorkflowCorrectionWorkflow.js";
 import { hasPlanningPhaseArtifacts, resolveWorkflowTaskState } from "./WorkflowTaskState.js";
 import { WorkflowExecutor } from "./WorkflowExecutor.js";
@@ -27,6 +23,7 @@ import {
 } from "./WorkflowSessionSwitch.js";
 import { buildWorkflowState } from "./WorkflowStateCenter.js";
 import { orchestrateWorkflowWrite } from "./workflowWriteOrchestrator.js";
+import { buildWorkflowFollowupContexts } from "./workflowFollowupContexts.js";
 import {
   buildLocationMeta,
   buildWorkflowCorrections,
@@ -713,43 +710,6 @@ export class AgentLoop {
     });
   }
 
-  private buildEditExecutionContext(step: AgentToolStep, goal: string): string | undefined {
-    return new EditExecutionWorkflow()
-      .run({
-        goal,
-        intent: this.policy.intent,
-        step,
-      })?.modelContext;
-  }
-
-  private buildEditVerificationContext(
-    steps: AgentToolStep[],
-    currentStep: AgentToolStep,
-    goal: string,
-  ): string | undefined {
-    return new EditVerificationWorkflow()
-      .run({
-        goal,
-        intent: this.policy.intent,
-        steps,
-        currentStep,
-      })?.modelContext;
-  }
-
-  private buildWorkflowCorrectionContext(
-    steps: AgentToolStep[],
-    currentStep: AgentToolStep,
-    goal: string,
-  ): string | undefined {
-    return new WorkflowCorrectionWorkflow()
-      .run({
-        goal,
-        intent: this.policy.intent,
-        steps,
-        currentStep,
-      })?.modelContext;
-  }
-
   private async runEditAutoVerification(
     writeStep: AgentToolStep,
     steps: AgentToolStep[],
@@ -789,18 +749,6 @@ export class AgentLoop {
     return await this.runToolAction(action, iteration, toolCallId, { steps, goal });
   }
 
-  private buildWritePhaseBlockedContext(goal: string, reason: string): string | undefined {
-    const intent = this.policy.intent;
-    if (!intent) return undefined;
-    if (intent === "edit" || intent === "generate_file" || intent === "refactor") {
-      return new EditWriteWorkflow().renderBlockedContext(goal, intent, reason);
-    }
-    if (intent === "debug") {
-      return new DebugFixWorkflow().renderBlockedContext(goal, reason);
-    }
-    return undefined;
-  }
-
   private recordToolStepMessages(input: {
     messages: ChatMessage[];
     step: AgentToolStep;
@@ -810,53 +758,34 @@ export class AgentLoop {
   }): void {
     const toolText = this.renderToolResult(input.step, input.steps);
     input.messages.push({ role: "user", content: toolText });
-    if (input.step.workflowPhaseBlocked) {
-      const blockedContext = this.buildWritePhaseBlockedContext(
-        input.goal,
-        input.step.error ?? "workflow write gate blocked",
-      );
-      if (blockedContext) {
-        input.messages.push({ role: "user", content: blockedContext });
-      }
-    }
-    if (this.pendingWritePhaseContext && input.step.ok) {
-      const writePhaseContext = this.pendingWritePhaseContext;
-      this.pendingWritePhaseContext = undefined;
-      input.messages.push({ role: "user", content: writePhaseContext });
-      if (input.sessionId && this.options.contextManager) {
-        this.options.contextManager.saveToolMessage(input.sessionId, writePhaseContext);
-      }
-    }
-    const editExecutionContext = this.buildEditExecutionContext(input.step, input.goal);
-    if (editExecutionContext) {
-      input.messages.push({ role: "user", content: editExecutionContext });
-    }
-    const editVerificationContext = this.buildEditVerificationContext(input.steps, input.step, input.goal);
-    if (editVerificationContext) {
-      input.messages.push({ role: "user", content: editVerificationContext });
-    }
-    const workflowCorrectionContext = this.buildWorkflowCorrectionContext(input.steps, input.step, input.goal);
-    if (workflowCorrectionContext) {
-      input.messages.push({ role: "user", content: workflowCorrectionContext });
+    const followups = buildWorkflowFollowupContexts({
+      intent: this.policy.intent,
+      goal: input.goal,
+      step: input.step,
+      steps: input.steps,
+      pendingWritePhaseContext: this.pendingWritePhaseContext,
+    });
+    this.pendingWritePhaseContext = followups.pendingWritePhaseContext;
+    for (const extra of [
+      followups.blockedContext,
+      followups.writePhaseContext,
+      followups.editExecutionContext,
+      followups.editVerificationContext,
+      followups.workflowCorrectionContext,
+    ]) {
+      if (extra) input.messages.push({ role: "user", content: extra });
     }
     const ctx = this.options.contextManager;
     if (ctx && input.sessionId) {
       ctx.saveToolMessage(input.sessionId, toolText);
-      if (input.step.workflowPhaseBlocked) {
-        const blockedContext = this.buildWritePhaseBlockedContext(
-          input.goal,
-          input.step.error ?? "workflow write gate blocked",
-        );
-        if (blockedContext) ctx.saveToolMessage(input.sessionId, blockedContext);
-      }
-      if (editExecutionContext) {
-        ctx.saveToolMessage(input.sessionId, editExecutionContext);
-      }
-      if (editVerificationContext) {
-        ctx.saveToolMessage(input.sessionId, editVerificationContext);
-      }
-      if (workflowCorrectionContext) {
-        ctx.saveToolMessage(input.sessionId, workflowCorrectionContext);
+      for (const extra of [
+        followups.blockedContext,
+        followups.writePhaseContext,
+        followups.editExecutionContext,
+        followups.editVerificationContext,
+        followups.workflowCorrectionContext,
+      ]) {
+        if (extra) ctx.saveToolMessage(input.sessionId, extra);
       }
     }
   }
