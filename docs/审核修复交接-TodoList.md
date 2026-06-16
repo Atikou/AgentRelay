@@ -21,7 +21,7 @@
 | `640e605` | §4-9 续 | trace gzip + sqlite maintenance |
 | … | §4-2~12 | 见 `docs/项目审核报告.md` §6 |
 | `e022978` | §4-1 第二步 | `/api/chat/stream` Smart + onToken |
-| **待提交** | §4-1 收尾 | 运行链路移除 ModelRouter 双轨（保留兼容壳） |
+| `0103d88` | §4-1 收尾 | 运行链路移除 ModelRouter 双轨（保留兼容壳） |
 
 ---
 
