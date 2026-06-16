@@ -1,5 +1,5 @@
-import type { ToolPermission } from "../agent/permissions.js";
-import { CONFIRMATION_REQUIRED } from "../agent/permissions.js";
+import type { ToolPermission } from "../core/permissions.js";
+import { CONFIRMATION_REQUIRED } from "../core/permissions.js";
 import type { NetworkPolicy } from "./NetworkPolicy.js";
 import { extractNetworkTarget } from "./NetworkPolicy.js";
 import type { ShellPolicy } from "./ShellPolicy.js";

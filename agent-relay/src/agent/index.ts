@@ -1,5 +1,5 @@
 export * from "./types.js";
-export * from "./permissions.js";
+export * from "../core/permissions.js";
 export * from "./RunPolicy.js";
 export { Planner, normalizePlan, type ChatFn } from "./Planner.js";
 export type { AgentToolStep } from "./toolStep.js";

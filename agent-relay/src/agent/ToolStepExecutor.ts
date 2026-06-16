@@ -1,5 +1,5 @@
-import type { ToolPermission } from "./permissions.js";
-import { MODE_PERMISSIONS } from "./permissions.js";
+import type { ToolPermission } from "../core/permissions.js";
+import { MODE_PERMISSIONS } from "../core/permissions.js";
 import { resolveEffectivePermissions } from "../policy/PermissionPolicy.js";
 import { StepExecutionError, type StepContext, type StepExecutor, type StepResult } from "./TaskRunner.js";
 import type { PlanStep } from "./types.js";

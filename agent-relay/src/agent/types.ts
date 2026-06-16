@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { ALL_PERMISSIONS } from "./permissions.js";
+import { ALL_PERMISSIONS } from "../core/permissions.js";
 
 export const StepStatusSchema = z.enum([
   "pending",

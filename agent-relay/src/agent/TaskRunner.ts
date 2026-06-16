@@ -1,5 +1,5 @@
 import type { TraceLogger } from "../trace/TraceLogger.js";
-import { MODE_PERMISSIONS, type ToolPermission } from "./permissions.js";
+import { MODE_PERMISSIONS, type ToolPermission } from "../core/permissions.js";
 import { resolveEffectivePermissions } from "../policy/PermissionPolicy.js";
 import {
   indexPlanSteps,

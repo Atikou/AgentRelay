@@ -3,7 +3,7 @@ import {
   CONFIRMATION_REQUIRED,
   MODE_PERMISSIONS,
   type ToolPermission,
-} from "../agent/permissions.js";
+} from "../core/permissions.js";
 import type { Tool } from "../tools/types.js";
 
 export {

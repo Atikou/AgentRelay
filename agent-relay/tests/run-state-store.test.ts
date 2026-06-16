@@ -19,7 +19,7 @@ import {
   extractCompletedWorkflowSteps,
 } from "../src/orchestrator/runStateTypes.js";
 import { RunStore } from "../src/orchestrator/RunStore.js";
-import { ALL_PERMISSIONS } from "../src/agent/permissions.js";
+import { ALL_PERMISSIONS } from "../src/core/permissions.js";
 import { createDefaultRegistry } from "../src/tools/index.js";
 import { createTestPlanService } from "./planTestHelper.js";
 import { createTestOrchestrator } from "./orchestratorTestHelper.js";

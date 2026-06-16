@@ -1,4 +1,4 @@
-import { MODE_PERMISSIONS } from "../agent/permissions.js";
+import { MODE_PERMISSIONS } from "../core/permissions.js";
 import type { ToolRegistry } from "../tools/ToolRegistry.js";
 import type { ToolStorage } from "../tools/storage/ToolStorage.js";
 import type { TraceLogger } from "../trace/TraceLogger.js";

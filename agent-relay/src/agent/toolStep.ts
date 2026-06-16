@@ -1,4 +1,4 @@
-import type { ToolPermission } from "./permissions.js";
+import type { ToolPermission } from "../core/permissions.js";
 import type { PermissionConfirmationRequest } from "../policy/PermissionGuard.js";
 import type { StructuredToolRisk } from "../policy/ToolRiskAssessment.js";
 import type { ToolResultLayers } from "../util/toolResultLayers.js";

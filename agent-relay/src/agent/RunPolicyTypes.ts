@@ -1,6 +1,6 @@
 import type { ModelTaskType } from "../model/taskType.js";
 import type { AgentIntentType, AgentWorkflowType } from "./IntentTypes.js";
-import type { ToolPermission } from "./permissions.js";
+import type { ToolPermission } from "../core/permissions.js";
 
 export type AgentRunMode = "chat" | "plan" | "implement" | "debug" | "review";
 

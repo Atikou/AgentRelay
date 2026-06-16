@@ -5,8 +5,8 @@ import type { TraceLogger } from "../trace/TraceLogger.js";
 import { extractNetworkTarget } from "../policy/NetworkPolicy.js";
 import { assessPermissionDeniedRisk, assessToolRisk } from "../policy/ToolRiskAssessment.js";
 import { redactPreview, redactString, redactValue } from "../util/redact.js";
-import type { ToolPermission } from "../agent/permissions.js";
-import { CONFIRMATION_REQUIRED } from "../agent/permissions.js";
+import type { ToolPermission } from "../core/permissions.js";
+import { CONFIRMATION_REQUIRED } from "../core/permissions.js";
 import type { ToolStorage } from "./storage/ToolStorage.js";
 import type { Tool, ToolContext, ToolErrorCategory, ToolErrorCode, ToolRunResult, ToolSpec } from "./types.js";
 

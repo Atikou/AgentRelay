@@ -1,6 +1,6 @@
 import type { ChatRequest, ModelResponse } from "../model/types.js";
 import type { RouteOptions } from "../model/ModelRouter.js";
-import { requiresConfirmation, type ToolPermission } from "./permissions.js";
+import { requiresConfirmation, type ToolPermission } from "../core/permissions.js";
 import { inferAvailableTools } from "./subtaskUtils.js";
 import { sortSubtasksByPriority, validateTaskGraph } from "./taskGraph.js";
 import { PlanSchema, RawPlanSchema, type Plan } from "./types.js";

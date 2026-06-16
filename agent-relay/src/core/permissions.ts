@@ -1,7 +1,8 @@
 /**
- * 权限与模式边界。
+ * 权限与模式边界（共享词汇，置于 core/ 最底层）。
  *
- * ToolPermission 既用于计划步骤声明所需权限，也将被后续的工具系统复用。
+ * ToolPermission 既用于计划步骤声明所需权限，也被工具系统 / 策略层 / 子 Agent 复用。
+ * 放在 core/ 而非 agent/，避免 policy/、tools/、plan/ 等较低层反向 import 执行层 agent/。
  */
 export type ToolPermission = "read" | "write" | "shell" | "network" | "dangerous";
 

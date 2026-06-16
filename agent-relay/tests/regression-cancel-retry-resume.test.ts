@@ -14,7 +14,7 @@ import { ContextManager } from "../src/context/ContextManager.js";
 import type { ModelResponse } from "../src/model/types.js";
 import { RunStore } from "../src/orchestrator/RunStore.js";
 import { RunStateStore } from "../src/orchestrator/RunStateStore.js";
-import { ALL_PERMISSIONS } from "../src/agent/permissions.js";
+import { ALL_PERMISSIONS } from "../src/core/permissions.js";
 import { createDefaultRegistry } from "../src/tools/index.js";
 import { createTestPlanService } from "./planTestHelper.js";
 import { createTestOrchestrator } from "./orchestratorTestHelper.js";

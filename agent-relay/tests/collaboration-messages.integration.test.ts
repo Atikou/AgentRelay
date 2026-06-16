@@ -7,7 +7,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
-import { ALL_PERMISSIONS } from "../src/agent/permissions.js";
+import { ALL_PERMISSIONS } from "../src/core/permissions.js";
 import { ContextManager } from "../src/context/ContextManager.js";
 import { FallbackManager } from "../src/model-router/fallback-manager.js";
 import { ModelRegistry } from "../src/model-router/model-registry.js";

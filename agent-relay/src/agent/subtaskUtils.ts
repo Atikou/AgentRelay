@@ -1,4 +1,4 @@
-import type { ToolPermission } from "./permissions.js";
+import type { ToolPermission } from "../core/permissions.js";
 
 /** 按权限推断默认可用工具（模型未给出 availableTools 时补全）。 */
 export function inferAvailableTools(permissions: ToolPermission[]): string[] {

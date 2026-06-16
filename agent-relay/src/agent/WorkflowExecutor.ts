@@ -3,7 +3,7 @@ import type { RunState } from "../orchestrator/runStateTypes.js";
 import type { TraceLogger } from "../trace/TraceLogger.js";
 import type { ToolRegistry } from "../tools/ToolRegistry.js";
 import type { BudgetManager } from "./BudgetManager.js";
-import type { ToolPermission } from "./permissions.js";
+import type { ToolPermission } from "../core/permissions.js";
 import { ImplicitPlanWorkflow } from "./ImplicitPlanWorkflow.js";
 import { RefactorPlanWorkflow } from "./RefactorPlanWorkflow.js";
 import { DebugAnalysisWorkflow } from "./DebugAnalysisWorkflow.js";

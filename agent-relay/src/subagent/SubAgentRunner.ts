@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { performance } from "node:perf_hooks";
 
 import { AgentLoop, type LoopChatFn } from "../agent/AgentLoop.js";
-import type { ToolPermission } from "../agent/permissions.js";
+import type { ToolPermission } from "../core/permissions.js";
 import type { RunBudget } from "../agent/RunPolicyTypes.js";
 import type { ToolRegistry } from "../tools/ToolRegistry.js";
 import type { TraceLogger } from "../trace/TraceLogger.js";

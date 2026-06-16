@@ -14,7 +14,7 @@ import { Orchestrator } from "../src/orchestrator/Orchestrator.js";
 import { AgentRunRegistry } from "../src/orchestrator/AgentRunRegistry.js";
 import { RunStore } from "../src/orchestrator/RunStore.js";
 import { RunStateStore } from "../src/orchestrator/RunStateStore.js";
-import { ALL_PERMISSIONS } from "../src/agent/permissions.js";
+import { ALL_PERMISSIONS } from "../src/core/permissions.js";
 import { DryRunExecutor, TaskRunner } from "../src/agent/TaskRunner.js";
 import { PlanSchema } from "../src/agent/types.js";
 import { createDefaultRegistry } from "../src/tools/index.js";

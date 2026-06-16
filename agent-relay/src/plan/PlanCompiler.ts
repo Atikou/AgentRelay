@@ -1,6 +1,6 @@
 import { finalizePlan } from "../agent/taskGraph.js";
 import type { Plan, PlanStep } from "../agent/types.js";
-import type { ToolPermission } from "../agent/permissions.js";
+import type { ToolPermission } from "../core/permissions.js";
 import type { UserVisiblePlan, UserVisibleTodo } from "./types.js";
 
 export interface CompileUserVisiblePlanInput {

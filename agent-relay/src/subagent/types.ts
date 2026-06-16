@@ -1,5 +1,5 @@
 import type { AgentToolStep } from "../agent/toolStep.js";
-import type { ToolPermission } from "../agent/permissions.js";
+import type { ToolPermission } from "../core/permissions.js";
 import type { WriteFilePickStrategy } from "./writeFileVersionPick.js";
 import type { DelegatedTask, SubAgentStructuredResult } from "./delegatedTask.js";
 import type { ExecutionRoute } from "./executionRoute.js";

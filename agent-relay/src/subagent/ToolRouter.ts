@@ -1,4 +1,4 @@
-import type { ToolPermission } from "../agent/permissions.js";
+import type { ToolPermission } from "../core/permissions.js";
 import {
   ALL_PERMISSIONS,
   assertUserGrantWithinCeiling,

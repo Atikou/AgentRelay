@@ -34,7 +34,7 @@ import {
 import type { AgentModelTurnEvent } from "./AgentModelTurn.js";
 import type { AgentTimelineService } from "./timeline/AgentTimelineService.js";
 import { mapToolToActivityStep } from "./timeline/toolStepMapper.js";
-import { type ToolPermission } from "./permissions.js";
+import { type ToolPermission } from "../core/permissions.js";
 import {
   resolveEffectivePermissions,
 } from "../policy/PermissionPolicy.js";

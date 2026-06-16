@@ -12,7 +12,7 @@ import {
   assessShellCommandRisk,
   assessToolRisk,
 } from "../src/policy/ToolRiskAssessment.js";
-import { ALL_PERMISSIONS } from "../src/agent/permissions.js";
+import { ALL_PERMISSIONS } from "../src/core/permissions.js";
 
 const tests: Array<{ name: string; fn: () => Promise<void> | void }> = [];
 function test(name: string, fn: () => Promise<void> | void) {

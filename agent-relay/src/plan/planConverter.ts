@@ -1,5 +1,5 @@
 import { validateTaskGraph } from "../agent/taskGraph.js";
-import { requiresConfirmation, type ToolPermission } from "../agent/permissions.js";
+import { requiresConfirmation, type ToolPermission } from "../core/permissions.js";
 import type { Plan, PlanStep } from "../agent/types.js";
 import { attachPlanHash } from "./planHash.js";
 import {

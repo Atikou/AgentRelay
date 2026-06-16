@@ -5,7 +5,7 @@
 import assert from "node:assert/strict";
 
 import { evaluatePermissionGuard } from "../src/policy/PermissionGuard.js";
-import { ALL_PERMISSIONS } from "../src/agent/permissions.js";
+import { ALL_PERMISSIONS } from "../src/core/permissions.js";
 
 const tests: Array<{ name: string; fn: () => void }> = [];
 function test(name: string, fn: () => void) {

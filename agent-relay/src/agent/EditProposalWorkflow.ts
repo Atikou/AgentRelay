@@ -1,6 +1,6 @@
 import type { AgentIntentType } from "./IntentTypes.js";
 import { evaluatePermissionGuard } from "../policy/PermissionGuard.js";
-import type { ToolPermission } from "./permissions.js";
+import type { ToolPermission } from "../core/permissions.js";
 import type {
   AgentWorkflowPermissionCheck,
   AgentWorkflowProposal,

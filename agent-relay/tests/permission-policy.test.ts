@@ -4,7 +4,7 @@
  */
 import assert from "node:assert/strict";
 
-import { MODE_PERMISSIONS, ALL_PERMISSIONS } from "../src/agent/permissions.js";
+import { MODE_PERMISSIONS, ALL_PERMISSIONS } from "../src/core/permissions.js";
 import {
   PERMISSION_SCOPE_ORDER,
   assertUserGrantWithinCeiling,

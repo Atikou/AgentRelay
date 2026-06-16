@@ -8,7 +8,7 @@ import os from "node:os";
 import path from "node:path";
 
 import type { Planner } from "../src/agent/Planner.js";
-import { ALL_PERMISSIONS } from "../src/agent/permissions.js";
+import { ALL_PERMISSIONS } from "../src/core/permissions.js";
 import { PlanSchema } from "../src/agent/types.js";
 import { ContextManager } from "../src/context/ContextManager.js";
 import { Orchestrator } from "../src/orchestrator/Orchestrator.js";

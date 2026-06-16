@@ -1,6 +1,6 @@
 import type { TraceLogger } from "../trace/TraceLogger.js";
 import type { ToolRegistry } from "../tools/ToolRegistry.js";
-import type { ToolPermission } from "./permissions.js";
+import type { ToolPermission } from "../core/permissions.js";
 import { DryRunExecutor, TaskRunner, type StepExecutor } from "./TaskRunner.js";
 import { ToolStepExecutor } from "./ToolStepExecutor.js";
 import type { Plan } from "./types.js";

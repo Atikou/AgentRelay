@@ -39,7 +39,7 @@ import { legacyPlanFromInternal } from "../plan/planConverter.js";
 import type { PlanService } from "../plan/PlanService.js";
 import { PlanValidationError } from "../plan/types.js";
 
-import type { ToolPermission } from "../agent/permissions.js";
+import type { ToolPermission } from "../core/permissions.js";
 
 import type { SubAgentCoordinator } from "../subagent/SubAgentCoordinator.js";
 

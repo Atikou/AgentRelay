@@ -10,7 +10,7 @@ import path from "node:path";
 import { createDefaultRegistry, createMockRegistry, createMockTool } from "../src/tools/index.js";
 import { checkCommandRisk } from "../src/tools/risk.js";
 import { resolveInsideWorkspace } from "../src/tools/pathSafe.js";
-import { ALL_PERMISSIONS } from "../src/agent/permissions.js";
+import { ALL_PERMISSIONS } from "../src/core/permissions.js";
 import { createShellPolicy } from "../src/policy/ShellPolicy.js";
 import { ToolRegistry, classifyToolError } from "../src/tools/ToolRegistry.js";
 import { ToolStorage } from "../src/tools/storage/ToolStorage.js";

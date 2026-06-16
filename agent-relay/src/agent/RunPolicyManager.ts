@@ -1,4 +1,4 @@
-import { type ToolPermission } from "./permissions.js";
+import { type ToolPermission } from "../core/permissions.js";
 import { BudgetManager } from "./BudgetManager.js";
 import { defaultIntentRouter } from "./IntentRouter.js";
 import { defaultWorkflowRouter } from "./WorkflowRouter.js";

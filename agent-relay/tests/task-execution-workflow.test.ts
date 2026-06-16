@@ -7,7 +7,7 @@ import os from "node:os";
 import path from "node:path";
 import { promises as fs } from "node:fs";
 
-import { ALL_PERMISSIONS } from "../src/agent/permissions.js";
+import { ALL_PERMISSIONS } from "../src/core/permissions.js";
 import { TaskExecutionWorkflow } from "../src/agent/TaskExecutionWorkflow.js";
 import type { Plan } from "../src/agent/types.js";
 import { createMockRegistry, createMockTool } from "../src/tools/index.js";

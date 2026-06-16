@@ -3,7 +3,7 @@ import { fileURLToPath } from "node:url";
 
 import { Planner } from "../agent/Planner.js";
 import type { LoopChatFn } from "../agent/AgentLoop.js";
-import type { ToolPermission } from "../agent/permissions.js";
+import type { ToolPermission } from "../core/permissions.js";
 import { BackgroundTaskManager, NotificationQueue } from "../background/index.js";
 import { loadConfig } from "../config/loadConfig.js";
 import type { AppConfig } from "../config/types.js";

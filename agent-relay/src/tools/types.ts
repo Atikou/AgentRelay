@@ -1,6 +1,6 @@
 import type { z } from "zod";
 
-import type { ToolPermission } from "../agent/permissions.js";
+import type { ToolPermission } from "../core/permissions.js";
 import type { ShellPolicy } from "../policy/ShellPolicy.js";
 import type { NetworkPolicy } from "../policy/NetworkPolicy.js";
 import type { StructuredToolRisk } from "../policy/ToolRiskAssessment.js";
