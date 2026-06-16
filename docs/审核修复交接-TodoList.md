@@ -31,6 +31,8 @@
 
 ~1650 行执行核心，小步抽离 + 全量回归。
 
+已完成第一刀：`workflowExecutionMeta.ts`（提取 executionMeta 相关聚合），主循环行为不变；后续继续抽离 write gate/phase context 装配。
+
 ---
 
 ## 3. 一句话
