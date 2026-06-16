@@ -63,6 +63,7 @@ npm run docs:screenshots # 用无头浏览器截图到 docs/assets/
 
 ### 进行中的 TodoList
 
+- [审核修复交接-TodoList](审核修复交接-TodoList.md)：**接手 agent 入口**——审核报告 §4 落地的已完成/暂缓/待办清单与下一步操作指引。
 - [自动工作流模式-TodoList（已归档）](completed/自动工作流模式-TodoList.md)：统一 Agent 入口、内部意图路由、权限策略与工作流解耦。
 
 - [外部规范-TodoList索引](外部规范-TodoList索引.md)：**6 份外部规范**对应的完成度清单总览。
