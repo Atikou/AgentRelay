@@ -1,5 +1,6 @@
 import { performance } from "node:perf_hooks";
 
+import { prepareRemoteChatRequest } from "../model/prepareRemoteChatRequest.js";
 import type { ModelClient } from "../model/types.js";
 import type { TraceLogger } from "../trace/TraceLogger.js";
 import type { ModelChatFn } from "../model-orchestrator/types.js";
@@ -41,7 +42,8 @@ export function createModelChatFn(
           throw new ModelUnavailableError(modelId, `模型 ${modelId} 当前不可用：${record.reason ?? "preflight failed"}`);
         }
       }
-      const response = await client.chat(request);
+      const safeRequest = prepareRemoteChatRequest(request, client, trace);
+      const response = await client.chat(safeRequest);
       const durationMs = Math.round(response.latencyMs || performance.now() - start);
       const callLogId = callLogStore.create({
         routeLogId: meta.routeLogId,

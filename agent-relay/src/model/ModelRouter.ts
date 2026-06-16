@@ -2,8 +2,8 @@ import { performance } from "node:perf_hooks";
 
 import type { RoutingStrategy } from "../config/types.js";
 import type { TraceLogger } from "../trace/TraceLogger.js";
-import { detectSensitiveString, redactString } from "../util/redact.js";
 import type { MetricsRegistry } from "./MetricsRegistry.js";
+import { prepareRemoteChatRequest } from "./prepareRemoteChatRequest.js";
 import { orderCandidatesByTaskType, type ModelTaskType } from "./taskType.js";
 import type { ChatRequest, ModelClient, ModelResponse } from "./types.js";
 
@@ -116,22 +116,7 @@ export class ModelRouter {
   }
 
   private prepareRequestForClient(request: ChatRequest, client: ModelClient): ChatRequest {
-    if (client.location !== "remote") return request;
-    let redactedCount = 0;
-    const messages = request.messages.map((message) => {
-      if (detectSensitiveString(message.content).length === 0) return message;
-      redactedCount += 1;
-      return { ...message, content: redactString(message.content) };
-    });
-    if (redactedCount === 0) return request;
-    this.options.trace?.write({
-      type: "model_prompt_redacted",
-      client: client.name,
-      model: client.model,
-      location: client.location,
-      redactedMessages: redactedCount,
-    });
-    return { ...request, messages };
+    return prepareRemoteChatRequest(request, client, this.options.trace);
   }
 
   private priceFor(clientName: string, inputTokens?: number, outputTokens?: number): number | undefined {
