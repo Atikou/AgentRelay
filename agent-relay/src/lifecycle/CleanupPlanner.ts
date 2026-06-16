@@ -12,7 +12,7 @@ import type {
   StorageCategory,
 } from "./types.js";
 
-const SAFE_CATEGORIES: StorageCategory[] = ["temp", "cache", "reportCache", "notifications"];
+const SAFE_CATEGORIES: StorageCategory[] = ["temp", "cache", "reportCache", "notifications", "scheduler"];
 
 const RISK_ORDER: Record<CleanupRisk, number> = { low: 0, medium: 1, high: 2 };
 
@@ -21,6 +21,7 @@ export interface CleanupPlannerDeps {
   workspaceRoot: string;
   traceFile: string;
   notificationFile: string;
+  schedulerJournalFile: string;
   getActiveRunIds: () => string[];
 }
 
@@ -57,6 +58,7 @@ export class CleanupPlanner {
     this.planCache(push, now, request.olderThanDays);
     this.planReportCache(push, now, request.olderThanDays);
     this.planNotifications(push, now);
+    this.planSchedulerJournal(push, now);
     if (scope !== "safe" || include?.includes("timeline")) {
       this.planTimelineRawEvents(push, now, activeRuns);
     }
@@ -229,6 +231,51 @@ export class CleanupPlanner {
     }
   }
 
+  private planSchedulerJournal(
+    push: (a: Omit<CleanupAction, "actionId" | "canDelete"> & { canDelete?: boolean }) => void,
+    now: number,
+  ): void {
+    const file = this.deps.schedulerJournalFile;
+    let text: string;
+    try {
+      text = readFileSync(file, "utf-8");
+    } catch {
+      return;
+    }
+    if (!text.trim()) return;
+
+    const ttl = this.policy.retentionDays.completedSchedulerJournal;
+    const lines = text.split("\n").filter(Boolean);
+    let hasStaleHistory = false;
+    for (const line of lines) {
+      try {
+        const parsed = JSON.parse(line) as { time?: string };
+        const ts = parsed.time ? Date.parse(parsed.time) : Number.NaN;
+        if (!Number.isNaN(ts) && fileAgeDays(ts, now) >= ttl) {
+          hasStaleHistory = true;
+          break;
+        }
+      } catch {
+        continue;
+      }
+    }
+    if (!hasStaleHistory || lines.length < 2) return;
+
+    const minimalBytes = estimateCompactSchedulerJournalBytes(lines);
+    const currentBytes = Buffer.byteLength(text, "utf-8");
+    const removableBytes = Math.max(0, currentBytes - minimalBytes);
+    if (removableBytes <= 0) return;
+
+    push({
+      type: "compact_jsonl",
+      path: file,
+      reason: `compact scheduler journal history older than ${ttl} day(s)`,
+      bytes: removableBytes,
+      risk: "low",
+      category: "scheduler",
+    });
+  }
+
   private planTimelineRawEvents(
     push: (a: Omit<CleanupAction, "actionId" | "canDelete"> & { canDelete?: boolean }) => void,
     now: number,
@@ -268,4 +315,32 @@ export class CleanupPlanner {
       }
     }
   }
+}
+
+/** 估算 scheduler journal 压紧后体积（每 trigger 仅保留最终 upsert）。 */
+function estimateCompactSchedulerJournalBytes(lines: string[]): number {
+  const triggers = new Map<string, string>();
+  for (const line of lines) {
+    try {
+      const parsed = JSON.parse(line) as {
+        op?: string;
+        id?: string;
+        trigger?: { id?: string };
+      };
+      if (parsed.op === "delete" && typeof parsed.id === "string") {
+        triggers.delete(parsed.id);
+        continue;
+      }
+      if (parsed.op === "upsert" && parsed.trigger?.id) {
+        triggers.set(parsed.trigger.id, line);
+      }
+    } catch {
+      continue;
+    }
+  }
+  let bytes = 0;
+  for (const line of triggers.values()) {
+    bytes += Buffer.byteLength(line, "utf-8") + 1;
+  }
+  return bytes;
 }

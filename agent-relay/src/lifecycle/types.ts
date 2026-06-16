@@ -1,5 +1,6 @@
 export type CleanupRisk = "low" | "medium" | "high";
 
+/** 清理执行器当前支持的动作类型（`delete_db_rows` / `vacuum_db` 尚未接线）。 */
 export type CleanupActionType =
   | "delete_file"
   | "delete_directory"
@@ -33,6 +34,7 @@ export interface LifecyclePolicy {
     skipActiveRuns: boolean;
     lockTimeoutSeconds: number;
   };
+  /** 保留天数：部分字段已由 CleanupPlanner 使用；`traceRaw*` / `toolArgs` / `routeDetails` 等待 trace 行级清理。 */
   retentionDays: {
     runRawEventsSuccess: number;
     runRawEventsFailed: number;
@@ -60,6 +62,7 @@ export interface LifecyclePolicy {
   trace: {
     rotationMaxBytes: number;
     rotationMaxAgeHours: number;
+    /** 声明项：段 gzip/zstd 压缩与 reader 解压尚未接线，默认 false 避免过度承诺。 */
     compressOldSegments: boolean;
     compression: "gzip" | "zstd";
     keepIndex: boolean;

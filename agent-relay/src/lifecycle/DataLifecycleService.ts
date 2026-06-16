@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, unlinkSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 
@@ -86,6 +86,7 @@ export class DataLifecycleService {
         workspaceRoot: this.deps.workspaceRoot,
         traceFile: this.deps.traceFile,
         notificationFile: this.deps.notificationFile,
+        schedulerJournalFile: this.deps.schedulerJournalFile,
         getActiveRunIds: this.deps.getActiveRunIds,
       },
       this.policy,
@@ -211,7 +212,16 @@ export class DataLifecycleService {
   private loadPreviewsFromDisk(): void {
     const dir = path.join(lifecycleDir(this.deps.dataDir), "previews");
     if (!existsSync(dir)) return;
-    // lazy load on apply
+    for (const name of readdirSync(dir)) {
+      if (!name.endsWith(".json")) continue;
+      try {
+        const raw = JSON.parse(readFileSync(path.join(dir, name), "utf-8")) as StoredPreview;
+        if (Date.now() > raw.expiresAt) continue;
+        this.previews.set(raw.report.cleanupRunId, raw);
+      } catch {
+        continue;
+      }
+    }
   }
 
   private loadPreviewFromDisk(cleanupRunId: string): StoredPreview | undefined {

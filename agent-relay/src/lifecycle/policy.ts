@@ -40,7 +40,7 @@ export const DEFAULT_LIFECYCLE_POLICY: LifecyclePolicy = {
   trace: {
     rotationMaxBytes: 104_857_600,
     rotationMaxAgeHours: 24,
-    compressOldSegments: true,
+    compressOldSegments: false,
     compression: "gzip",
     keepIndex: true,
   },

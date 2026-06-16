@@ -200,6 +200,37 @@ test("DELETE run 联动清理 timeline 与 data/runs", async () => {
   mgr.close();
 });
 
+test("CleanupPlanner 可压紧过期 scheduler journal", async () => {
+  const dataDir = path.join(tmpRoot, "sched-journal");
+  const journalFile = path.join(dataDir, "scheduler", "scheduler-journal.jsonl");
+  mkdirSync(path.dirname(journalFile), { recursive: true });
+  const old = new Date(Date.now() - 20 * 24 * 60 * 60 * 1000).toISOString();
+  const recent = new Date().toISOString();
+  writeFileSync(
+    journalFile,
+    [
+      JSON.stringify({ op: "upsert", time: old, trigger: { id: "t1", updatedAt: old } }),
+      JSON.stringify({ op: "upsert", time: recent, trigger: { id: "t1", updatedAt: recent } }),
+    ].join("\n") + "\n",
+    "utf-8",
+  );
+
+  const policy = loadLifecyclePolicy(dataDir);
+  const planner = new CleanupPlanner(
+    {
+      dataDir,
+      workspaceRoot: path.join(tmpRoot, "ws-sched"),
+      traceFile: path.join(dataDir, "traces", "trace.jsonl"),
+      notificationFile: path.join(dataDir, "notifications", "notifications.jsonl"),
+      schedulerJournalFile: journalFile,
+      getActiveRunIds: () => [],
+    },
+    policy,
+  );
+  const actions = planner.plan({ scope: "safe" });
+  assert.ok(actions.some((a) => a.category === "scheduler" && a.type === "compact_jsonl"));
+});
+
 test("CleanupPlanner 过期 timeline events 进入 medium 预览", async () => {
   const dataDir = path.join(tmpRoot, "tl-prune");
   const workspace = path.join(tmpRoot, "ws-tl-prune");
@@ -227,6 +258,7 @@ test("CleanupPlanner 过期 timeline events 进入 medium 预览", async () => {
       workspaceRoot: workspace,
       traceFile: path.join(dataDir, "traces", "trace.jsonl"),
       notificationFile: path.join(dataDir, "notifications", "notifications.jsonl"),
+      schedulerJournalFile: path.join(dataDir, "scheduler", "scheduler-journal.jsonl"),
       getActiveRunIds: () => [],
     },
     policy,
