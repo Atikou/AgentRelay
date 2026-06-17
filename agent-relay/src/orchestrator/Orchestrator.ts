@@ -75,6 +75,9 @@ export interface OrchestratorDeps {
 
   workspaceRoot: string;
 
+  /** 按会话 workspaceKey 解析工具沙箱根路径；省略时回退 workspaceRoot。 */
+  resolveWorkspaceRoot?: (sessionId?: string) => string;
+
   directChat: (request: ChatRequest, opts?: RouteOptions) => Promise<ModelResponse>;
 
   planner: Planner;
@@ -153,12 +156,21 @@ export class Orchestrator {
 
 
 
-  ensureSession(sessionId: string | undefined, title: string): string {
+  ensureSession(sessionId: string | undefined, title: string, workspaceKey?: string): string {
 
     if (sessionId && this.deps.contextManager.getSession(sessionId)) return sessionId;
 
-    return this.deps.contextManager.createSession(title).id;
+    return this.deps.contextManager.createSession(title, undefined, workspaceKey).id;
 
+  }
+
+  private workspaceForSession(sessionId?: string): string {
+    return this.deps.resolveWorkspaceRoot?.(sessionId) ?? this.deps.workspaceRoot;
+  }
+
+  private workspaceForRun(runId: string): string {
+    const run = this.deps.runs.get(runId);
+    return this.workspaceForSession(run?.sessionId);
   }
 
 
@@ -458,7 +470,7 @@ export class Orchestrator {
 
       const executedPlan = await new TaskExecutionWorkflow({
         registry: this.deps.registry,
-        workspaceRoot: this.deps.workspaceRoot,
+        workspaceRoot: this.workspaceForSession(sessionId),
         projectAllowedPermissions: this.deps.projectAllowedPermissions,
         trace: this.deps.trace,
       }).run({
@@ -639,6 +651,7 @@ export class Orchestrator {
     const payload = (body ?? {}) as {
       message?: string;
       sessionId?: string;
+      mode?: string;
       activatePlan?: boolean;
       userVisiblePlanId?: string;
       dryRun?: boolean;
@@ -648,11 +661,23 @@ export class Orchestrator {
       confirmedTodoIds?: string[];
     };
     const message = (payload.message ?? "").trim();
+    const explicitMode = payload.mode?.trim();
+    // 测试台「强制计划/审阅」走只读分析；除非显式 activatePlan，否则不被激活意图劫持。
+    if (
+      !payload.activatePlan &&
+      (explicitMode === "plan" || explicitMode === "review")
+    ) {
+      return null;
+    }
+    const explicitUserVisiblePlanId =
+      payload.userVisiblePlanId?.trim() || parseUserVisiblePlanIdFromMessage(message);
+    // 默认自动推断下，普通“开始/继续”不应被 Plan Activation 劫持。
+    // 仅显式 activatePlan 或提供 uvp_ id 时才触发激活流程。
+    if (!payload.activatePlan && !explicitUserVisiblePlanId) return null;
     if (!payload.activatePlan && !detectPlanActivationIntent(message)) return null;
 
     const userVisiblePlanId =
-      payload.userVisiblePlanId?.trim() ||
-      parseUserVisiblePlanIdFromMessage(message) ||
+      explicitUserVisiblePlanId ||
       (payload.sessionId
         ? this.deps.planService.getLatestUserVisiblePlanForSession(payload.sessionId)?.id
         : undefined);
@@ -754,6 +779,8 @@ export class Orchestrator {
 
     const policy = defaultRunPolicyManager.resolve({
       requestedMode: state.mode,
+      forceMode: true,
+      sessionId: state.sessionId,
       requestedPermissionPolicy: payload.permissionPolicy,
       autoConfirm: payload.autoConfirm,
       budget: payload.budget,
@@ -779,7 +806,7 @@ export class Orchestrator {
     const loop = new AgentLoop({
       chat: makeChat ?? this.deps.makeChatFn(),
       registry: this.deps.registry,
-      workspaceRoot: this.deps.workspaceRoot,
+      workspaceRoot: this.workspaceForSession(sessionId),
       autoConfirm: payload.autoConfirm ?? false,
       sensitive: payload.sensitive,
       taskType: taskTypeParsed.taskType,
@@ -839,7 +866,7 @@ export class Orchestrator {
   }
 
   getActivityRun(runId: string): ApiResult {
-    const store = new ActivityRunStore(this.deps.workspaceRoot);
+    const store = new ActivityRunStore(this.workspaceForRun(runId));
     const run = store.loadRun(runId);
     if (!run) return { status: 404, body: { error: "Activity Run 不存在", runId } };
     return { status: 200, body: { run } };
@@ -850,7 +877,7 @@ export class Orchestrator {
     emit: (event: AgentActivityEvent) => void,
     opts?: { replay?: boolean },
   ): () => void {
-    const store = new ActivityRunStore(this.deps.workspaceRoot);
+    const store = new ActivityRunStore(this.workspaceForRun(runId));
     if (opts?.replay !== false) {
       for (const event of store.listEvents(runId)) {
         emit(event);
@@ -966,7 +993,7 @@ export class Orchestrator {
 
       registry: this.deps.registry,
 
-      workspaceRoot: this.deps.workspaceRoot,
+      workspaceRoot: this.workspaceForSession(input.sessionId),
 
       autoConfirm: false,
 
@@ -1281,6 +1308,7 @@ export class Orchestrator {
       sensitive?: boolean;
       taskType?: string;
       mode?: string;
+      forceMode?: boolean;
       permissionPolicy?: string;
       budget?: Partial<RunBudget>;
       sessionId?: string;
@@ -1309,6 +1337,8 @@ export class Orchestrator {
     }
     const policy = defaultRunPolicyManager.resolve({
       requestedMode: payload.mode,
+      forceMode: payload.forceMode === true,
+      sessionId: payload.sessionId,
       requestedPermissionPolicy: payload.permissionPolicy,
       autoConfirm: payload.autoConfirm,
       budget: payload.budget,
@@ -1337,7 +1367,7 @@ export class Orchestrator {
 
     const timeline = callbacks?.enableTimeline
       ? new AgentTimelineService({
-          workspaceRoot: this.deps.workspaceRoot,
+          workspaceRoot: this.workspaceForSession(sessionId),
           onEvent: callbacks.onActivityEvent,
         })
       : undefined;
@@ -1349,7 +1379,7 @@ export class Orchestrator {
         metadata: {
           userInput: message,
           mode: policy.mode,
-          projectRoot: this.deps.workspaceRoot,
+          projectRoot: this.workspaceForSession(sessionId),
         },
       });
     }
@@ -1357,7 +1387,7 @@ export class Orchestrator {
     const loop = new AgentLoop({
       chat: makeChat ?? this.deps.makeChatFn(),
       registry: this.deps.registry,
-      workspaceRoot: this.deps.workspaceRoot,
+      workspaceRoot: this.workspaceForSession(sessionId),
       autoConfirm: payload.autoConfirm ?? false,
       sensitive: payload.sensitive,
       taskType: taskTypeParsed.taskType,
@@ -1551,7 +1581,7 @@ export class Orchestrator {
     return rollbackFileChangesForRun({
       registry: this.deps.registry,
       storage,
-      workspaceRoot: this.deps.workspaceRoot,
+      workspaceRoot: this.workspaceForSession(sessionId),
       runId,
       sessionId,
       taskId,
@@ -1616,7 +1646,7 @@ export class Orchestrator {
 
       const executedPlan = await new TaskExecutionWorkflow({
         registry: this.deps.registry,
-        workspaceRoot: this.deps.workspaceRoot,
+        workspaceRoot: this.workspaceForSession(sessionId),
         projectAllowedPermissions: this.deps.projectAllowedPermissions,
         trace: this.deps.trace,
       }).resume({

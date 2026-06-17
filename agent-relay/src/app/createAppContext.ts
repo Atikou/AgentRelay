@@ -6,6 +6,12 @@ import type { LoopChatFn } from "../agent/AgentLoop.js";
 import type { ToolPermission } from "../core/permissions.js";
 import { BackgroundTaskManager, NotificationQueue } from "../background/index.js";
 import { loadConfig } from "../config/loadConfig.js";
+import {
+  buildWorkspaceCatalog,
+  decodeCustomWorkspaceKey,
+  resolveWorkspaceRootFromCatalog,
+  type WorkspaceCatalog,
+} from "../config/workspaceCatalog.js";
 import type { AppConfig } from "../config/types.js";
 import { ContextManager } from "../context/index.js";
 import { createModelClient } from "../model/ModelFactory.js";
@@ -80,6 +86,8 @@ export class AppContext {
   readonly profile: string;
   readonly config: AppConfig;
   readonly workspaceRoot: string;
+  readonly workspaceCatalog: WorkspaceCatalog;
+  readonly defaultWorkspaceKey: string;
   readonly paths: AppPaths;
   readonly clientMap: Map<string, ModelClient>;
   readonly metrics: MetricsRegistry;
@@ -122,6 +130,7 @@ export class AppContext {
     profile: string;
     config: AppConfig;
     workspaceRoot: string;
+    workspaceCatalog: WorkspaceCatalog;
     paths: AppPaths;
     clientMap: Map<string, ModelClient>;
     metrics: MetricsRegistry;
@@ -163,6 +172,8 @@ export class AppContext {
     this.profile = opts.profile;
     this.config = opts.config;
     this.workspaceRoot = opts.workspaceRoot;
+    this.workspaceCatalog = opts.workspaceCatalog;
+    this.defaultWorkspaceKey = opts.workspaceCatalog.defaultKey;
     this.paths = opts.paths;
     this.clientMap = opts.clientMap;
     this.metrics = opts.metrics;
@@ -234,10 +245,30 @@ export class AppContext {
     return { forceClient: clientName };
   }
 
+  isValidWorkspaceKey(key: string, allowCustom = false): boolean {
+    if (this.workspaceCatalog.byId.has(key)) return true;
+    return allowCustom && decodeCustomWorkspaceKey(key) !== undefined;
+  }
+
+  resolveWorkspaceRootForSession(sessionId?: string): string {
+    if (!sessionId) return this.workspaceRoot;
+    const session = this.contextManager.getSession(sessionId);
+    return resolveWorkspaceRootFromCatalog(
+      this.workspaceCatalog,
+      session?.workspaceKey ?? this.defaultWorkspaceKey,
+    );
+  }
+
   getConfigPayload() {
     return {
       profile: this.profile,
       workspaceRoot: this.workspaceRoot,
+      defaultWorkspaceKey: this.defaultWorkspaceKey,
+      workspaces: this.workspaceCatalog.entries.map((w) => ({
+        id: w.id,
+        label: w.label,
+        root: w.resolvedRoot,
+      })),
       routing: this.config.routing,
       defaultModel: this.config.models.default,
       clients: this.config.models.clients.map((c) => ({
@@ -409,6 +440,7 @@ export function createAppContext(): AppContext {
   const traceCatalog: TraceCatalog = { tracesDir: paths.tracesDir, index: traceIndex };
 
   const { profile, config, workspaceRoot } = loadConfig();
+  const workspaceCatalog = buildWorkspaceCatalog(projectRoot, config);
   const shellPolicy = createShellPolicy(config.security?.shell);
   const networkPolicy = createNetworkPolicy(config.security?.network);
   const projectAllowedPermissions = resolveProjectAllowedPermissions(config.security?.permissions);
@@ -600,6 +632,14 @@ export function createAppContext(): AppContext {
 
   const orchestrator = new Orchestrator({
     workspaceRoot,
+    resolveWorkspaceRoot: (sessionId?: string) => {
+      if (!sessionId) return workspaceCatalog.defaultRoot;
+      const session = contextManager.getSession(sessionId);
+      return resolveWorkspaceRootFromCatalog(
+        workspaceCatalog,
+        session?.workspaceKey ?? workspaceCatalog.defaultKey,
+      );
+    },
     directChat,
     planner,
     registry,
@@ -673,6 +713,7 @@ export function createAppContext(): AppContext {
     profile,
     config,
     workspaceRoot,
+    workspaceCatalog,
     paths,
     clientMap,
     metrics,

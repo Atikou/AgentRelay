@@ -556,14 +556,15 @@
       }
     },
     {
-      "id": "m1-agent-explicit-mode-overrides-intent",
-      "title": "显式 mode 覆盖自动意图",
-      "purpose": "确认用户显式传入 mode=plan 时，即使消息包含修改动作，系统也按只读 plan/planWorkflow 边界返回，避免自动路由越过用户指定模式。",
+      "id": "m1-agent-forced-mode-overrides-intent",
+      "title": "forceMode 下显式 mode 覆盖自动意图",
+      "purpose": "确认默认自动推断开启后，只有显式传入 forceMode=true 的测试请求才会强制按 mode=plan 执行。",
       "method": "POST",
       "path": "/api/agent",
       "input": {
         "message": "修改这个模块但先只给计划",
         "mode": "plan",
+        "forceMode": true,
         "persist": false,
         "budget": {
           "maxModelTurns": 1,
@@ -583,6 +584,93 @@
           "executionMeta.workflowType": "planWorkflow",
           "executionMeta.usedWriteCalls": 0,
           "executionMeta.usedShellCalls": 0
+        }
+      }
+    },
+    {
+      "id": "m1-agent-plan-mode-skips-activation-intent",
+      "title": "强制 plan 模式不被激活意图劫持",
+      "purpose": "确认测试台在 forceMode=true 且 mode=plan 时，消息含「开始执行/执行计划」等激活关键词仍走只读 Agent 分析，不触发 Plan Activation Layer 或 UVP_NOT_FOUND。",
+      "method": "POST",
+      "path": "/api/agent",
+      "input": {
+        "message": "请开始执行计划：只读分析当前项目结构",
+        "mode": "plan",
+        "forceMode": true,
+        "persist": false,
+        "budget": {
+          "maxModelTurns": 1,
+          "maxToolCalls": 1,
+          "maxReadCalls": 1,
+          "maxWriteCalls": 0,
+          "maxShellCalls": 0,
+          "maxRuntimeMs": 60000
+        }
+      },
+      "expect": {
+        "status": 200,
+        "bodyHasKeys": ["answer", "executionMeta"],
+        "bodyPaths": {
+          "executionMeta.mode": "plan",
+          "executionMeta.modeSource": "explicit"
+        }
+      }
+    },
+    {
+      "id": "m1-agent-auto-plan-to-execute-followup",
+      "title": "plan 会话短句自动跃迁执行阶段",
+      "purpose": "确认默认自动推断下，同会话上一轮是 plan 时，短句“按计划开始执行”会自动切换到 editWorkflow（不需 forceMode）。",
+      "method": "POST",
+      "path": "/api/agent",
+      "input": {
+        "sessionId": "PASTE_SESSION_ID_FROM_PREV_PLAN_RUN",
+        "message": "按计划开始执行",
+        "persist": true,
+        "budget": {
+          "maxModelTurns": 1,
+          "maxToolCalls": 0,
+          "maxReadCalls": 0,
+          "maxWriteCalls": 0,
+          "maxShellCalls": 0,
+          "maxRuntimeMs": 60000
+        }
+      },
+      "expect": {
+        "status": 200,
+        "bodyPaths": {
+          "executionMeta.intent": "edit",
+          "executionMeta.workflowType": "editWorkflow",
+          "executionMeta.executionStage": "execute",
+          "executionMeta.modeSource": "inferred"
+        }
+      }
+    },
+    {
+      "id": "m1-agent-auto-plan-to-verify-followup",
+      "title": "plan 会话测试短句自动跃迁验证阶段",
+      "purpose": "确认默认自动推断下，plan 会话内“继续并跑测试验证”会自动进入 verifyWorkflow，并在 executionMeta 暴露 executionStage=verify。",
+      "method": "POST",
+      "path": "/api/agent",
+      "input": {
+        "sessionId": "PASTE_SESSION_ID_FROM_PREV_PLAN_RUN",
+        "message": "继续并跑测试验证",
+        "persist": true,
+        "budget": {
+          "maxModelTurns": 1,
+          "maxToolCalls": 0,
+          "maxReadCalls": 0,
+          "maxWriteCalls": 0,
+          "maxShellCalls": 0,
+          "maxRuntimeMs": 60000
+        }
+      },
+      "expect": {
+        "status": 200,
+        "bodyPaths": {
+          "executionMeta.intent": "verify",
+          "executionMeta.workflowType": "verifyWorkflow",
+          "executionMeta.executionStage": "verify",
+          "executionMeta.modeSource": "inferred"
         }
       }
     },

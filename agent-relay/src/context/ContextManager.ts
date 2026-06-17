@@ -121,8 +121,8 @@ export class ContextManager {
     this.largeToolChars = options.largeToolOutputChars ?? 4000;
   }
 
-  createSession(title?: string, projectId?: string): SessionRecord {
-    return this.sessions.create(title, projectId);
+  createSession(title?: string, projectId?: string, workspaceKey?: string): SessionRecord {
+    return this.sessions.create(title, projectId, workspaceKey);
   }
 
   createProject(name: string, rootPath?: string, description?: string) {

@@ -81,6 +81,64 @@
         "bodyHasKeys": ["error", "sessionId"]
       }
     },
+    {
+      "id": "m6-session-create-with-workspace",
+      "title": "创建会话并绑定工作区",
+      "purpose": "验证 POST /api/context/sessions 接受 workspaceKey，会话级工具沙箱可与会话绑定。",
+      "method": "POST",
+      "path": "/api/context/sessions",
+      "input": { "title": "工作区测试会话", "workspaceKey": "repo" },
+      "expect": {
+        "status": 200,
+        "bodyHasKeys": ["session"],
+        "bodyPaths": {
+          "session.id": "string",
+          "session.workspaceKey": "repo"
+        }
+      }
+    },
+    {
+      "id": "m6-session-create-invalid-workspace",
+      "title": "无效 workspaceKey 返回 400",
+      "purpose": "边界用例：配置外的工作区 id 应被拒绝，避免工具沙箱指向未知目录。",
+      "method": "POST",
+      "path": "/api/context/sessions",
+      "input": { "title": "坏工作区", "workspaceKey": "not-a-workspace" },
+      "expect": {
+        "status": 400,
+        "bodyHasKeys": ["error"]
+      }
+    },
+    {
+      "id": "m6-session-create-with-custom-workspace-root",
+      "title": "创建会话并绑定自定义目录",
+      "purpose": "验证 POST /api/context/sessions 接受 workspaceRoot，允许手动输入任意本机目录作为会话工作区。",
+      "method": "POST",
+      "path": "/api/context/sessions",
+      "input": { "title": "自定义目录会话", "workspaceRoot": "D:\\Learn\\AgentTest\\agent-relay" },
+      "expect": {
+        "status": 200,
+        "bodyHasKeys": ["session"],
+        "bodyPaths": {
+          "session.id": "string",
+          "session.workspaceKey": "string"
+        }
+      }
+    },
+    {
+      "id": "m6-session-create-with-missing-workspace-root",
+      "title": "不存在的 workspaceRoot 返回 400",
+      "purpose": "边界用例：workspaceRoot 必须是存在的目录，避免会话绑定到无效路径。",
+      "method": "POST",
+      "path": "/api/context/sessions",
+      "input": { "title": "坏路径", "workspaceRoot": "D:\\Path\\NotExist\\Never" },
+      "expect": {
+        "status": 400,
+        "bodyHasKeys": ["error"]
+      }
+    },
+    {
+      "id": "m6-memory-create",
       "title": "写入全局偏好记忆",
       "purpose": "验证 POST /api/context/memories 能持久化结构化记忆并同步 FTS/向量索引。",
       "method": "POST",

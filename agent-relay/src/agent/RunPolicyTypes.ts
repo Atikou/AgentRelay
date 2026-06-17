@@ -3,6 +3,7 @@ import type { AgentIntentType, AgentWorkflowType } from "./IntentTypes.js";
 import type { ToolPermission } from "../core/permissions.js";
 
 export type AgentRunMode = "chat" | "plan" | "implement" | "debug" | "review";
+export type AgentExecutionStage = "analyze" | "plan" | "execute" | "verify";
 
 export type AgentStopReason = "completed" | "budget_exhausted" | "error" | "user_cancelled";
 
@@ -212,6 +213,7 @@ export interface AgentWorkflowSwitch {
 
 export interface AgentExecutionMeta {
   mode: AgentRunMode;
+  executionStage?: AgentExecutionStage;
   modeSource?: "explicit" | "inferred";
   intent?: AgentIntentType;
   workflowType?: AgentWorkflowType;
@@ -255,6 +257,7 @@ export interface AgentExecutionMeta {
 
 export interface RunPolicy {
   mode: AgentRunMode;
+  executionStage: AgentExecutionStage;
   modeSource: "explicit" | "inferred";
   intent: AgentIntentType;
   workflowType: AgentWorkflowType;
@@ -270,6 +273,8 @@ export interface RunPolicy {
 
 export interface ResolveRunPolicyInput {
   requestedMode?: string;
+  forceMode?: boolean;
+  sessionId?: string;
   requestedPermissionPolicy?: string;
   autoConfirm?: boolean;
   budget?: Partial<RunBudget>;

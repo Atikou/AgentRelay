@@ -43,6 +43,8 @@ export interface SessionRecord {
   title: string;
   status: "active" | "archived";
   projectId?: string;
+  /** 绑定的工作区 catalog id（见 config.workspaces）。 */
+  workspaceKey?: string;
   lastMessageId?: string;
   activeTaskId?: string;
   createdAt: string;

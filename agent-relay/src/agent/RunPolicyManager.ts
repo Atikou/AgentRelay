@@ -1,10 +1,14 @@
 import { type ToolPermission } from "../core/permissions.js";
 import { BudgetManager } from "./BudgetManager.js";
 import { defaultIntentRouter } from "./IntentRouter.js";
+import { defaultWorkflowSessionStore } from "./WorkflowSessionSwitch.js";
 import { defaultWorkflowRouter } from "./WorkflowRouter.js";
+import { runModeForIntent } from "./intentPatterns.js";
+import type { AgentIntentType } from "./IntentTypes.js";
 import {
   parseRunModeValue,
   parseUserPermissionPolicyValue,
+  type AgentExecutionStage,
   type AgentRunMode,
   type ResolveRunPolicyInput,
   type RunBudget,
@@ -101,11 +105,13 @@ const MODE_SUGGESTED_BUDGETS: Record<AgentRunMode, RunBudget> = {
 /** 解析运行模式、分项预算与权限策略；与 `BudgetManager` 配对使用。 */
 export class RunPolicyManager {
   resolve(input: ResolveRunPolicyInput = {}): RunPolicy {
-    const route = defaultIntentRouter.route({
+    const inferredRoute = defaultIntentRouter.route({
       requestedMode: input.requestedMode,
+      forceRequestedMode: input.forceMode === true,
       message: input.message,
       taskType: input.taskType,
     });
+    const route = this.resolveSessionContinuationRoute(inferredRoute, input);
     const mode = route.mode;
     const budget = this.resolveBudget(mode, input.budget);
     const suggestedBudget = mergeBudgetMax(MODE_SUGGESTED_BUDGETS[mode], budget);
@@ -123,6 +129,7 @@ export class RunPolicyManager {
 
     return {
       mode,
+      executionStage: stageForIntent(route.intent),
       modeSource: route.modeSource,
       intent: route.intent,
       workflowType: route.workflowType,
@@ -163,6 +170,34 @@ export class RunPolicyManager {
 
   createBudgetManager(policy: RunPolicy): BudgetManager {
     return new BudgetManager(policy.budget, policy.suggestedBudget);
+  }
+
+  private resolveSessionContinuationRoute(
+    route: ReturnType<typeof defaultIntentRouter.route>,
+    input: ResolveRunPolicyInput,
+  ): ReturnType<typeof defaultIntentRouter.route> {
+    if (input.forceMode === true || route.modeSource === "explicit") return route;
+    const sessionId = input.sessionId?.trim();
+    if (!sessionId) return route;
+    if (!isShortContinuationMessage(input.message)) return route;
+    const previous = defaultWorkflowSessionStore.get(sessionId);
+    if (!previous || !isContinuationEligibleIntent(previous.intent)) return route;
+    if (route.intent !== "answer" && !(route.intent === "plan" && previous.intent === "plan")) return route;
+    const planContinuationIntent = resolvePlanContinuationIntent(previous.intent, input.message);
+    if (planContinuationIntent) {
+      return {
+        ...route,
+        mode: runModeForIntent(planContinuationIntent),
+        intent: planContinuationIntent,
+        workflowType: defaultWorkflowRouter.routeIntent(planContinuationIntent).workflowType,
+      };
+    }
+    return {
+      ...route,
+      mode: runModeForIntent(previous.intent),
+      intent: previous.intent,
+      workflowType: previous.workflowType,
+    };
   }
 }
 
@@ -243,4 +278,34 @@ function permissionsForPolicy(policy: UserPermissionPolicy): ToolPermission[] {
     case "autoRun":
       return ["read", "write", "shell", "network", "dangerous"];
   }
+}
+
+function isShortContinuationMessage(message?: string): boolean {
+  const text = (message ?? "").trim();
+  if (!text) return false;
+  if (text.length > 24) return false;
+  return /(继续|接着|按这个|按上面|就这样|开始|执行|改吧|修一下|再试|好的|ok|go|继续做)/i.test(text);
+}
+
+function isContinuationEligibleIntent(intent: AgentIntentType): boolean {
+  return intent === "edit" || intent === "debug" || intent === "run" || intent === "verify" || intent === "refactor" || intent === "plan";
+}
+
+function resolvePlanContinuationIntent(
+  previousIntent: AgentIntentType,
+  message?: string,
+): AgentIntentType | undefined {
+  if (previousIntent !== "plan") return undefined;
+  const text = (message ?? "").trim();
+  if (!text) return undefined;
+  if (/(继续|按计划|开始|执行|落实|动手|开工|go)/i.test(text) === false) return undefined;
+  if (/(测试|验证|run|test|typecheck|build|编译)/i.test(text)) return "verify";
+  return "edit";
+}
+
+function stageForIntent(intent: AgentIntentType): AgentExecutionStage {
+  if (intent === "plan") return "plan";
+  if (intent === "verify" || intent === "run" || intent === "debug") return "verify";
+  if (intent === "edit" || intent === "refactor" || intent === "generate_file") return "execute";
+  return "analyze";
 }

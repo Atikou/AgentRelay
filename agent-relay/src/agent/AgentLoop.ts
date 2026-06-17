@@ -214,6 +214,7 @@ export class AgentLoop {
       options.policy ??
       defaultRunPolicyManager.resolve({
         requestedMode: options.mode,
+        forceMode: options.mode != null,
         requestedPermissionPolicy: options.permissionPolicy ?? (options.autoConfirm ? "autoEdit" : undefined),
         autoConfirm: options.autoConfirm,
         budget: options.budget,
@@ -1247,6 +1248,7 @@ export class AgentLoop {
     });
     const base: AgentExecutionMeta = {
       mode: this.policy.mode,
+      executionStage: this.policy.executionStage,
       modeSource: this.policy.modeSource,
       intent: this.policy.intent,
       workflowType: this.policy.workflowType,

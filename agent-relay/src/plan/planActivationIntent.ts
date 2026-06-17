@@ -3,7 +3,7 @@ export function detectPlanActivationIntent(message: string): boolean {
   const text = message.trim();
   if (!text) return false;
   if (/^activatePlan\b/i.test(text)) return true;
-  return /(开始执行|执行计划|按计划执行|激活计划|启动计划|approve\s+and\s+execute|activate\s+plan)/i.test(
+  return /(执行计划|按计划执行|激活计划|启动计划|approve\s+and\s+execute|activate\s+plan)/i.test(
     text,
   );
 }

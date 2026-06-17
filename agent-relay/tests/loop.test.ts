@@ -334,7 +334,11 @@ test("RunPolicy 会为计划模式使用只读权限与更高默认预算", asyn
   assert.equal(policy.budget.maxWriteCalls, 0);
   assert.equal(policy.budget.maxShellCalls, 0);
   assert.deepEqual(policy.allowedPermissions, ["read"]);
-  const overridden = resolveRunPolicy({ requestedMode: "plan", budget: { maxModelTurns: 1, maxReadCalls: 2 } });
+  const overridden = resolveRunPolicy({
+    requestedMode: "plan",
+    forceMode: true,
+    budget: { maxModelTurns: 1, maxReadCalls: 2 },
+  });
   assert.equal(overridden.budget.maxModelTurns, 1);
   assert.equal(overridden.budget.maxReadCalls, 2);
   assert.equal(overridden.suggestedBudget.maxModelTurns, 16);
@@ -1043,6 +1047,7 @@ test("预算耗尽且定位不足时 executionMeta 返回 suggestedAction contin
     workspaceRoot: sandbox,
     policy: resolveRunPolicy({
       requestedMode: "plan",
+      forceMode: true,
       budget: { maxModelTurns: 1, maxToolCalls: 1, maxReadCalls: 0 },
       message: "分析",
     }),

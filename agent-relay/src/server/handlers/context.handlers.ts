@@ -1,14 +1,44 @@
+import { statSync } from "node:fs";
+import path from "node:path";
+
 import type { AppContext } from "../../app/createAppContext.js";
 import type { ApiResult } from "../../orchestrator/Orchestrator.js";
 import type { MemoryScope, MemoryType } from "../../context/index.js";
+import { encodeCustomWorkspaceRoot } from "../../config/workspaceCatalog.js";
 
 export function handleContextSessionsList(app: AppContext) {
   return { sessions: app.contextManager.listSessions() };
 }
 
 export function handleContextSessionCreate(app: AppContext, body: unknown): ApiResult {
-  const payload = (body ?? {}) as { title?: string; projectId?: string };
-  const session = app.contextManager.createSession(payload.title, payload.projectId);
+  const payload = (body ?? {}) as {
+    title?: string;
+    projectId?: string;
+    workspaceKey?: string;
+    workspaceRoot?: string;
+  };
+  let workspaceKey = payload.workspaceKey?.trim();
+  const workspaceRootRaw = payload.workspaceRoot?.trim();
+  if (workspaceRootRaw) {
+    const workspaceRoot = path.resolve(workspaceRootRaw);
+    try {
+      const stat = statSync(workspaceRoot);
+      if (!stat.isDirectory()) {
+        return { status: 400, body: { error: `workspaceRoot 不是目录：${workspaceRoot}` } };
+      }
+    } catch {
+      return { status: 400, body: { error: `workspaceRoot 不存在：${workspaceRoot}` } };
+    }
+    workspaceKey = encodeCustomWorkspaceRoot(workspaceRoot);
+  }
+  if (workspaceKey && !app.isValidWorkspaceKey(workspaceKey, true)) {
+    return { status: 400, body: { error: `无效的工作区：${workspaceKey}` } };
+  }
+  const session = app.contextManager.createSession(
+    payload.title,
+    payload.projectId,
+    workspaceKey || undefined,
+  );
   return { status: 200, body: { session } };
 }
 

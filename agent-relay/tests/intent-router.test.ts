@@ -11,9 +11,21 @@ function test(name: string, fn: () => void) {
   tests.push({ name, fn });
 }
 
-test("route 显式 mode 优先于文案推断", () => {
+test("route 默认按文案推断，忽略未强制的 requestedMode", () => {
   const route = defaultIntentRouter.route({
     requestedMode: "chat",
+    message: "请进入计划模式，只读分析当前项目",
+  });
+  assert.equal(route.mode, "plan");
+  assert.equal(route.modeSource, "inferred");
+  assert.equal(route.intent, "plan");
+  assert.equal(route.workflowType, "planWorkflow");
+});
+
+test("route 在 forceRequestedMode=true 时强制指定模式", () => {
+  const route = defaultIntentRouter.route({
+    requestedMode: "chat",
+    forceRequestedMode: true,
     message: "请进入计划模式，只读分析当前项目",
   });
   assert.equal(route.mode, "chat");

@@ -4,7 +4,7 @@ import { ensureRoutingTables } from "../model-router/route-stores.js";
 import { ensureEvalTables } from "../model-router/eval-set-store.js";
 import { addColumnIfMissing, hashRowId, type SqliteMigration } from "../storage/sqliteMigration.js";
 
-export const MEMORY_DB_SCHEMA_VERSION = 12;
+export const MEMORY_DB_SCHEMA_VERSION = 13;
 
 function ensureFts(
   db: DatabaseSync,
@@ -447,6 +447,13 @@ export const MEMORY_DB_MIGRATIONS: readonly SqliteMigration[] = [
         CREATE INDEX IF NOT EXISTS idx_plan_run_steps_run
           ON task_plan_run_steps(plan_run_id, created_at);
       `);
+    },
+  },
+  {
+    version: 13,
+    name: "sessions_workspace_key",
+    up(db) {
+      addColumnIfMissing(db, "sessions", "workspace_key", "workspace_key TEXT");
     },
   },
 ];

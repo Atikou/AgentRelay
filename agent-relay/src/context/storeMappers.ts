@@ -10,6 +10,7 @@ export function mapSession(row: Record<string, unknown>): SessionRecord {
     title: String(row.title),
     status: row.status === "archived" ? "archived" : "active",
     projectId: row.project_id ? String(row.project_id) : undefined,
+    workspaceKey: row.workspace_key ? String(row.workspace_key) : undefined,
     lastMessageId: row.last_message_id ? String(row.last_message_id) : undefined,
     activeTaskId: row.active_task_id ? String(row.active_task_id) : undefined,
     createdAt: String(row.created_at),

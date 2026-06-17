@@ -24,6 +24,7 @@ const readStep = (n: number): AgentToolStep => ({
 test("findToolExhaustion 在 read 预算用尽时返回 maxReadCalls", () => {
   const policy = resolveRunPolicy({
     requestedMode: "plan",
+    forceMode: true,
     budget: { maxReadCalls: 2, maxToolCalls: 10 },
     message: "x",
   });
@@ -36,7 +37,7 @@ test("findToolExhaustion 在 read 预算用尽时返回 maxReadCalls", () => {
 });
 
 test("findToolExhaustion 在 maxToolCalls 用尽时优先返回 maxToolCalls", () => {
-  const policy = resolveRunPolicy({ requestedMode: "chat", budget: { maxToolCalls: 2 }, message: "x" });
+  const policy = resolveRunPolicy({ requestedMode: "chat", forceMode: true, budget: { maxToolCalls: 2 }, message: "x" });
   const mgr = new BudgetManager(policy.budget, policy.suggestedBudget);
   const steps: AgentToolStep[] = [
     { iteration: 1, tool: "a", input: {}, ok: false },
@@ -51,6 +52,7 @@ test("findToolExhaustion 在 maxToolCalls 用尽时优先返回 maxToolCalls", (
 test("buildSuggestedBudget 将耗尽项翻倍但不低于建议值", () => {
   const policy = resolveRunPolicy({
     requestedMode: "plan",
+    forceMode: true,
     budget: { maxReadCalls: 3 },
     message: "x",
   });
@@ -63,6 +65,7 @@ test("buildSuggestedBudget 将耗尽项翻倍但不低于建议值", () => {
 test("remainingWorkflowSteps 扣除已用 tool/read 配额", () => {
   const policy = resolveRunPolicy({
     requestedMode: "plan",
+    forceMode: true,
     budget: { maxToolCalls: 5, maxReadCalls: 2 },
     message: "x",
   });

@@ -74,7 +74,7 @@ test("buildRunStateFromAgentRun 写入 location 与 ProjectIndex 统计", () => 
     ],
     executionMeta: {
       mode: "plan",
-      budget: resolveRunPolicy({ requestedMode: "plan", message: "x" }).budget,
+      budget: resolveRunPolicy({ requestedMode: "plan", forceMode: true, message: "x" }).budget,
       usage: {
         modelTurns: 1,
         toolCalls: 2,

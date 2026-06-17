@@ -55,6 +55,13 @@ const TASK_STATE_LABELS = {
   cancelled: "已取消",
 };
 
+const EXECUTION_STAGE_LABELS = {
+  analyze: "分析阶段",
+  plan: "规划阶段",
+  execute: "执行阶段",
+  verify: "验证阶段",
+};
+
 const INTENT_STATUS_LABELS = {
   answer: "问答",
   plan: "计划",
@@ -220,11 +227,13 @@ async function loadHistorySessions() {
         const updated = s.updatedAt ?? s.updated_at;
         const active = s.id === activeSessionId ? " active" : "";
         const title = s.title || "未命名会话";
+        const wsKey = s.workspaceKey ?? s.workspace_key;
+        const wsHint = wsKey ? ` · ${escapeHtml(workspaceLabel(wsKey))}` : "";
         return `
           <div class="sidebar-session-row${active}">
             <button class="sidebar-session" data-action="resume-session" data-session-id="${escapeHtml(s.id)}">
               <span>${escapeHtml(title)}</span>
-              <small>${escapeHtml(formatDateTime(updated))} · ${escapeHtml(s.id.slice(0, 8))}</small>
+              <small>${escapeHtml(formatDateTime(updated))}${wsHint} · ${escapeHtml(s.id.slice(0, 8))}</small>
             </button>
             <button type="button" class="sidebar-session-more" data-action="session-menu-toggle" data-session-id="${escapeHtml(s.id)}" data-session-title="${escapeHtml(title)}" aria-label="会话菜单" title="更多">⋯</button>
           </div>`;
@@ -1135,6 +1144,127 @@ async function loadConfig() {
     statusText.textContent = "连接后端失败";
     addSystemError(String(err.message || err));
     return null;
+  }
+}
+
+function workspaceLabel(workspaceKey) {
+  const key = workspaceKey?.trim();
+  if (!key) {
+    const def = appConfig?.workspaces?.find((w) => w.id === appConfig?.defaultWorkspaceKey);
+    return def?.label ?? "默认工作区";
+  }
+  const hit = appConfig?.workspaces?.find((w) => w.id === key);
+  if (hit?.label) return hit.label;
+  if (key.startsWith("custom:")) {
+    const custom = decodeCustomWorkspaceKey(key);
+    return custom ? `自定义：${custom}` : "自定义工作区";
+  }
+  return key;
+}
+
+function decodeCustomWorkspaceKey(workspaceKey) {
+  const key = workspaceKey?.trim();
+  if (!key?.startsWith("custom:")) return undefined;
+  const encoded = key.slice("custom:".length);
+  if (!encoded) return undefined;
+  try {
+    const base64 = encoded.replace(/-/g, "+").replace(/_/g, "/");
+    const padded = base64 + "=".repeat((4 - (base64.length % 4)) % 4);
+    return decodeURIComponent(escape(atob(padded)));
+  } catch {
+    return undefined;
+  }
+}
+
+function pickWorkspaceSelection(workspaces) {
+  if (!workspaces?.length) return { workspaceKey: undefined };
+  return new Promise((resolve) => {
+    const overlay = document.createElement("div");
+    overlay.className = "workspace-modal-overlay";
+    overlay.innerHTML = `
+      <div class="workspace-modal" role="dialog" aria-modal="true" aria-labelledby="workspace-modal-title">
+        <div class="workspace-modal-title" id="workspace-modal-title">选择工作区</div>
+        <p class="workspace-modal-hint">新会话将在所选目录下执行工具与索引；创建后不可更改。你也可以输入任意本机目录。</p>
+        <div class="workspace-modal-list"></div>
+        <div class="workspace-custom-row">
+          <input class="workspace-custom-input" type="text" placeholder="例如：D:\\Projects\\MyRepo 或 ../my-folder" />
+          <button type="button" class="session-menu-btn primary" data-workspace-action="custom-confirm">使用该路径</button>
+        </div>
+        <div class="workspace-modal-actions">
+          <button type="button" class="session-menu-btn" data-workspace-action="cancel">取消</button>
+        </div>
+      </div>`;
+    const list = overlay.querySelector(".workspace-modal-list");
+    for (const w of workspaces) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "workspace-option";
+      btn.dataset.workspaceId = w.id;
+      btn.innerHTML = `<strong>${escapeHtml(w.label)}</strong><small>${escapeHtml(w.root || w.id)}</small>`;
+      list.appendChild(btn);
+    }
+    const customInput = overlay.querySelector(".workspace-custom-input");
+    const close = (value) => {
+      overlay.remove();
+      document.removeEventListener("keydown", onKey);
+      resolve(value);
+    };
+    const onKey = (e) => {
+      if (e.key === "Escape") close(null);
+      if (e.key === "Enter" && document.activeElement === customInput) {
+        const value = customInput?.value?.trim();
+        if (value) close({ workspaceRoot: value });
+      }
+    };
+    overlay.addEventListener("click", (e) => {
+      const opt = e.target.closest(".workspace-option");
+      if (opt?.dataset.workspaceId) close({ workspaceKey: opt.dataset.workspaceId });
+      if (e.target.closest('[data-workspace-action="custom-confirm"]')) {
+        const value = customInput?.value?.trim();
+        if (!value) {
+          customInput?.focus();
+          return;
+        }
+        close({ workspaceRoot: value });
+      }
+      if (e.target.closest('[data-workspace-action="cancel"]') || e.target === overlay) close(null);
+    });
+    document.addEventListener("keydown", onKey);
+    document.body.appendChild(overlay);
+    list.querySelector(".workspace-option")?.focus();
+  });
+}
+
+async function createNewSession(opts = {}) {
+  if (!appConfig) await loadConfig();
+  const workspaces = appConfig?.workspaces ?? [];
+  const picked = await pickWorkspaceSelection(workspaces);
+  if (!picked) return null;
+  const title = opts.title ?? `会话 ${new Date().toLocaleString()}`;
+  const body = { title };
+  if (picked.workspaceRoot) {
+    body.workspaceRoot = picked.workspaceRoot;
+  } else {
+    const key = picked.workspaceKey ?? workspaces[0]?.id ?? appConfig?.defaultWorkspaceKey;
+    if (key) body.workspaceKey = key;
+  }
+  const data = await api("/api/context/sessions", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  return data.session;
+}
+
+async function startNewChatSession() {
+  try {
+    const session = await createNewSession();
+    if (!session) return;
+    setActiveSessionId(session.id);
+    await loadHistorySessions();
+    messageInput.focus();
+  } catch (err) {
+    addSystemError(String(err.message || err));
   }
 }
 
@@ -2470,7 +2600,10 @@ async function handleUnifiedAgentStream(message) {
     permissionPolicy: getSelectedPermissionPolicy(),
     streamTokens: streamTokensInput?.checked === true,
   };
-  if (explicitMode) payload.mode = explicitMode;
+  if (explicitMode) {
+    payload.mode = explicitMode;
+    payload.forceMode = true; // 测试台显式模式仅用于定向测试
+  }
 
   let doneResult = null;
   const streamAbort = new AbortController();
@@ -2539,7 +2672,10 @@ async function handleUnifiedAgent(message) {
       sensitive: sensitiveInput.checked,
       permissionPolicy: getSelectedPermissionPolicy(),
     };
-    if (explicitMode) payload.mode = explicitMode;
+    if (explicitMode) {
+      payload.mode = explicitMode;
+      payload.forceMode = true; // 测试台显式模式仅用于定向测试
+    }
     const data = await api("/api/agent", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -2805,6 +2941,7 @@ function renderWorkflowStatus(meta) {
       : "",
     meta.workflowTaskState ? `任务状态：${TASK_STATE_LABELS[meta.workflowTaskState] || meta.workflowTaskState}` : "",
     meta.intent ? `意图：${INTENT_STATUS_LABELS[meta.intent] || meta.intent}` : "",
+    meta.executionStage ? `阶段：${EXECUTION_STAGE_LABELS[meta.executionStage] || meta.executionStage}` : "",
     meta.permissionPolicy ? `权限：${meta.permissionPolicy}` : "",
     meta.mode ? `模式：${meta.mode}` : "",
     meta.modeSource ? `来源：${meta.modeSource === "explicit" ? "显式" : "自动"}` : "",
@@ -3371,10 +3508,8 @@ async function handleContext() {
   refreshBtn.addEventListener("click", loadSessions);
   createBtn.addEventListener("click", async () => {
     try {
-      await api("/api/context/sessions", {
-        method: "POST",
-        body: JSON.stringify({ title: `会话 ${new Date().toLocaleString()}` }),
-      });
+      const session = await createNewSession();
+      if (!session) return;
       await loadSessions();
     } catch (err) {
       addSystemError(String(err.message || err));
@@ -3596,7 +3731,7 @@ document.querySelector(".sidebar").addEventListener("click", async (e) => {
   if (!btn) return;
   const action = btn.dataset.action;
   if (action === "new-chat") {
-    setActiveSessionId(undefined);
+    await startNewChatSession();
     await renderHomeHistory();
   } else if (action === "view-config") {
     const cfg = await loadConfig();

@@ -18,6 +18,7 @@ export type IntentModeSource = "explicit" | "inferred";
 
 export interface IntentRouteInput {
   requestedMode?: string;
+  forceRequestedMode?: boolean;
   message?: string;
   taskType?: ModelTaskType;
 }
@@ -35,7 +36,7 @@ export interface IntentRouteResult {
  */
 export class IntentRouter {
   route(input: IntentRouteInput = {}): IntentRouteResult {
-    const explicit = parseRunModeValue(input.requestedMode);
+    const explicit = input.forceRequestedMode ? parseRunModeValue(input.requestedMode) : undefined;
     const intent = explicit ? intentForExplicitMode(explicit) : this.inferIntent(input);
     const mode = explicit ?? runModeForIntent(intent);
     const goal = input.message ?? "";

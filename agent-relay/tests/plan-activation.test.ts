@@ -50,8 +50,9 @@ function createPlanService(dataDir: string) {
   return { service, registry, ctx };
 }
 
-test("detectPlanActivationIntent 识别开始执行", () => {
-  assert.equal(detectPlanActivationIntent("请开始执行计划"), true);
+test("detectPlanActivationIntent 识别显式执行计划语义", () => {
+  assert.equal(detectPlanActivationIntent("请执行计划"), true);
+  assert.equal(detectPlanActivationIntent("请开始执行"), false);
   assert.equal(detectPlanActivationIntent("你好"), false);
 });
 

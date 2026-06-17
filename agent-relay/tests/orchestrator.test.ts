@@ -19,6 +19,7 @@ import { DryRunExecutor, TaskRunner } from "../src/agent/TaskRunner.js";
 import { PlanSchema } from "../src/agent/types.js";
 import { createDefaultRegistry } from "../src/tools/index.js";
 import { createTestPlanService } from "./planTestHelper.js";
+import { renderUserVisiblePlan } from "../src/plan/index.js";
 
 const tests: Array<{ name: string; fn: () => Promise<void> }> = [];
 function test(name: string, fn: () => Promise<void>) {
@@ -425,6 +426,79 @@ test("Orchestrator runAgent 推断计划模式并返回 executionMeta", async ()
   assert.equal(body.executionMeta.mode, "plan");
   assert.equal(body.executionMeta.budget.maxModelTurns, 16);
   assert.equal(body.executionMeta.budget.maxWriteCalls, 0);
+  registry.close();
+});
+
+test("Orchestrator runAgent mode=plan 不被计划激活意图劫持", async () => {
+  const registry = createDefaultRegistry({ dataDir });
+  const makeChat: LoopChatFn = async () => ({
+    content: '{"action":"final","answer":"只读计划分析"}',
+    toolCalls: [],
+    clientName: "fake",
+    modelName: "fake",
+    location: "local",
+    latencyMs: 1,
+  });
+  const { orchestrator, planService } = baseOrchestrator(registry, {
+    notificationQueue: { drain: () => [] } as never,
+    makeChatFn: () => makeChat,
+  });
+  const session = orchestrator.ensureSession(undefined, "plan-mode-guard");
+  planService.saveUserVisiblePlan(
+    renderUserVisiblePlan({
+      sourceRunId: "run-guard",
+      sessionId: session,
+      goal: "测试劫持",
+      markdown: `# 计划\n\n- [ ] P0 步骤：验收\n`,
+    }),
+  );
+  const result = await orchestrator.runAgent(
+    {
+      message: "请开始执行计划",
+      mode: "plan",
+      sessionId: session,
+      persist: true,
+    },
+    makeChat,
+  );
+  assert.equal(result.status, 200);
+  const body = result.body as {
+    executionMeta?: { mode: string };
+    phase?: string;
+    answer?: string;
+  };
+  assert.equal(body.executionMeta?.mode, "plan");
+  assert.equal(body.phase, undefined);
+  assert.equal(body.answer, "只读计划分析");
+  registry.close();
+});
+
+test("Orchestrator runAgent mode=plan 无 UVP 时不返回 UVP_NOT_FOUND", async () => {
+  const registry = createDefaultRegistry({ dataDir });
+  const makeChat: LoopChatFn = async () => ({
+    content: '{"action":"final","answer":"继续只读分析"}',
+    toolCalls: [],
+    clientName: "fake",
+    modelName: "fake",
+    location: "local",
+    latencyMs: 1,
+  });
+  const { orchestrator } = baseOrchestrator(registry, {
+    notificationQueue: { drain: () => [] } as never,
+    makeChatFn: () => makeChat,
+  });
+  const result = await orchestrator.runAgent(
+    {
+      message: "执行计划模式下的只读分析",
+      mode: "plan",
+      persist: false,
+    },
+    makeChat,
+  );
+  assert.equal(result.status, 200);
+  const body = result.body as { executionMeta?: { mode: string }; code?: string };
+  assert.equal(body.code, undefined);
+  assert.equal(body.executionMeta?.mode, "plan");
   registry.close();
 });
 

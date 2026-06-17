@@ -1,5 +1,9 @@
 {
   "workspaceRoot": "..",
+  "workspaces": [
+    { "id": "repo", "label": "仓库根目录", "root": ".." },
+    { "id": "agent-relay", "label": "agent-relay 包", "root": "." }
+  ],
   "models": {
     "default": "local-qwen35",
     "clients": [

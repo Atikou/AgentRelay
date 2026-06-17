@@ -7,15 +7,15 @@ import type { SessionRecord } from "./types.js";
 export class SessionStore {
   constructor(private readonly db: DatabaseManager) {}
 
-  create(title = "新会话", projectId?: string): SessionRecord {
+  create(title = "新会话", projectId?: string, workspaceKey?: string): SessionRecord {
     const id = randomUUID();
     const ts = nowIso();
     this.db.connection
       .prepare(
-        `INSERT INTO sessions(id, title, status, project_id, created_at, updated_at)
-         VALUES (?, ?, 'active', ?, ?, ?)`,
+        `INSERT INTO sessions(id, title, status, project_id, workspace_key, created_at, updated_at)
+         VALUES (?, ?, 'active', ?, ?, ?, ?)`,
       )
-      .run(id, title, projectId ?? null, ts, ts);
+      .run(id, title, projectId ?? null, workspaceKey ?? null, ts, ts);
     return this.get(id)!;
   }
 

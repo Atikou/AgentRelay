@@ -120,8 +120,18 @@ export const SecurityConfigSchema = z.object({
 });
 export type SecurityConfig = z.infer<typeof SecurityConfigSchema>;
 
+export const WorkspaceConfigSchema = z.object({
+  id: z.string().min(1),
+  label: z.string().min(1),
+  /** 相对 agent-relay 包根目录，或绝对路径。 */
+  root: z.string().min(1),
+});
+export type WorkspaceConfig = z.infer<typeof WorkspaceConfigSchema>;
+
 export const AppConfigSchema = z.object({
   workspaceRoot: z.string().min(1),
+  /** 可选多工作区；省略时仅使用 workspaceRoot 作为唯一「default」工作区。 */
+  workspaces: z.array(WorkspaceConfigSchema).optional(),
   models: z.object({
     default: z.string().min(1),
     clients: z.array(ModelClientConfigSchema).min(1),

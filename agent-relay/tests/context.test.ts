@@ -34,6 +34,19 @@ test("MessageStore 持久化与计数", async () => {
   mgr.close();
 });
 
+test("createSession 持久化 workspaceKey", () => {
+  const mgr = new ContextManager({
+    dataDir: path.join(tmpDir, "workspace-key"),
+    useLanceDb: false,
+    vectorStore: new InMemoryVectorStore(),
+    messageThreshold: 100,
+  });
+  const session = mgr.createSession("工作区会话", undefined, "agent-relay");
+  const loaded = mgr.getSession(session.id);
+  assert.equal(loaded?.workspaceKey, "agent-relay");
+  mgr.close();
+});
+
 test("超过阈值触发 chunk_summary 压缩", async () => {
   const mgr = new ContextManager({
     dataDir: path.join(tmpDir, "compress"),

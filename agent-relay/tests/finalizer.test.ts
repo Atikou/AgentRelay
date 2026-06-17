@@ -42,7 +42,7 @@ test("estimateTaskComplexity 重构类任务为 high", () => {
 });
 
 test("resolveSuggestedToolCalls 在 maxToolCalls 耗尽时至少翻倍", () => {
-  const policy = resolveRunPolicy({ requestedMode: "chat", budget: { maxToolCalls: 3 }, message: "x" });
+  const policy = resolveRunPolicy({ requestedMode: "chat", forceMode: true, budget: { maxToolCalls: 3 }, message: "x" });
   const resolved = resolveSuggestedToolCalls({
     goal: "一直列目录",
     mode: "chat",
@@ -57,6 +57,7 @@ test("resolveSuggestedToolCalls 在 maxToolCalls 耗尽时至少翻倍", () => {
 test("Finalizer.buildPartialAnswer 含建议工具次数与待继续步骤", () => {
   const policy = resolveRunPolicy({
     requestedMode: "plan",
+    forceMode: true,
     budget: { maxReadCalls: 2, maxToolCalls: 10 },
     message: "只读分析当前项目结构",
   });
@@ -77,6 +78,7 @@ test("Finalizer.buildPartialAnswer 含建议工具次数与待继续步骤", () 
 test("Finalizer.buildBudgetExhaustedMeta 返回 completedSteps 与 suggestedToolCalls", () => {
   const policy = resolveRunPolicy({
     requestedMode: "plan",
+    forceMode: true,
     budget: { maxModelTurns: 3 },
     message: "只读分析",
   });
