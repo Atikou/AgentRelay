@@ -34,3 +34,34 @@ export async function runSingleShotReview(
   );
   return response.content.trim() || "（模型未返回内容）";
 }
+
+/** 纯文本只读子任务：单次模型调用，跳过 AgentLoop / 工作流预扫描。 */
+export async function runLightweightTextTask(
+  task: DelegatedTask,
+  userContent: string,
+  chat: LoopChatFn,
+  extras?: { sensitive?: boolean },
+): Promise<string> {
+  const budget = limitsToRunBudget(task.limits ?? {}, false);
+  const response = await chat(
+    {
+      messages: [
+        {
+          role: "system",
+          content: [
+            buildDelegatedTaskSystemPrompt(task, budget),
+            "这是轻量只读子任务：直接给出结论，不要调用工具，不要输出 ReAct JSON。",
+            "用中文简洁回答；若 outputContract 要求 JSON，可输出单层 JSON 对象，但不要包在字符串里。",
+          ].join("\n"),
+        },
+        {
+          role: "user",
+          content: userContent,
+        },
+      ],
+      temperature: 0.2,
+    },
+    { sensitive: extras?.sensitive },
+  );
+  return response.content.trim() || "（模型未返回内容）";
+}

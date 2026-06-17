@@ -142,6 +142,39 @@
         "status": 200,
         "bodyContains": ["formatDateTime(n.timestamp)", "formatDateTime(t.at)", "formatDateTime(t.lastFiredAt)"]
       }
+    },
+    {
+      "id": "m1-auto-ui-history-markdown-final",
+      "title": "历史会话渲染最终回答 Markdown",
+      "purpose": "确认浏览历史会话时从 final action 提取 answer 并用 marked 渲染，而非逐条展示原始 JSON。",
+      "method": "GET",
+      "path": "/app.js",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyContains": [
+          "renderHistoryMessages",
+          "extractFinalAnswerFromReplies",
+          "renderMarkdownInto",
+          "history-answer-bubble"
+        ]
+      }
+    },
+    {
+      "id": "m1-auto-ui-history-thinking-toggle",
+      "title": "历史会话思考过程可折叠",
+      "purpose": "确认每条助手回复提供「查看思考过程」按钮，再次点击可隐藏中间 JSON/工具步骤。",
+      "method": "GET",
+      "path": "/styles.css",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyContains": [
+          ".history-thinking-toggle",
+          ".history-thinking-panel",
+          ".history-thinking-entry-body"
+        ]
+      }
     }
   ]
 }

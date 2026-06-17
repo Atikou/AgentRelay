@@ -1,6 +1,10 @@
 import { z } from "zod";
 
 import type { SubAgentCoordinator } from "../subagent/SubAgentCoordinator.js";
+import {
+  normalizeDispatchSubagentInput,
+  resolveSubagentTimeoutMs,
+} from "../subagent/dispatchInputNormalize.js";
 import { normalizeDelegatedTask, DEFAULT_READONLY_TOOL_POLICY } from "../subagent/delegatedTask.js";
 import type { DelegatedTask, SubAgentStructuredResult } from "../subagent/delegatedTask.js";
 import type { ModelSelection } from "../subagent/types.js";
@@ -118,10 +122,11 @@ export const dispatchSubagentTool: Tool<typeof inputSchema, DispatchSubagentOutp
     const parentTaskId = context.taskId;
     const sensitive = context.sensitive;
     const childDepth = depth + 1;
+    const timeoutMs = resolveSubagentTimeoutMs(input.timeoutMs);
     const runOpts = {
       tasks,
       parentTaskId,
-      timeoutMs: input.timeoutMs,
+      timeoutMs,
       sensitive,
       grantedPermissions: input.grantedPermissions,
       dispatchDepth: childDepth,
@@ -133,7 +138,7 @@ export const dispatchSubagentTool: Tool<typeof inputSchema, DispatchSubagentOutp
     if (tasks.length === 1) {
       const result = await coordinator.runDelegated(tasks[0]!, {
         parentTaskId,
-        timeoutMs: input.timeoutMs,
+        timeoutMs,
         sensitive,
         grantedPermissions: input.grantedPermissions,
         dispatchDepth: childDepth,
@@ -185,18 +190,7 @@ export const dispatchSubagentTool: Tool<typeof inputSchema, DispatchSubagentOutp
   },
 };
 
-export function normalizeDispatchSubagentInput(rawInput: unknown): unknown {
-  if (!isRecord(rawInput)) return rawInput;
-  const out: Record<string, unknown> = { ...rawInput };
-
-  if (Array.isArray(out.tasks)) {
-    out.tasks = out.tasks.map((t) => (isRecord(t) ? t : { goal: String(t) }));
-  }
-
-  if (out.writeFilePickStrategy === null) delete out.writeFilePickStrategy;
-
-  return out;
-}
+export { normalizeDispatchSubagentInput } from "../subagent/dispatchInputNormalize.js";
 
 function normalizeDelegatedTaskFromInput(partial: z.infer<typeof delegatedTaskSchema>): DelegatedTask {
   return normalizeDelegatedTask({
@@ -266,7 +260,3 @@ function formatSingleSummary(result: {
 }
 
 export type { SubAgentCoordinator };
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
-}

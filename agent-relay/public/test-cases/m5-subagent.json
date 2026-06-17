@@ -372,6 +372,34 @@
         "status": 200,
         "bodyContains": ["3 个", "dispatch_subagent", "final"]
       }
+    },
+    {
+      "id": "m5-dispatch-normalize-invalid-modelpolicy",
+      "title": "dispatch 入参归一化修复 modelPolicy 字符串",
+      "purpose": "确认主 Agent 误传 modelPolicy 为字符串时，normalize 可修复为对象并通过工具校验（不 invalid_input）。",
+      "method": "POST",
+      "path": "/api/agent",
+      "input": {
+        "message": "仅测试：请调用 dispatch_subagent，tasks 一项 goal 为 hello，modelPolicy 传字符串 default，不要写文件",
+        "mode": "chat"
+      },
+      "expect": {
+        "status": 200,
+        "bodyHasKeys": ["answer", "runId"]
+      },
+      "notes": "行为依赖模型是否调用工具；主要回归在 tests/dispatch-subagent-tool.test.ts"
+    },
+    {
+      "id": "m5-subagent-min-timeout-doc",
+      "title": "子 Agent 文档记录 timeout 下限",
+      "purpose": "确认子 Agent 文档说明 dispatch_subagent 的 timeoutMs 有最低保护，避免 30 秒批量并行超时。",
+      "method": "GET",
+      "path": "/api/docs/content?slug=子Agent",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyContains": ["timeoutMs", "120", "maxBatchConcurrency"]
+      }
     }
   ]
 }

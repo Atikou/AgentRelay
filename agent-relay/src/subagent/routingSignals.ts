@@ -87,7 +87,7 @@ export function analyzeTaskRoutingSignals(
   };
 }
 
-function countFileReferences(text: string): number {
+export function countFileReferences(text: string): number {
   const paths = text.match(
     /[\w./-]+\.(ts|tsx|js|jsx|mjs|cjs|py|go|rs|java|json|md|yaml|yml|toml|sql|sh|vue|svelte)\b/gi,
   );

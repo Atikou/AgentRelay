@@ -18,6 +18,10 @@ const ACTIVE_SESSION_KEY = "agentrelay.activeSessionId";
 const PERMISSION_POLICY_KEY = "agentrelay.permissionPolicy";
 let activeSessionId = localStorage.getItem(ACTIVE_SESSION_KEY) || undefined;
 
+if (typeof marked !== "undefined") {
+  marked.setOptions({ gfm: true, breaks: true });
+}
+
 const PERMISSION_POLICY_LABELS = {
   readOnly: "只读",
   confirmBeforeEdit: "修改前确认",
@@ -268,13 +272,195 @@ function renderStoredMessage(message) {
   wrap.className = `msg ${messageClass(message.role)} history-message`;
   const bubble = document.createElement("div");
   bubble.className = "bubble";
-  bubble.textContent = message.content || "";
+  if (message.role === "assistant") {
+    bubble.classList.add("structured-bubble", "history-answer-bubble");
+    renderMarkdownInto(bubble, message.content || "");
+  } else {
+    bubble.textContent = message.content || "";
+  }
   wrap.appendChild(bubble);
   const meta = document.createElement("div");
   meta.className = "msg-meta";
   meta.textContent = `${roleLabel(message.role)} · ${formatDateTime(message.createdAt ?? message.created_at)}`;
   wrap.appendChild(meta);
   return wrap;
+}
+
+function parseAgentActionJson(content) {
+  if (!content || typeof content !== "string") return null;
+  const trimmed = content.trim();
+  if (!trimmed.startsWith("{")) return null;
+  try {
+    const parsed = JSON.parse(trimmed);
+    if (parsed && typeof parsed === "object" && typeof parsed.action === "string") {
+      return parsed;
+    }
+  } catch {
+    /* ignore */
+  }
+  return null;
+}
+
+function stringifyAgentAnswer(answer) {
+  if (typeof answer === "string") return answer;
+  if (answer == null) return "";
+  return JSON.stringify(answer, null, 2);
+}
+
+function extractFinalAnswerFromReplies(replies) {
+  for (let i = replies.length - 1; i >= 0; i -= 1) {
+    const message = replies[i];
+    if (message.role !== "assistant") continue;
+    const action = parseAgentActionJson(message.content);
+    if (action?.action === "final") {
+      return stringifyAgentAnswer(action.answer);
+    }
+  }
+  const lastAssistant = [...replies].reverse().find((m) => m.role === "assistant");
+  if (lastAssistant?.content && !parseAgentActionJson(lastAssistant.content)) {
+    return lastAssistant.content;
+  }
+  return "";
+}
+
+function turnHasThinkingTrail(replies) {
+  if (!replies?.length) return false;
+  let assistantCount = 0;
+  for (const message of replies) {
+    if (message.role === "tool") return true;
+    if (message.role !== "assistant") continue;
+    assistantCount += 1;
+    const action = parseAgentActionJson(message.content);
+    if (!action || action.action !== "final") return true;
+  }
+  return assistantCount > 1;
+}
+
+function formatHistoryThinkingEntry(message) {
+  if (message.role === "assistant") {
+    const action = parseAgentActionJson(message.content);
+    if (action?.action === "tool") {
+      return `【工具调用】${action.tool}\n${JSON.stringify(action.input ?? {}, null, 2)}`;
+    }
+    if (action) {
+      return JSON.stringify(action, null, 2);
+    }
+    return message.content || "";
+  }
+  if (message.role === "tool") {
+    const text = message.content || "";
+    return text.length > 4000 ? `${text.slice(0, 4000)}…` : text;
+  }
+  return message.content || "";
+}
+
+function renderMarkdownInto(el, text) {
+  if (typeof marked !== "undefined") {
+    el.classList.add("markdown-body");
+    el.innerHTML = marked.parse(text || "");
+    return;
+  }
+  el.textContent = text || "";
+}
+
+function groupMessagesIntoTurns(messages) {
+  const turns = [];
+  let current = null;
+  for (const message of messages) {
+    if (message.role === "user") {
+      if (current) turns.push(current);
+      current = { user: message, replies: [] };
+      continue;
+    }
+    if (message.role === "system") {
+      turns.push({ user: null, replies: [message], systemOnly: true });
+      continue;
+    }
+    if (current) {
+      current.replies.push(message);
+    } else {
+      turns.push({ user: null, replies: [message] });
+    }
+  }
+  if (current) turns.push(current);
+  return turns;
+}
+
+function renderHistoryTurn(turn) {
+  const frag = document.createDocumentFragment();
+  if (turn.user) {
+    frag.appendChild(renderStoredMessage(turn.user));
+  }
+  if (turn.systemOnly) {
+    for (const message of turn.replies) {
+      frag.appendChild(renderStoredMessage(message));
+    }
+    return frag;
+  }
+
+  const replies = turn.replies || [];
+  if (replies.length === 0) return frag;
+
+  const wrap = document.createElement("div");
+  wrap.className = "msg assistant history-message history-assistant-turn";
+
+  const bubble = document.createElement("div");
+  bubble.className = "bubble structured-bubble history-answer-bubble";
+  const finalAnswer = extractFinalAnswerFromReplies(replies);
+  renderMarkdownInto(bubble, finalAnswer || "（无最终回答）");
+  wrap.appendChild(bubble);
+
+  if (turnHasThinkingTrail(replies)) {
+    const toggle = document.createElement("button");
+    toggle.type = "button";
+    toggle.className = "history-thinking-toggle";
+    toggle.textContent = "查看思考过程";
+    toggle.setAttribute("aria-expanded", "false");
+
+    const panel = document.createElement("div");
+    panel.className = "history-thinking-panel";
+    panel.hidden = true;
+
+    for (const message of replies) {
+      const entry = document.createElement("div");
+      entry.className = "history-thinking-entry";
+      const head = document.createElement("div");
+      head.className = "history-thinking-entry-head";
+      head.textContent = `${roleLabel(message.role)} · ${formatDateTime(message.createdAt ?? message.created_at)}`;
+      const body = document.createElement("pre");
+      body.className = "history-thinking-entry-body";
+      body.textContent = formatHistoryThinkingEntry(message);
+      entry.appendChild(head);
+      entry.appendChild(body);
+      panel.appendChild(entry);
+    }
+
+    toggle.addEventListener("click", () => {
+      const opening = panel.hidden;
+      panel.hidden = !opening;
+      toggle.textContent = opening ? "隐藏思考过程" : "查看思考过程";
+      toggle.setAttribute("aria-expanded", opening ? "true" : "false");
+    });
+
+    wrap.appendChild(toggle);
+    wrap.appendChild(panel);
+  }
+
+  const lastReply = replies[replies.length - 1];
+  const meta = document.createElement("div");
+  meta.className = "msg-meta";
+  meta.textContent = `助手 · ${formatDateTime(lastReply?.createdAt ?? lastReply?.created_at)}`;
+  wrap.appendChild(meta);
+  frag.appendChild(wrap);
+  return frag;
+}
+
+function renderHistoryMessages(messages) {
+  const frag = document.createDocumentFragment();
+  for (const turn of groupMessagesIntoTurns(messages)) {
+    frag.appendChild(renderHistoryTurn(turn));
+  }
+  return frag;
 }
 
 let activeSessionMenu = null;
@@ -460,38 +646,18 @@ function bindSessionMenuDismiss() {
 }
 
 async function renderSessionConversation(sessionId) {
-  feed.innerHTML = `
-    <div class="conversation-head">
-      <div>
-        <p class="eyebrow">历史会话</p>
-        <h1>读取会话中…</h1>
-      </div>
-    </div>`;
+  feed.innerHTML = `<div class="history-empty">读取会话中…</div>`;
   try {
     const data = await api(`/api/context/sessions/${encodeURIComponent(sessionId)}`);
-    const session = data.session || {};
     const messages = data.messages || [];
-    feed.innerHTML = `
-      <div class="conversation-head">
-        <div>
-          <p class="eyebrow">历史会话</p>
-          <h1>${escapeHtml(session.title || "未命名会话")}</h1>
-          <div class="conversation-meta">
-            <span>${escapeHtml(session.status || "active")}</span>
-            <span>更新 ${escapeHtml(formatDateTime(session.updatedAt ?? session.updated_at))}</span>
-            <code>${escapeHtml(session.id || sessionId)}</code>
-          </div>
-        </div>
-      </div>`;
+    feed.innerHTML = "";
     if (messages.length === 0) {
       const empty = document.createElement("div");
       empty.className = "history-empty";
       empty.textContent = "这个会话还没有历史消息。";
       feed.appendChild(empty);
     } else {
-      for (const message of messages) {
-        feed.appendChild(renderStoredMessage(message));
-      }
+      feed.appendChild(renderHistoryMessages(messages));
       const anchor = document.createElement("div");
       anchor.className = "conversation-scroll-anchor";
       feed.appendChild(anchor);

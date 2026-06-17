@@ -218,6 +218,7 @@ export class AppContext {
       workspaceRoot: this.workspaceRoot,
       trace: this.trace,
       projectAllowedPermissions: this.projectAllowedPermissions,
+      maxBatchConcurrency: this.config.security?.subagent?.maxBatchConcurrency ?? 2,
     });
   }
 
@@ -408,6 +409,7 @@ export function createAppContext(): AppContext {
   const networkPolicy = createNetworkPolicy(config.security?.network);
   const projectAllowedPermissions = resolveProjectAllowedPermissions(config.security?.permissions);
   const maxSubAgentDispatchDepth = config.security?.subagent?.maxDispatchDepth ?? 1;
+  const maxSubAgentBatchConcurrency = config.security?.subagent?.maxBatchConcurrency ?? 2;
 
   const clientMap = new Map<string, ModelClient>();
   const pricing = new Map<string, ClientPricing>();
@@ -554,6 +556,7 @@ export function createAppContext(): AppContext {
     projectAllowedPermissions,
     notificationQueue,
     maxSubAgentDispatchDepth,
+    maxBatchConcurrency: maxSubAgentBatchConcurrency,
     runRegistry: subAgentRunRegistry,
   });
 
@@ -609,6 +612,7 @@ export function createAppContext(): AppContext {
             projectAllowedPermissions,
             notificationQueue,
             maxSubAgentDispatchDepth,
+            maxBatchConcurrency: maxSubAgentBatchConcurrency,
             runRegistry: subAgentRunRegistry,
           })
         : subAgentCoordinator,

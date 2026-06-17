@@ -9,8 +9,10 @@ import type { TraceLogger } from "../trace/TraceLogger.js";
 import type { NotificationQueue } from "../background/NotificationQueue.js";
 import { toModelSelection } from "./modelSelection.js";
 import { enqueueSubAgentCompletionNotification } from "./notifyCompletion.js";
-import { runSingleShotReview } from "./singleShot.js";
+import { runLightweightTextTask, runSingleShotReview } from "./singleShot.js";
 import { hasSuccessfulPreload, preloadReferencedFiles } from "./taskContext.js";
+import { resolveSubagentTimeoutMs } from "./dispatchInputNormalize.js";
+import { isLightweightReadonlySubagentTask } from "./lightweightTask.js";
 import type { DelegatedTask } from "./delegatedTask.js";
 import { limitsToRunBudget, normalizeDelegatedTask } from "./delegatedTask.js";
 import { defaultContextRouter } from "./ContextRouter.js";
@@ -28,8 +30,6 @@ import type {
 import { detectWriteConflicts } from "./writeConflictMerge.js";
 import { isSubAgentCancelledError, type SubAgentRunRegistry } from "./SubAgentRunRegistry.js";
 
-const DEFAULT_TIMEOUT_MS = 120_000;
-
 export interface SubAgentRunnerDeps {
   chat: LoopChatFn;
   createChatForDelegatedTask?: (
@@ -43,6 +43,7 @@ export interface SubAgentRunnerDeps {
   notificationQueue?: NotificationQueue;
   maxSubAgentDispatchDepth?: number;
   runRegistry?: SubAgentRunRegistry;
+  maxBatchConcurrency?: number;
 }
 
 export class SubAgentRunner {
@@ -58,7 +59,7 @@ export class SubAgentRunner {
       this.deps.projectAllowedPermissions,
     );
     const budget = limitsToRunBudget(task.limits ?? {}, toolPolicy.writeAllowed);
-    const timeoutMs = options.timeoutMs ?? task.limits?.maxRuntimeMs ?? DEFAULT_TIMEOUT_MS;
+    const timeoutMs = resolveSubagentTimeoutMs(options.timeoutMs ?? task.limits?.maxRuntimeMs);
     const parentTaskId = options.parentTaskId;
     const start = performance.now();
 
@@ -146,6 +147,62 @@ export class SubAgentRunner {
       } catch (err) {
         if (isSubAgentCancelledError(err)) {
           return this.finishCancelled(id, task.goal, granted, parentTaskId, start, err);
+        }
+      }
+    }
+
+    if (isLightweightReadonlySubagentTask(task)) {
+      try {
+        const answer = await raceTimeout(
+          runLightweightTextTask(task, packaged.userContent, chat, { sensitive }),
+          timeoutMs,
+          signal,
+        );
+        return this.finishRun({
+          id,
+          taskId: id,
+          goal: task.goal,
+          parentTaskId,
+          status: "completed",
+          answer,
+          steps: [],
+          iterations: 1,
+          durationMs: Math.round(performance.now() - start),
+          grantedPermissions: granted,
+          routingMeta: chatCapture.routingMeta,
+          executionRoute: executionRoute ? { mode: executionRoute.mode, reason: executionRoute.reason } : undefined,
+        });
+      } catch (err) {
+        if (isSubAgentCancelledError(err)) {
+          return this.finishCancelled(id, task.goal, granted, parentTaskId, start, err);
+        }
+        const msg = String(err);
+        if (msg.includes("超时")) {
+          const durationMs = Math.round(performance.now() - start);
+          this.deps.trace?.write({
+            type: "subagent_end",
+            subAgentId: id,
+            goal: task.goal,
+            parentTaskId,
+            status: "timeout",
+            durationMs,
+            iterations: 0,
+          });
+          return this.finishRun({
+            id,
+            taskId: id,
+            goal: task.goal,
+            parentTaskId,
+            status: "timeout",
+            answer: "（子 Agent 执行超时）",
+            steps: [],
+            iterations: 0,
+            durationMs,
+            grantedPermissions: granted,
+            error: msg,
+            routingMeta: chatCapture.routingMeta,
+            executionRoute: executionRoute ? { mode: executionRoute.mode, reason: executionRoute.reason } : undefined,
+          });
         }
       }
     }

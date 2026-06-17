@@ -509,17 +509,19 @@ body {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  max-width: 85%;
+  width: 100%;
+  max-width: min(880px, 100%);
+  align-self: center;
 }
 .msg.user {
-  align-self: flex-end;
   align-items: flex-end;
 }
-.msg.assistant,
+.msg.assistant {
+  align-items: flex-start;
+}
 .msg.system {
-  align-self: flex-start;
-  max-width: 100%;
-  width: 100%;
+  align-items: stretch;
+  max-width: min(960px, 100%);
 }
 .bubble {
   font-size: 15px;
@@ -535,11 +537,16 @@ body {
   background: var(--user-bubble);
   padding: 10px 16px;
   border-radius: 20px;
+  width: fit-content;
+  max-width: 100%;
 }
-/* 助手：无气泡，纯文本 */
+/* 助手：无气泡，纯文本；与用户消息共用同一列宽，左右留白对称 */
 .msg.assistant .bubble {
   background: transparent;
   padding: 2px 0;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
 }
 .msg.system .bubble {
   background: var(--surface-2);
@@ -1829,6 +1836,120 @@ textarea#message-input::placeholder {
   color: var(--text-soft);
   font-size: 13px;
   line-height: 1.5;
+}
+
+/* 历史会话：最终回答 Markdown + 思考过程折叠 */
+.history-assistant-turn .history-answer-bubble {
+  white-space: normal;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+.history-thinking-toggle {
+  align-self: flex-start;
+}
+
+.history-assistant-turn .markdown-body {
+  font-size: 14px;
+  line-height: 1.65;
+  color: var(--text);
+}
+
+.history-assistant-turn .markdown-body p {
+  margin: 0 0 0.75em;
+}
+
+.history-assistant-turn .markdown-body p:last-child {
+  margin-bottom: 0;
+}
+
+.history-assistant-turn .markdown-body ul,
+.history-assistant-turn .markdown-body ol {
+  margin: 0.4em 0 0.75em 1.2em;
+  padding: 0;
+}
+
+.history-assistant-turn .markdown-body li {
+  margin: 0.25em 0;
+}
+
+.history-assistant-turn .markdown-body strong {
+  font-weight: 650;
+  color: var(--text);
+}
+
+.history-assistant-turn .markdown-body code {
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 0.92em;
+  padding: 0.1em 0.35em;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--border) 40%, transparent);
+}
+
+.history-assistant-turn .markdown-body pre {
+  margin: 0.6em 0;
+  padding: 10px 12px;
+  border-radius: 8px;
+  overflow: auto;
+  background: color-mix(in srgb, var(--border) 35%, var(--surface));
+  border: 1px solid var(--border);
+}
+
+.history-assistant-turn .markdown-body pre code {
+  padding: 0;
+  background: none;
+}
+
+.history-thinking-toggle {
+  display: inline-flex;
+  align-items: center;
+  margin-top: 8px;
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--text-soft);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.history-thinking-toggle:hover {
+  color: var(--text);
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+}
+
+.history-thinking-panel {
+  margin-top: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--surface) 92%, var(--border));
+  max-height: 420px;
+  overflow: auto;
+}
+
+.history-thinking-entry + .history-thinking-entry {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed color-mix(in srgb, var(--border) 80%, transparent);
+}
+
+.history-thinking-entry-head {
+  margin-bottom: 6px;
+  font-size: 11px;
+  font-weight: 650;
+  color: var(--text-faint);
+}
+
+.history-thinking-entry-body {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--text-soft);
 }
 
 .conversation-head {

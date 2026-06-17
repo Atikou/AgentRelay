@@ -46,7 +46,41 @@
 
 旧接口/旧思想已移除：不支持 `roles`、`role`、`task` 字符串，也不支持 `patch_worker` / `code_review` / `test_analyze` 等固定角色。收到这类参数时应视为错误并重新按 `tasks[]` 构造。
 
-### HTTP
+### 入参归一化与超时保护（P0）
+
+`dispatch_subagent` 在 Zod 校验前会经 `normalizeDispatchSubagentInput` 修复常见主模型误填：
+
+| 误填 | 修复 |
+| --- | --- |
+| `modelPolicy: "default"`（字符串） | 转为 `{}` |
+| `modelPolicy: { "model": "default" }` 等未知字段 | 剥离为 `{}` 或合法字段子集 |
+| `writeFilePickStrategy: "last"` | 映射为 `"latest"` |
+| `timeoutMs: 30000` 等过短值 | 抬升到 **最低 120000ms（120s）** |
+
+`writeFilePickStrategy` 合法值：`latest` / `earliest` / `arbitration`。
+
+### 调度与执行模式
+
+| 机制 | 说明 |
+| --- | --- |
+| **轻量 fast path** | 纯文本只读子任务（无写/Shell、无文件引用、`allowedTools` 不含项目工具）走单次模型调用，跳过完整 `AgentLoop` 与工作流预扫描 |
+| **批量并发上限** | `security.subagent.maxBatchConcurrency`（默认 `2`），避免 `Promise.all` 打满本地 Ollama |
+| **单任务超时** | 每子任务至少 120s；默认未传时为 120s（`SubAgentRunner`） |
+
+配置示例：
+
+```json
+{
+  "security": {
+    "subagent": {
+      "maxDispatchDepth": 1,
+      "maxBatchConcurrency": 2
+    }
+  }
+}
+```
+
+## HTTP
 
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
@@ -72,6 +106,9 @@
 ```text
 agent-relay/src/subagent/
 ├─ delegatedTask.ts
+├─ dispatchInputNormalize.ts   # 入参修复 + timeout 下限
+├─ lightweightTask.ts        # 轻量只读判定
+├─ batchConcurrency.ts         # 批量并发池
 ├─ ExecutionRouter.ts / TaskSplitter.ts
 ├─ ContextRouter.ts / ToolRouter.ts / ResultCollector.ts
 ├─ SubAgentRunner.ts / SubAgentCoordinator.ts

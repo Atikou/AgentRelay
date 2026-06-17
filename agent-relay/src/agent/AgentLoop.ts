@@ -450,7 +450,8 @@ export class AgentLoop {
         });
         messages.push({
           role: "user",
-          content: '上一条不是合法的 JSON。请只输出一个 JSON 对象：{"action":"tool",...} 或 {"action":"final","answer":"..."}。',
+          content:
+            '上一条不是合法的 JSON。请只输出一个 JSON 对象：{"action":"tool",...} 或 {"action":"final","answer":"..."}。禁止把 JSON 放进字符串（错误示例："{"action":"final",...}"）。',
         });
         continue;
       }
@@ -1187,6 +1188,7 @@ export class AgentLoop {
       "",
       "严格遵守以下协议：",
       '1. 每次回复必须且只能输出一个 JSON 对象，禁止输出 JSON 以外的任何文字或 Markdown 代码围栏。',
+      '1.1 严禁把 JSON 对象再包成字符串（错误："{\\"action\\":\\"final\\"...}"）。必须直接输出对象本体（正确：{"action":"final","answer":"..."}）。',
       '2. 需要使用工具时输出：{"action":"tool","tool":"工具名","input":{参数},"thought":"简述原因"}',
       '3. 已能回答用户时输出：{"action":"final","answer":"给用户的最终中文回答"}',
       "4. 一次只能调用一个工具；根据工具返回结果再决定下一步。",

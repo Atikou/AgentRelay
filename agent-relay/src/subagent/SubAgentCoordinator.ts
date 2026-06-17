@@ -3,6 +3,8 @@ import { performance } from "node:perf_hooks";
 
 import type { LoopChatFn } from "../agent/AgentLoop.js";
 import { arbitrateSubAgentConflicts } from "./SubAgentArbitrator.js";
+import { mapWithConcurrencyLimit } from "./batchConcurrency.js";
+import { DEFAULT_SUBAGENT_BATCH_CONCURRENCY, resolveSubagentTimeoutMs } from "./dispatchInputNormalize.js";
 import { normalizeDelegatedTask } from "./delegatedTask.js";
 import { ExecutionRouter } from "./ExecutionRouter.js";
 import { aggregateSubAgentResultsStructured, SubAgentRunner, type SubAgentRunnerDeps } from "./SubAgentRunner.js";
@@ -59,18 +61,18 @@ export class SubAgentCoordinator {
     });
 
     const start = performance.now();
-    const settled = await Promise.all(
-      entries.map((entry) =>
-        this.runner.runDelegated({
-          task: entry.task,
-          parentTaskId,
-          grantedPermissions: options.grantedPermissions,
-          timeoutMs: options.timeoutMs,
-          sensitive: options.sensitive,
-          dispatchDepth: options.dispatchDepth,
-          executionRoute: entry.route,
-        }),
-      ),
+    const timeoutMs = resolveSubagentTimeoutMs(options.timeoutMs);
+    const concurrency = this.deps.maxBatchConcurrency ?? DEFAULT_SUBAGENT_BATCH_CONCURRENCY;
+    const settled = await mapWithConcurrencyLimit(entries, concurrency, (entry) =>
+      this.runner.runDelegated({
+        task: entry.task,
+        parentTaskId,
+        grantedPermissions: options.grantedPermissions,
+        timeoutMs,
+        sensitive: options.sensitive,
+        dispatchDepth: options.dispatchDepth,
+        executionRoute: entry.route,
+      }),
     );
 
     let aggregate = aggregateSubAgentResultsStructured(settled);

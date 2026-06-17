@@ -334,31 +334,46 @@ test("SubAgentRunner 预读 txt 后可直接 final", async () => {
 
 
 
-test("SubAgentRunner 超时返回 timeout", async () => {
-
+test("SubAgentRunner 轻量只读子任务单次完成", async () => {
   const runner = new SubAgentRunner({
-
-    chat: slowChat(500),
-
+    chat: async () => ({
+      content: "每天阅读 30 分钟并做笔记",
+      toolCalls: [],
+      clientName: "fake",
+      modelName: "fake",
+      location: "local",
+      latencyMs: 1,
+    }),
     registry: createDefaultRegistry(),
-
     workspaceRoot: sandbox,
-
   });
 
   const result = await runner.runDelegated({
-
-    task: task("分析 tests/unit.test.ts 失败日志"),
-
-    timeoutMs: 50,
-
+    task: {
+      goal: "写一条关于学习与知识的每日自我提升建议",
+      instructions: "简短可执行",
+      input: "",
+      toolPolicy: {
+        allowedTools: [],
+        writeAllowed: false,
+        shellAllowed: false,
+        requireApproval: false,
+      },
+    },
   });
 
-  assert.equal(result.status, "timeout");
-
+  assert.equal(result.status, "completed");
+  assert.equal(result.iterations, 1);
+  assert.match(result.answer, /阅读|30/);
 });
 
-
+test("resolveSubagentTimeoutMs 不低于 120 秒下限", async () => {
+  const { resolveSubagentTimeoutMs, MIN_SUBAGENT_TIMEOUT_MS } = await import(
+    "../src/subagent/dispatchInputNormalize.js"
+  );
+  assert.equal(resolveSubagentTimeoutMs(30_000), MIN_SUBAGENT_TIMEOUT_MS);
+  assert.equal(resolveSubagentTimeoutMs(undefined), MIN_SUBAGENT_TIMEOUT_MS);
+});
 
 test("SubAgentCoordinator 并行汇总多个任务", async () => {
 

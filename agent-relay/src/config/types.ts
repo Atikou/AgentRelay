@@ -109,8 +109,10 @@ export const SecurityConfigSchema = z.object({
        * 默认 1 = 仅主 Agent 可派生；不支持无限递归。
        */
       maxDispatchDepth: z.number().int().min(0).max(3).default(1),
+      /** 批量 dispatch_subagent 最大并行子任务数（缓解本地模型并发排队）。 */
+      maxBatchConcurrency: z.number().int().min(1).max(3).default(2),
     })
-    .default({ maxDispatchDepth: 1 }),
+    .default({ maxDispatchDepth: 1, maxBatchConcurrency: 2 }),
 });
 export type SecurityConfig = z.infer<typeof SecurityConfigSchema>;
 

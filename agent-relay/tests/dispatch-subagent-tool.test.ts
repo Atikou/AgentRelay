@@ -375,6 +375,41 @@ test("dispatch_subagent 归一化剔除 writeFilePickStrategy null", () => {
 
 
 
+test("dispatch_subagent 归一化修复 modelPolicy 字符串与 writeFilePickStrategy last", async () => {
+  const normalized = normalizeDispatchSubagentInput({
+    tasks: [
+      {
+        goal: "写一条每日自我提升建议",
+        toolPolicy: { allowedTools: [], writeAllowed: false },
+        modelPolicy: "default",
+      },
+    ],
+    writeFilePickStrategy: "last",
+    timeoutMs: 30_000,
+  }) as {
+    tasks: Array<{ goal: string; modelPolicy?: Record<string, unknown> }>;
+    writeFilePickStrategy?: string;
+    timeoutMs?: number;
+  };
+
+  assert.deepEqual(normalized.tasks[0]!.modelPolicy, {});
+  assert.equal(normalized.writeFilePickStrategy, "latest");
+  assert.equal(normalized.timeoutMs, 120_000);
+
+  const registry = createDefaultRegistry();
+  registry.setDefaultContext({
+    subAgentCoordinator: makeCoordinator(
+      scriptedChat(['{"action":"final","answer":"建议：每天运动30分钟"}']),
+    ),
+  });
+  const res = await registry.run("dispatch_subagent", normalized, { workspaceRoot: sandbox });
+  assert.equal(res.ok, true);
+  if (!res.ok) return;
+  assert.equal((res.output as { mode: string }).mode, "single");
+});
+
+
+
 test("dispatch_subagent 只读 toolPolicy 拒绝未授权写入", async () => {
 
   const registry = createDefaultRegistry();
