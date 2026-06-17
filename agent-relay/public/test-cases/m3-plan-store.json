@@ -62,12 +62,73 @@
       }
     },
     {
+      "id": "m3-plan-get-not-found",
+      "title": "GET 未知 planId 返回 404",
+      "purpose": "确认计划摘要 API 对不存在 planId 返回明确 404。",
+      "method": "GET",
+      "path": "/api/plans/nonexistent-plan-id",
+      "input": null,
+      "expect": {
+        "status": 404,
+        "bodyHasKeys": ["error"]
+      }
+    },
+    {
+      "id": "m3-plan-revise-missing-request",
+      "title": "revise 缺 revisionRequest 返回 400",
+      "purpose": "确认修订 API 必须提供自然语言修订说明。",
+      "method": "POST",
+      "path": "/api/plans/nonexistent-plan-id/revise",
+      "input": { "baseVersion": 1 },
+      "expect": {
+        "status": 400,
+        "bodyHasKeys": ["error"]
+      }
+    },
+    {
+      "id": "m3-plan-execute-missing-tool-binding",
+      "title": "未绑定 tool 的计划 execute 返回 400",
+      "purpose": "确认已存储但步骤无 tool 绑定的计划在执行前被 MISSING_TOOL_BINDING 拦截。",
+      "method": "POST",
+      "path": "/api/plans/fake-plan-id/execute",
+      "input": { "version": 1, "dryRun": true },
+      "expect": {
+        "status": 400,
+        "bodyHasKeys": ["error", "code"]
+      }
+    },
+    {
       "id": "m3-plan-reject-not-found",
       "title": "reject 未知 planId 返回 400",
       "purpose": "确认 POST /api/plans/:id/reject 对不存在计划返回错误，而非 200。",
       "method": "POST",
       "path": "/api/plans/nonexistent-plan-id/reject",
       "input": { "version": 1, "comment": "拒绝" },
+      "expect": {
+        "status": 400,
+        "bodyHasKeys": ["error"]
+      }
+    },
+    {
+      "id": "m3-plan-activate-uvp-not-found",
+      "title": "activate 未知 UserVisiblePlan 返回 404",
+      "purpose": "确认 Plan Activation API 对不存在的 uvp id 返回 UVP_NOT_FOUND，而非 500。",
+      "method": "POST",
+      "path": "/api/plans/uvp_nonexistent/activate",
+      "input": { "dryRun": true },
+      "expect": {
+        "status": 404,
+        "bodyHasKeys": ["error", "code"],
+        "bodyPaths": { "code": "UVP_NOT_FOUND" }
+      }
+    },
+    {
+      "id": "m3-plan-compile-empty-todos",
+      "title": "compile 空 confirmedTodoIds 返回 400",
+      "purpose": "确认编译 API 拒绝空 Todo 列表，避免生成空 InternalTaskPlan。",
+      "method": "POST",
+      "path": "/api/plans/uvp_fake/compile",
+      "input": { "confirmedTodoIds": [] },
       "expect": {
         "status": 400,
         "bodyHasKeys": ["error"]

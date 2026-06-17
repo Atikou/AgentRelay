@@ -6,10 +6,11 @@ import { PlanSchema, type Plan } from "../agent/types.js";
 import type { TraceLogger } from "../trace/TraceLogger.js";
 import type { ToolRegistry } from "../tools/ToolRegistry.js";
 import { PlanCompiler } from "./PlanCompiler.js";
+import { bindPlanTools } from "./planToolBinder.js";
 import { PlanApprovalManager } from "./PlanApprovalManager.js";
 import { buildRenderedPreviews, renderPublicPlanJson } from "./PlanRenderer.js";
 import { PlanStore } from "./PlanStore.js";
-import { PlanValidator } from "./PlanValidator.js";
+import { PlanValidator, canTransition } from "./PlanValidator.js";
 import { internalPlanFromLegacy } from "./planConverter.js";
 import {
   PlanValidationError,
@@ -17,6 +18,7 @@ import {
   rejectExecutablePreview,
   type InternalTaskPlan,
   type PlanMode,
+  type PlanStatus,
   type PublicPlanJson,
   type UserVisiblePlan,
 } from "./types.js";
@@ -51,7 +53,7 @@ export class PlanService {
     publicPlanJson: PublicPlanJson;
   }> {
     const legacy = await input.planner.generatePlan(input.goal, input.context);
-    return this.persistLegacyAsDraft(legacy, {
+    return this.persistLegacyAsDraft(bindPlanTools(legacy, { registry: this.options.registry }), {
       sessionId: input.sessionId,
       requestId: input.requestId,
       mode: input.mode,
@@ -126,13 +128,17 @@ export class PlanService {
         "生产执行不接受 body 中的 plan JSON，请使用 planId + version",
       );
     }
-    return this.persistLegacyAsDraft(parsed.data, { originType: "legacy_ingest" });
+    return this.persistLegacyAsDraft(bindPlanTools(parsed.data, { registry: this.options.registry }), {
+      originType: "legacy_ingest",
+    });
   }
 
   async importPreviewAsRevision(input: {
     preview: unknown;
     goal?: string;
     sessionId?: string;
+    planId?: string;
+    baseVersion?: number;
     planner: Planner;
   }): Promise<{
     planId: string;
@@ -140,6 +146,7 @@ export class PlanService {
     status: string;
     previewMarkdown: string;
     publicPlanJson: PublicPlanJson;
+    supersededVersion?: number;
   }> {
     rejectExecutablePreview(input.preview);
     const parsed = PublicPlanJsonSchema.safeParse(input.preview);
@@ -152,11 +159,131 @@ export class PlanService {
       input.goal?.trim() ||
       (parsed.success ? parsed.data.title : "") ||
       "根据用户导入内容修订计划";
+
+    if (input.planId) {
+      const baseVersion = input.baseVersion ?? this.options.store.getLatestVersion(input.planId);
+      if (!baseVersion) {
+        throw new PlanValidationError("INVALID_SCHEMA", "计划不存在");
+      }
+      return this.createInternalRevision({
+        planId: input.planId,
+        baseVersion,
+        goal,
+        context,
+        sessionId: input.sessionId,
+        planner: input.planner,
+        originType: "import_preview",
+      });
+    }
+
     const legacy = await input.planner.generatePlan(goal, context);
-    return this.persistLegacyAsDraft(legacy, {
+    return this.persistLegacyAsDraft(bindPlanTools(legacy, { registry: this.options.registry }), {
       sessionId: input.sessionId,
       originType: "import_preview",
     });
+  }
+
+  async revisePlan(input: {
+    planId: string;
+    baseVersion?: number;
+    revisionRequest: string;
+    sessionId?: string;
+    planner: Planner;
+  }): Promise<{
+    planId: string;
+    version: number;
+    status: string;
+    planHash: string;
+    previewMarkdown: string;
+    publicPlanJson: PublicPlanJson;
+    supersededVersion: number;
+  }> {
+    const revisionRequest = input.revisionRequest.trim();
+    if (!revisionRequest) {
+      throw new PlanValidationError("INVALID_SCHEMA", "revisionRequest 不能为空");
+    }
+    const baseVersion = input.baseVersion ?? this.options.store.getLatestVersion(input.planId);
+    if (!baseVersion) {
+      throw new PlanValidationError("INVALID_SCHEMA", "计划不存在");
+    }
+    return this.createInternalRevision({
+      planId: input.planId,
+      baseVersion,
+      goal: `修订计划 v${baseVersion}：${revisionRequest}`,
+      context: revisionRequest,
+      sessionId: input.sessionId,
+      planner: input.planner,
+      originType: "revision",
+    });
+  }
+
+  async createInternalRevision(input: {
+    planId: string;
+    baseVersion: number;
+    goal: string;
+    context?: string;
+    sessionId?: string;
+    planner: Planner;
+    originType?: InternalTaskPlan["origin"]["type"];
+  }): Promise<{
+    planId: string;
+    version: number;
+    status: string;
+    planHash: string;
+    previewMarkdown: string;
+    publicPlanJson: PublicPlanJson;
+    supersededVersion: number;
+  }> {
+    const base = this.options.store.get(input.planId, input.baseVersion);
+    if (!base) {
+      throw new PlanValidationError("INVALID_SCHEMA", "计划不存在");
+    }
+    if (base.status === "running") {
+      throw new PlanValidationError("PLAN_NOT_APPROVED", "执行中的计划不可修订");
+    }
+    const nextVersion = input.baseVersion + 1;
+    if (this.options.store.get(input.planId, nextVersion)) {
+      throw new PlanValidationError("INVALID_SCHEMA", `版本 ${nextVersion} 已存在`);
+    }
+
+    if (canTransition(base.status, "superseded")) {
+      this.options.store.updateStatus(input.planId, input.baseVersion, "superseded");
+      this.logPlanEvent("plan.superseded", input.planId, input.baseVersion);
+    }
+
+    const markdown = this.getPreview(input.planId, input.baseVersion, "markdown");
+    const contextParts = [
+      input.context,
+      markdown ? `上一版 Markdown 预览（v${input.baseVersion}，不可执行）：\n${markdown}` : undefined,
+    ].filter((part): part is string => Boolean(part));
+
+    const legacy = await input.planner.generatePlan(input.goal, contextParts.join("\n\n"));
+    const bound = bindPlanTools(legacy, { registry: this.options.registry });
+    const draft = this.persistLegacyAsDraft(bound, {
+      planId: input.planId,
+      version: nextVersion,
+      sessionId: input.sessionId,
+      originType: input.originType ?? "revision",
+    });
+    return { ...draft, supersededVersion: input.baseVersion };
+  }
+
+  getPlanSummary(planId: string): {
+    planId: string;
+    latestVersion: number;
+    status: PlanStatus;
+    goal: string;
+    versions: ReturnType<PlanStore["listVersions"]>;
+  } | null {
+    const head = this.options.store.get(planId);
+    if (!head) return null;
+    return {
+      planId,
+      latestVersion: head.version,
+      status: head.status,
+      goal: head.goal,
+      versions: this.options.store.listVersions(planId),
+    };
   }
 
   approve(planId: string, version: number, approvedBy: string, comment?: string): InternalTaskPlan {
@@ -230,21 +357,72 @@ export class PlanService {
     return this.options.store.getUserVisiblePlan(id);
   }
 
-  compileUserVisiblePlan(input: {
+  getLatestUserVisiblePlanForSession(sessionId: string): UserVisiblePlan | null {
+    return this.options.store.getLatestUserVisiblePlanForSession(sessionId);
+  }
+
+  recordPlanRunStepStarted(input: {
+    planRunId: string;
+    stepId: string;
+    toolName?: string;
+  }): string {
+    const rowId = this.options.store.createPlanRunStep({
+      planRunId: input.planRunId,
+      stepId: input.stepId,
+      status: "running",
+      toolName: input.toolName,
+    });
+    this.options.trace?.write({
+      type: "plan_event",
+      eventType: "plan.step_started",
+      planRunId: input.planRunId,
+      stepId: input.stepId,
+      toolName: input.toolName,
+      at: new Date().toISOString(),
+    });
+    return rowId;
+  }
+
+  recordPlanRunStepFinished(
+    stepRowId: string,
+    input: { status: string; error?: string; outputPreview?: string; planRunId?: string; stepId?: string },
+  ): void {
+    this.options.store.finishPlanRunStep(stepRowId, input);
+    this.options.trace?.write({
+      type: "plan_event",
+      eventType:
+        input.status === "completed" ? "plan.step_completed" : "plan.step_failed",
+      planRunId: input.planRunId,
+      stepId: input.stepId,
+      status: input.status,
+      error: input.error,
+      at: new Date().toISOString(),
+    });
+  }
+
+  async compileUserVisiblePlan(input: {
     userVisiblePlanId: string;
     confirmedTodoIds: string[];
     sessionId?: string;
     requestId?: string;
-  }): ReturnType<PlanService["persistLegacyAsDraft"]> & { sourceUserVisiblePlan: UserVisiblePlan } {
+    planner?: Planner;
+  }): Promise<
+    ReturnType<PlanService["persistLegacyAsDraft"]> & { sourceUserVisiblePlan: UserVisiblePlan }
+  > {
     const userVisiblePlan = this.getUserVisiblePlan(input.userVisiblePlanId);
     if (!userVisiblePlan) {
       throw new PlanValidationError("INVALID_SCHEMA", "UserVisiblePlan 不存在");
     }
-    const legacy = this.compiler.compile({
+    const skeleton = this.compiler.compile({
       userVisiblePlan,
       confirmedTodoIds: input.confirmedTodoIds,
     });
-    const draft = this.persistLegacyAsDraft(legacy, {
+    const executable = await this.resolveExecutablePlan({
+      skeleton,
+      userVisiblePlan,
+      planner: input.planner,
+    });
+    const draft = this.persistLegacyAsDraft(executable, {
       sessionId: input.sessionId ?? userVisiblePlan.sessionId,
       requestId: input.requestId ?? userVisiblePlan.sourceRunId,
       mode: "implement",
@@ -259,6 +437,35 @@ export class PlanService {
       at: new Date().toISOString(),
     });
     return { ...draft, sourceUserVisiblePlan: userVisiblePlan };
+  }
+
+  private async resolveExecutablePlan(input: {
+    skeleton: Plan;
+    userVisiblePlan: UserVisiblePlan;
+    planner?: Planner;
+  }): Promise<Plan> {
+    const context = JSON.stringify({
+      userVisiblePlanId: input.userVisiblePlan.id,
+      title: input.userVisiblePlan.title,
+      skeleton: input.skeleton,
+    });
+    let plan = input.skeleton;
+    if (input.planner) {
+      try {
+        plan = await input.planner.generateExecutablePlan(input.skeleton.goal, context);
+      } catch {
+        plan = input.skeleton;
+      }
+    }
+    const bound = bindPlanTools(plan, { registry: this.options.registry });
+    const internalPreview = internalPlanFromLegacy(bound, {
+      planId: "compile-preview",
+      version: 1,
+      workspaceRoot: this.options.workspaceRoot,
+      originType: "user_visible_plan",
+    });
+    this.options.validator.assertToolBindings(internalPreview);
+    return bound;
   }
 
   rejectExecutionBody(body: Record<string, unknown>): { error: string; code: string } | null {

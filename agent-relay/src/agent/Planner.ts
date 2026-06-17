@@ -44,6 +44,14 @@ const PLAN_SYSTEM_PROMPT = `你是一个编码 Agent 的「计划模式」。计
 - 只读分析步骤用 read，needsConfirmation 为 false。
 - availableTools 应与本步权限匹配；只读步骤不要包含 write_file/shell_run。`;
 
+const EXECUTABLE_PLAN_SYSTEM_PROMPT = `${PLAN_SYSTEM_PROMPT}
+
+额外强制要求（可执行编译）：
+- 每个 steps[] 项必须包含 "tool" 与 "toolInput"（非空对象），对应注册表中的真实工具名。
+- tool 必须从 availableTools 中选择；只读步骤用 read_file/search_text/list_files，写入用 apply_patch/write_file，命令用 shell_run。
+- toolInput 必须符合该工具参数 schema（如 read_file 需要 path）。
+- 禁止输出无 tool 的纯说明步骤；每步须可被 TaskExecutor 直接调用。`;
+
 /**
  * 计划模式：调用模型生成结构化计划与子任务拆分。本类不执行任何副作用操作（只读）。
  */
@@ -58,6 +66,23 @@ export class Planner {
     const response = await this.chat({
       messages: [
         { role: "system", content: PLAN_SYSTEM_PROMPT },
+        { role: "user", content: userContent },
+      ],
+      temperature: 0.2,
+    });
+
+    return normalizePlan(response.content, goal);
+  }
+
+  /** 将骨架计划编译为带 tool + toolInput 的可执行计划（compile / revise 语义编译）。 */
+  async generateExecutablePlan(goal: string, context?: string): Promise<Plan> {
+    const userContent = context
+      ? `目标：${goal}\n\n骨架计划或 Todo 上下文（须绑定可执行 tool）：\n${context}`
+      : `目标：${goal}`;
+
+    const response = await this.chat({
+      messages: [
+        { role: "system", content: EXECUTABLE_PLAN_SYSTEM_PROMPT },
         { role: "user", content: userContent },
       ],
       temperature: 0.2,

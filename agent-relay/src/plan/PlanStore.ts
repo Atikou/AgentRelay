@@ -115,6 +115,41 @@ export class PlanStore {
     return this.mapRow(withHash.planId, withHash.version, withHash, now, now);
   }
 
+  listVersions(planId: string): Array<{
+    version: number;
+    status: PlanStatus;
+    planHash: string;
+    changeReason: string | null;
+    createdAt: string;
+  }> {
+    const rows = this.db.connection
+      .prepare(
+        `SELECT version, plan_hash, change_reason, created_at, internal_json
+         FROM task_plan_versions
+         WHERE plan_id=?
+         ORDER BY version ASC`,
+      )
+      .all(planId) as Array<Record<string, unknown>>;
+    return rows.map((row) => {
+      const internal = JSON.parse(String(row.internal_json)) as InternalTaskPlan;
+      return {
+        version: Number(row.version),
+        status: internal.status,
+        planHash: String(row.plan_hash),
+        changeReason: row.change_reason ? String(row.change_reason) : null,
+        createdAt: String(row.created_at),
+      };
+    });
+  }
+
+  getLatestVersion(planId: string): number | null {
+    const row = this.db.connection
+      .prepare(`SELECT MAX(version) AS max_version FROM task_plan_versions WHERE plan_id=?`)
+      .get(planId) as { max_version: number | null } | undefined;
+    if (row?.max_version == null) return null;
+    return Number(row.max_version);
+  }
+
   get(planId: string, version?: number): PlanRecord | null {
     if (version !== undefined) {
       const row = this.db.connection
@@ -301,6 +336,54 @@ export class PlanStore {
       requiresUserConfirmation: Number(row.requires_user_confirmation) === 1,
       createdAt: String(row.created_at),
     });
+  }
+
+  getLatestUserVisiblePlanForSession(sessionId: string): UserVisiblePlan | null {
+    const row = this.db.connection
+      .prepare(
+        `SELECT * FROM user_visible_plans WHERE session_id=? ORDER BY created_at DESC LIMIT 1`,
+      )
+      .get(sessionId) as Record<string, unknown> | undefined;
+    if (!row) return null;
+    return this.getUserVisiblePlan(String(row.id));
+  }
+
+  createPlanRunStep(input: {
+    planRunId: string;
+    stepId: string;
+    status: string;
+    toolName?: string;
+  }): string {
+    const id = randomUUID();
+    const now = new Date().toISOString();
+    this.db.connection
+      .prepare(
+        `INSERT INTO task_plan_run_steps(
+          id, plan_run_id, step_id, status, tool_name, started_at, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(id, input.planRunId, input.stepId, input.status, input.toolName ?? null, now, now);
+    return id;
+  }
+
+  finishPlanRunStep(
+    stepRowId: string,
+    patch: { status: string; error?: string; outputPreview?: string },
+  ): void {
+    const now = new Date().toISOString();
+    this.db.connection
+      .prepare(
+        `UPDATE task_plan_run_steps
+         SET status=?, finished_at=?, error=?, output_preview=?
+         WHERE id=?`,
+      )
+      .run(
+        patch.status,
+        now,
+        patch.error ?? null,
+        patch.outputPreview?.slice(0, 2000) ?? null,
+        stepRowId,
+      );
   }
 
   private fromPlanRow(row: Record<string, unknown>): PlanRecord {

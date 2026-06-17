@@ -54,6 +54,10 @@ npm run docs:screenshots # 用无头浏览器截图到 docs/assets/
 
 ## 文档列表
 
+### 验收（人类专用）
+
+- **[项目验收清单](项目验收清单.md)**：**唯一验收依据**——全项目 + 大模块（Agent 模式、计划模式、M1–M8 等）；**仅人类可勾选**；`agent-todolist.md` 与各类 TodoList 只跟踪实现进度。
+
 ### 已完成 TodoList 归档
 
 进行中的任务清单在 `docs/*-TodoList.md`；**已全部结案**的见 [`completed/`](completed/README.md)（含登记表与复查指引）。
@@ -66,6 +70,7 @@ npm run docs:screenshots # 用无头浏览器截图到 docs/assets/
 - [审核修复交接-TodoList](审核修复交接-TodoList.md)：**接手 agent 入口**——审核报告 §4 落地的已完成/暂缓/待办清单与下一步操作指引。
 - [自动工作流模式-TodoList（已归档）](completed/自动工作流模式-TodoList.md)：统一 Agent 入口、内部意图路由、权限策略与工作流解耦。
 
+- [计划执行升级-TodoList](计划执行升级-TodoList.md)：`agent_system_issue_summary` 缺口（Activation / Agent Loop 执行 / 语义编译 / 统一运行时）。
 - [外部规范-TodoList索引](外部规范-TodoList索引.md)：**6 份外部规范**对应的完成度清单总览。
 - [Agent执行策略问题-TodoList](Agent执行策略问题-TodoList.md)：RunPolicy / executionMeta / PlanWorkflow 等。
 - [相关文件定位优化-TodoList](相关文件定位优化-TodoList.md)：TaskQueryAnalyzer、RelevantFileLocator、context_pack 与定位预算。

@@ -219,7 +219,8 @@ export type PlanValidationErrorCode =
   | "FORBIDDEN_PATH"
   | "BUDGET_EXCEEDED"
   | "INVALID_DEPENDS_ON"
-  | "EXECUTABLE_PREVIEW_REJECTED";
+  | "EXECUTABLE_PREVIEW_REJECTED"
+  | "MISSING_TOOL_BINDING";
 
 export class PlanValidationError extends Error {
   constructor(

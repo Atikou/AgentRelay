@@ -27,6 +27,8 @@ const REQUIRED_PATHS = [
   "/api/plans/analyze",
   "/api/plans/import-preview",
   "/api/plans/{userVisiblePlanId}/compile",
+  "/api/plans/{planId}",
+  "/api/plans/{planId}/revise",
   "/api/plans/{planId}/preview",
   "/api/plans/{planId}/approve",
   "/api/plans/{planId}/reject",

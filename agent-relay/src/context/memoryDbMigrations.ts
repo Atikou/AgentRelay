@@ -4,7 +4,7 @@ import { ensureRoutingTables } from "../model-router/route-stores.js";
 import { ensureEvalTables } from "../model-router/eval-set-store.js";
 import { addColumnIfMissing, hashRowId, type SqliteMigration } from "../storage/sqliteMigration.js";
 
-export const MEMORY_DB_SCHEMA_VERSION = 11;
+export const MEMORY_DB_SCHEMA_VERSION = 12;
 
 function ensureFts(
   db: DatabaseSync,
@@ -424,6 +424,28 @@ export const MEMORY_DB_MIGRATIONS: readonly SqliteMigration[] = [
         );
         CREATE INDEX IF NOT EXISTS idx_project_exports_name
           ON project_exports(project_id, workspace_root, export_name);
+      `);
+    },
+  },
+  {
+    version: 12,
+    name: "task_plan_run_steps",
+    up(db) {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS task_plan_run_steps (
+          id TEXT PRIMARY KEY,
+          plan_run_id TEXT NOT NULL,
+          step_id TEXT NOT NULL,
+          status TEXT NOT NULL,
+          tool_name TEXT,
+          started_at TEXT,
+          finished_at TEXT,
+          error TEXT,
+          output_preview TEXT,
+          created_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_plan_run_steps_run
+          ON task_plan_run_steps(plan_run_id, created_at);
       `);
     },
   },

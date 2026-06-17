@@ -15,6 +15,12 @@ import type { ChatStreamEvent } from "./ChatStream.js";
 
 import { planFromTask } from "../agent/planFromTask.js";
 import { TaskExecutionWorkflow } from "../agent/TaskExecutionWorkflow.js";
+import type { PlanExecutionMode } from "../plan/PlanActivationWorkflow.js";
+import { PlanActivationWorkflow } from "../plan/PlanActivationWorkflow.js";
+import {
+  detectPlanActivationIntent,
+  parseUserVisiblePlanIdFromMessage,
+} from "../plan/planActivationIntent.js";
 import { finalizePlan } from "../agent/taskGraph.js";
 import { aggregateTaskStatus } from "../agent/taskStatus.js";
 import { PlanSchema, type Plan } from "../agent/types.js";
@@ -367,6 +373,7 @@ export class Orchestrator {
       runId?: string;
       rollbackOnFailure?: boolean;
       fallbackToPlanOnUncertainty?: boolean;
+      executionMode?: PlanExecutionMode;
     },
     dryRun = false,
     planner?: Planner,
@@ -388,6 +395,8 @@ export class Orchestrator {
     }
 
     const planRun = this.deps.planService.createPlanRun(planId, version);
+    const executionMode: PlanExecutionMode = payload.executionMode ?? "static";
+    const stepRowIds = new Map<string, string>();
 
     this.deps.planService.markRunning(planId, version);
     const plan = toTaskRunnerPlan(internal);
@@ -458,7 +467,31 @@ export class Orchestrator {
         taskId: task.id,
         sessionId,
         runId: run.id,
+        requireToolBinding: true,
+        executionMode,
+        planGoal,
+        runAgent: (agentBody) => this.runAgent(agentBody),
         onUpdate: (updated) => this.persistTaskPlan(task.id, updated),
+        onStepLifecycle: (event) => {
+          if (event.type === "started") {
+            const rowId = this.deps.planService.recordPlanRunStepStarted({
+              planRunId: planRun.id,
+              stepId: event.step.id,
+              toolName: event.step.tool,
+            });
+            stepRowIds.set(event.step.id, rowId);
+            return;
+          }
+          const rowId = stepRowIds.get(event.step.id);
+          if (!rowId) return;
+          this.deps.planService.recordPlanRunStepFinished(rowId, {
+            status: event.type === "completed" ? "completed" : "failed",
+            error: event.error,
+            outputPreview: event.result?.output,
+            planRunId: planRun.id,
+            stepId: event.step.id,
+          });
+        },
       });
 
       this.persistTaskPlan(task.id, executedPlan);
@@ -508,6 +541,7 @@ export class Orchestrator {
         planId,
         version,
         planRunId: planRun.id,
+        executionMode,
         plan: executedPlan,
         ...(rollback ? { rollback } : {}),
         ...(modeFallback ? { modeFallback } : {}),
@@ -579,7 +613,59 @@ export class Orchestrator {
 
 
 
+  private async tryPlanActivationFromAgentBody(body: unknown): Promise<ApiResult | null> {
+    const payload = (body ?? {}) as {
+      message?: string;
+      sessionId?: string;
+      activatePlan?: boolean;
+      userVisiblePlanId?: string;
+      dryRun?: boolean;
+      autoApprove?: boolean;
+      autoConfirm?: boolean;
+      executionMode?: PlanExecutionMode;
+      confirmedTodoIds?: string[];
+    };
+    const message = (payload.message ?? "").trim();
+    if (!payload.activatePlan && !detectPlanActivationIntent(message)) return null;
+
+    const userVisiblePlanId =
+      payload.userVisiblePlanId?.trim() ||
+      parseUserVisiblePlanIdFromMessage(message) ||
+      (payload.sessionId
+        ? this.deps.planService.getLatestUserVisiblePlanForSession(payload.sessionId)?.id
+        : undefined);
+    if (!userVisiblePlanId) {
+      return {
+        status: 400,
+        body: {
+          error:
+            "未找到可激活的 UserVisiblePlan；请先 POST /api/plans/analyze 或在消息中附带 uvp_ id",
+          code: "UVP_NOT_FOUND",
+        },
+      };
+    }
+
+    const workflow = new PlanActivationWorkflow({
+      planService: this.deps.planService,
+      executeStoredPlan: (planId, version, execPayload, dryRun) =>
+        this.executeStoredPlan(planId, version, execPayload, dryRun),
+      planner: this.deps.planner,
+    });
+    return workflow.activate({
+      userVisiblePlanId,
+      sessionId: payload.sessionId,
+      dryRun: payload.dryRun,
+      autoApprove: payload.autoApprove,
+      autoConfirm: payload.autoConfirm,
+      executionMode: payload.executionMode,
+      confirmedTodoIds: payload.confirmedTodoIds,
+    });
+  }
+
   async runAgent(body: unknown, makeChat?: LoopChatFn): Promise<ApiResult> {
+    const activation = await this.tryPlanActivationFromAgentBody(body);
+    if (activation) return activation;
+
     const prepared = this.prepareAgentRun(body, makeChat, {
       registerForCancel: true,
       enableTimeline: true,

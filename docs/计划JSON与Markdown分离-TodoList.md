@@ -17,7 +17,8 @@
 | 规范测试 §15 | 4 | 0 | 1 | 5 |
 | **合计** | **34** | **7** | **15** | **56** |
 
-**结论**：P0 主体已落地（类型分离、PlanStore、PlanRenderer、执行边界）；P1 审批与校验仍有缺口；P2 版本链与逐步审计、P3 前端拒绝/修订 UI 基本未做。
+**结论**：P0 主体已落地（类型分离、PlanStore、PlanRenderer、执行边界）；P1 审批与校验仍有缺口；P2 版本链与逐步审计、P3 前端拒绝/修订 UI 基本未做。  
+> **验收**：计划体系是否通过以 [`项目验收清单.md`](项目验收清单.md) §3 为准（仅人类勾选），本 TodoList 只跟踪实现细节。
 
 ---
 
@@ -94,9 +95,9 @@
 ### 5.3 用户修改 Markdown
 
 - [x] 禁止「Markdown → Executor 直接执行」
-- [~] 自然语言修订 → Planner 重生（`import-preview` / `fallbackToPlanOnUncertainty` 部分覆盖）
-- [ ] 专用「plan revision request」流程（如「把第 2 步改成先写测试」）
-- [ ] 同 `planId` 递增 version，旧版 `superseded`
+- [x] 自然语言修订 → Planner 重生（`revise` / `import-preview` + `planId`）
+- [x] 专用「plan revision request」流程（`POST /api/plans/:planId/revise`）
+- [x] 同 `planId` 递增 version，旧版 `superseded`
 
 ### 5.4 用户导入 PublicPlanJson
 
@@ -165,7 +166,7 @@
 
 - [x] 11.1 允许 InternalTaskPlan → Markdown / PublicPlanJson
 - [x] 11.2 禁止 Markdown / PublicPlanJson → Executor
-- [~] 11.3 用户修改后生成 version 2 + 重新确认（import-preview 部分；无同 planId 版本链）
+- [~] 11.3 用户修改后生成 version 2 + 重新确认（import-preview / revise 已支持同 planId 版本链）
 
 ---
 
@@ -245,7 +246,7 @@
 ## 11. 审计日志（§14）
 
 - [~] `plan.created` / `validated` / `preview_rendered` / `approved` / `rejected` / `execution_*`（经 `plan_event` + `eventType` 字段，**非规范独立 event type 名**）
-- [ ] `plan.superseded`
+- [x] `plan.superseded`（经 `plan_event` + `eventType=plan.superseded`）
 - [ ] `plan.step_started` / `plan.step_completed` / `plan.step_failed`
 - [ ] `plan.rollback_started` / `plan.rollback_completed`
 - [ ] trace 事件结构与规范 §14 示例完全一致
@@ -256,7 +257,7 @@
 
 - [x] **15.1** Executor 拒绝 PublicPlanJson（`tests/plan.test.ts`；错误码 `EXECUTABLE_PREVIEW_REJECTED`，非规范示例 `INVALID_PLAN_KIND`）
 - [x] **15.2** Executor 拒绝未审批计划（`PLAN_NOT_APPROVED`）
-- [ ] **15.3** 修改 Markdown 不改变 InternalTaskPlan v1（无专属自动化测试）
+- [ ] **15.3** 修改 Markdown 不改变 InternalTaskPlan v1（`plan.test.ts` 修订链用例覆盖 supersede，非 Markdown 专属）
 - [x] **15.4** 执行 API 拒绝 internalPlan 字段（orchestrator + plan-store 用例）
 - [x] **15.5** PublicPlanJson 永远 `executable=false`
 
@@ -339,12 +340,12 @@
 
 ### P2：实现版本修订
 
-- [~] 用户修改建议 → Planner 重生（`import-preview`）
-- [ ] 同 planId 递增 version
-- [ ] 旧版本标记 superseded
-- [ ] 新版本重新预览、校验、审批（版本链完整流程）
+- [x] 用户修改建议 → Planner 重生（`revise` / `import-preview` + `planId`）
+- [x] 同 planId 递增 version
+- [x] 旧版本标记 superseded
+- [x] 新版本重新预览、校验、审批（版本链完整流程）
 
-**验收**：用户改 Markdown 只触发新版本，不直接改 v1。❌
+**验收**：用户改 Markdown 只触发新版本，不直接改 v1。✅（经 revise / import-preview）
 
 ---
 
@@ -365,9 +366,9 @@
 - [x] 前端展示 PublicPlanJson
 - [x] 前端不展示 InternalTaskPlan
 - [x] 前端执行按钮只传 planId/version（approve + execute）
-- [ ] 前端拒绝 / 修订计划 UI
+- [x] 前端拒绝 / 修订计划 UI（测试台「计划工作流」全流程面板）
 
-**验收**：界面只能看预览，不能把预览当执行体。✅（执行路径）；拒绝/修订 UI ❌
+**验收**：界面只能看预览，不能把预览当执行体。✅（执行路径）；拒绝/修订 UI ✅
 
 ---
 

@@ -84,6 +84,8 @@
     "test:planner-router": "tsx tests/planner-router.test.ts",
     "test:plan-report-workflow": "tsx tests/plan-report-workflow.test.ts",
     "test:plan-compile-workflow": "tsx tests/plan-compile-workflow.test.ts",
+    "test:plan-activation": "tsx tests/plan-activation.test.ts",
+    "test:plan-tool-binder": "tsx tests/plan-tool-binder.test.ts",
     "test:agent-smart-router": "tsx tests/agent-smart-router.test.ts",
     "test:context-analyzer": "tsx tests/context-analyzer.test.ts",
     "test:cost-budget-manager": "tsx tests/cost-budget-manager.test.ts",

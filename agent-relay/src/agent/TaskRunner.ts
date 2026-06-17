@@ -49,6 +49,12 @@ export interface TaskRunnerOptions {
   runId?: string;
   taskId?: string;
   sessionId?: string;
+  onStepLifecycle?: (event: {
+    type: "started" | "completed" | "failed";
+    step: PlanStep;
+    result?: StepResult;
+    error?: string;
+  }) => void;
 }
 
 /**
@@ -197,10 +203,12 @@ export class TaskRunner {
     // 3) 执行。
     this.setStepStatus(step, "running", { clearError: true });
     this.emit();
+    this.options.onStepLifecycle?.({ type: "started", step });
     try {
       const result = await this.options.executor.execute(step, {});
       step.result = result.output;
       this.setStepStatus(step, "completed");
+      this.options.onStepLifecycle?.({ type: "completed", step, result });
       this.options.trace?.write({
         type: "task_step",
         step: step.id,
@@ -210,6 +218,7 @@ export class TaskRunner {
     } catch (error) {
       const toolCallId = error instanceof StepExecutionError ? error.toolCallId : undefined;
       this.setStepStatus(step, "failed", { error: String(error) });
+      this.options.onStepLifecycle?.({ type: "failed", step, error: String(error) });
       this.options.trace?.write({
         type: "task_step",
         step: step.id,
@@ -305,7 +314,17 @@ export class TaskRunner {
  * 用于在工具系统就绪前演示任务模式的控制流。
  */
 export class DryRunExecutor implements StepExecutor {
+  constructor(private readonly options?: { requireToolBinding?: boolean }) {}
+
   async execute(step: PlanStep): Promise<StepResult> {
-    return { output: `(dry-run) 已模拟执行：${step.title}` };
+    if (!step.tool) {
+      if (this.options?.requireToolBinding) {
+        throw new StepExecutionError(`步骤 ${step.id} 缺少 tool 绑定，无法 dry-run`);
+      }
+      return { output: `(dry-run) 已模拟执行：${step.title}` };
+    }
+    return {
+      output: `(dry-run) ${step.tool} ${JSON.stringify(step.toolInput ?? {})}`,
+    };
   }
 }

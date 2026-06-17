@@ -13,6 +13,8 @@ export interface ToolStepExecutorOptions {
   requestId?: string;
   allowedPermissions?: ToolPermission[];
   projectAllowedPermissions?: ToolPermission[];
+  /** 为 true 时，无 tool 绑定的步骤直接失败，禁止 no-op 跳过。 */
+  requireToolBinding?: boolean;
 }
 
 /**
@@ -38,6 +40,9 @@ export class ToolStepExecutor implements StepExecutor {
 
   async execute(step: PlanStep, ctx: StepContext): Promise<StepResult> {
     if (!step.tool) {
+      if (this.options.requireToolBinding) {
+        throw new StepExecutionError(`步骤 ${step.id} 缺少 tool 绑定，无法执行`);
+      }
       return { output: `（无绑定工具，跳过实际执行）${step.title}` };
     }
 

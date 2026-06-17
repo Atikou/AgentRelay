@@ -506,7 +506,7 @@
       "post": {
         "tags": ["计划与任务"],
         "summary": "将 UserVisiblePlan 中已确认 Todo 编译为内部执行计划草案",
-        "description": "通过 PlanCompileWorkflow 将已确认 UserVisibleTodo 编译为 awaiting_approval 的 InternalTaskPlan 草案，不会自动执行；执行前必须 approve。",
+        "description": "通过 PlanCompileWorkflow 将已确认 UserVisibleTodo 编译为 awaiting_approval 的 InternalTaskPlan 草案（Planner.generateExecutablePlan + planToolBinder 强制 tool/args 绑定；loadExecutable 拒绝无绑定步骤）。不会自动执行；执行前必须 approve。",
         "operationId": "compileUserVisiblePlan",
         "parameters": [{ "name": "userVisiblePlanId", "in": "path", "required": true, "schema": { "type": "string" } }],
         "requestBody": {
@@ -519,6 +519,77 @@
         },
         "responses": {
           "200": { "description": "待审批 InternalTaskPlan 草案预览", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PlanCompileResponse" } } } },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+    "/api/plans/{userVisiblePlanId}/activate": {
+      "post": {
+        "tags": ["计划与任务"],
+        "summary": "Plan Activation：编译并（条件允许时）审批、执行 UserVisiblePlan",
+        "description": "通过 PlanActivationWorkflow 将已确认 Todo 编译为 InternalTaskPlan，dry-run 或只读计划可 autoApprove；含 write/shell 副作用且无 autoApprove 时停在 awaiting_approval。支持 executionMode=static|agent_loop（后者每步委派 Agent ReAct 循环）。",
+        "operationId": "activateUserVisiblePlan",
+        "parameters": [{ "name": "userVisiblePlanId", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/PlanActivateRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "phase=compiled 或 executed", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PlanActivateResponse" } } } },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+    "/api/plans/{planId}": {
+      "get": {
+        "tags": ["计划与任务"],
+        "summary": "读取计划摘要与版本链",
+        "operationId": "getPlanSummary",
+        "parameters": [{ "name": "planId", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": {
+          "200": {
+            "description": "计划头信息与各版本状态",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/PlanSummaryResponse" }
+              }
+            }
+          },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+    "/api/plans/{planId}/revise": {
+      "post": {
+        "tags": ["计划与任务"],
+        "summary": "自然语言修订计划（同 planId 递增 version，旧版 superseded）",
+        "operationId": "revisePlan",
+        "parameters": [{ "name": "planId", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["revisionRequest"],
+                "properties": {
+                  "baseVersion": { "type": "integer" },
+                  "revisionRequest": { "type": "string" },
+                  "sessionId": { "type": "string" },
+                  "clientName": { "type": "string" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "新版本 awaiting_approval 草案", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PlanDraftResponse" } } } },
           "400": { "$ref": "#/components/responses/BadRequest" },
           "404": { "$ref": "#/components/responses/NotFound" }
         }
@@ -2644,7 +2715,15 @@
           "runId": { "type": "string" },
           "userVisiblePlan": { "$ref": "#/components/schemas/UserVisiblePlan" },
           "executionMeta": { "$ref": "#/components/schemas/AgentExecutionMeta" },
-          "warning": { "type": "string" }
+          "warning": { "type": "string" },
+          "nextAction": {
+            "type": "object",
+            "properties": {
+              "activate": { "type": "string" },
+              "compile": { "type": "string" }
+            }
+          },
+          "activation": { "type": "object", "additionalProperties": true }
         }
       },
       "PlanCompileRequest": {
@@ -2660,6 +2739,56 @@
         "properties": {
           "status": { "type": "string" },
           "sourceUserVisiblePlanId": { "type": "string" }
+        }
+      },
+      "PlanActivateRequest": {
+        "type": "object",
+        "properties": {
+          "confirmedTodoIds": { "type": "array", "items": { "type": "string" } },
+          "sessionId": { "type": "string" },
+          "dryRun": { "type": "boolean" },
+          "autoApprove": { "type": "boolean" },
+          "autoConfirm": { "type": "boolean" },
+          "executionMode": { "type": "string", "enum": ["static", "agent_loop"] },
+          "approvedBy": { "type": "string" },
+          "rollbackOnFailure": { "type": "boolean" },
+          "fallbackToPlanOnUncertainty": { "type": "boolean" },
+          "clientName": { "type": "string" }
+        }
+      },
+      "PlanActivateResponse": {
+        "type": "object",
+        "properties": {
+          "phase": { "type": "string", "enum": ["compiled", "executed"] },
+          "userVisiblePlanId": { "type": "string" },
+          "planId": { "type": "string" },
+          "version": { "type": "integer" },
+          "status": { "type": "string" },
+          "executionMode": { "type": "string" },
+          "dryRun": { "type": "boolean" },
+          "autoApproved": { "type": "boolean" },
+          "execution": { "type": "object", "additionalProperties": true },
+          "warning": { "type": "string" }
+        }
+      },
+      "PlanVersionSummary": {
+        "type": "object",
+        "properties": {
+          "version": { "type": "integer" },
+          "status": { "type": "string" },
+          "planHash": { "type": "string" },
+          "changeReason": { "type": "string", "nullable": true },
+          "createdAt": { "type": "string" }
+        }
+      },
+      "PlanSummaryResponse": {
+        "type": "object",
+        "properties": {
+          "planId": { "type": "string" },
+          "latestVersion": { "type": "integer" },
+          "status": { "type": "string" },
+          "goal": { "type": "string" },
+          "versions": { "type": "array", "items": { "$ref": "#/components/schemas/PlanVersionSummary" } }
         }
       },
       "PlanResponse": {

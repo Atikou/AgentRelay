@@ -5,7 +5,16 @@ export { PlanStore, type PlanRecord, type PlanApprovalRecord } from "./PlanStore
 export { PlanValidator, canTransition } from "./PlanValidator.js";
 export { attachPlanHash, computePlanHash } from "./planHash.js";
 export { internalPlanFromLegacy, legacyPlanFromInternal, toTaskRunnerPlan } from "./planConverter.js";
+export { bindPlanTools } from "./planToolBinder.js";
 export { PlanCompiler } from "./PlanCompiler.js";
+export { PlanActivationWorkflow, type PlanExecutionMode } from "./PlanActivationWorkflow.js";
+export { PlanRuntime } from "./PlanRuntime.js";
+export {
+  detectPlanActivationIntent,
+  defaultConfirmedTodoIds,
+  parseUserVisiblePlanIdFromMessage,
+} from "./planActivationIntent.js";
+export { canAutoApprovePlan, planRequiresHumanApproval } from "./planActivationPolicy.js";
 export { buildPlanAnalysisPrompt, renderUserVisiblePlan } from "./UserPlanRenderer.js";
 export type * from "./types.js";
 export {

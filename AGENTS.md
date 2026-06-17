@@ -6,12 +6,13 @@
 
 **AgentRelay** — 本地优先的 **Agent 编排后端**：模型路由、工具系统、计划/任务与自主对话循环；后续可接入桌面端、STT/TTS。当前处于早期实现阶段。
 
-- 设计目标与全量能力清单：`agent-todolist.md`
+- 设计目标与全量能力清单：`agent-todolist.md`（实现进度，**非验收依据**）
+- **人类验收唯一清单**：`docs/项目验收清单.md`（大模块 / Agent 模式 / 计划模式等，**仅你可勾选**）
 - 落地路线（技术选型 + 8 个里程碑 + 代码骨架）：`Agent_TS_实现指南_修订版.md`
 - **模型路由升级待办**（V1→V9 扫描 + 下一阶段 P0/P1）：`docs/模型路由升级TodoList.md`（改 `model-router` / `model-orchestrator` 前必读）
 - 可运行代码：`agent-relay/`（npm 包名 `agent-relay`，TypeScript / Node.js）
 
-> 改动前请对照这两份设计文档，保持方向一致；如与文档冲突，应先更新文档再改代码。
+> 改动前请对照设计文档，保持方向一致；**模块是否可验收以 `docs/项目验收清单.md` 为准**（仅人类勾选），不得用本文件「当前进度」或 `agent-todolist.md` 的 `[x]` 代替验收。
 
 ## 仓库结构
 

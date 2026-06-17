@@ -922,6 +922,136 @@ body {
 }
 .plan-actions {
   display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+  align-items: center;
+}
+.plan-workflow-panel {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.plan-workflow-head h2 {
+  margin: 0 0 4px;
+  font-size: 18px;
+}
+.plan-workflow-head p {
+  margin: 0;
+  color: var(--text-soft);
+  font-size: 13px;
+}
+.plan-workflow-steps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.plan-workflow-step {
+  font-size: 12px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  color: var(--text-soft);
+  background: var(--surface);
+}
+.plan-workflow-step.active {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+.plan-workflow-step.done {
+  border-color: color-mix(in srgb, var(--success, #2d8a4e) 40%, var(--border));
+  color: var(--success, #2d8a4e);
+}
+.plan-workflow-section {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+  background: var(--surface);
+}
+.plan-workflow-section h3 {
+  margin: 0 0 10px;
+  font-size: 15px;
+}
+.plan-workflow-section.disabled {
+  opacity: 0.55;
+  pointer-events: none;
+}
+.plan-todo-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 10px 0;
+}
+.plan-todo-item {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-elevated, var(--surface));
+}
+.plan-todo-item input {
+  margin-top: 3px;
+}
+.plan-todo-meta {
+  font-size: 12px;
+  color: var(--text-soft);
+  margin-top: 2px;
+}
+.plan-version-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 10px;
+  font-size: 13px;
+}
+.plan-version-bar select {
+  min-width: 120px;
+}
+.plan-status-badge {
+  display: inline-block;
+  font-size: 12px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  color: var(--text-soft);
+}
+.plan-markdown-preview.markdown-body {
+  max-height: 420px;
+  overflow: auto;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-elevated, var(--surface));
+  white-space: normal;
+}
+.plan-revise-box {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 12px;
+}
+.plan-revise-box textarea {
+  min-height: 72px;
+  resize: vertical;
+  font-family: inherit;
+  font-size: 13px;
+  padding: 8px 10px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+}
+.plan-warn {
+  color: var(--warn, #b8860b);
+  font-size: 13px;
+  margin: 8px 0 0;
+}
+  display: flex;
   align-items: center;
   gap: 14px;
   margin-top: 12px;

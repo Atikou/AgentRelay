@@ -1,8 +1,10 @@
+import type { Planner } from "./Planner.js";
 import type { ApiResult } from "../orchestrator/Orchestrator.js";
 import type { PlanService } from "../plan/PlanService.js";
 
 export interface PlanCompileWorkflowOptions {
   planService: Pick<PlanService, "compileUserVisiblePlan">;
+  planner?: Planner;
 }
 
 export interface PlanCompileWorkflowInput {
@@ -19,11 +21,12 @@ export interface PlanCompileWorkflowInput {
 export class PlanCompileWorkflow {
   constructor(private readonly options: PlanCompileWorkflowOptions) {}
 
-  run(input: PlanCompileWorkflowInput): ApiResult {
-    const draft = this.options.planService.compileUserVisiblePlan({
+  async run(input: PlanCompileWorkflowInput): Promise<ApiResult> {
+    const draft = await this.options.planService.compileUserVisiblePlan({
       userVisiblePlanId: input.userVisiblePlanId,
       confirmedTodoIds: input.confirmedTodoIds,
       sessionId: input.sessionId,
+      planner: this.options.planner,
     });
     return {
       status: 200,

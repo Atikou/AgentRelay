@@ -1,5 +1,7 @@
 # 完整 Agent 实现 Todolist
 
+> **⚠️ 与验收解耦**：本文件跟踪**实现进度**（开发 Agent 可勾 `[x]`）。**你是否验收通过只看 [`docs/项目验收清单.md`](docs/项目验收清单.md)**——该清单**仅限人类勾选**；子项代码落地不得冒充模块验收。
+
 ## 目标
 
 实现一个可长期运行、可扩展、可观测的完整 Agent 系统，支持本地模型与远程模型协同使用，具备计划、执行、子任务派生、上下文管理、后台命令、通知队列和定时触发能力。
@@ -40,7 +42,7 @@
   - [x] 根据计划执行文件修改、命令运行、测试验证和结果汇报。（步骤绑定 tool 经注册表执行；dry-run 仍保留）
   - [x] 支持任务中断、继续、重试和回滚策略。（`rollbackOnFailure` 显式开启时逆序 `rollback_change`）
 - [x] 支持模式切换。
-  - [x] 从计划模式进入任务模式。
+  - [x] 从计划模式进入任务模式。（`PlanActivationWorkflow`：analyze/activate 一键 compile→execute；Chat「开始执行」触发）
   - [x] 遇到不确定性时从任务模式回到计划模式。（`fallbackToPlanOnUncertainty` → `modeFallback.revisedPlan`）
   - [x] 支持用户强制切换模式。
 - [x] 为不同模式设置不同权限边界。（`RunPolicy`：plan/review 在执行层只读，chat/implement/debug 保持任务权限边界）
@@ -82,7 +84,7 @@
 - [x] `planWorkflow` 用户可见计划报告进入工作流层：`PlanReportWorkflow` 调用只读 Agent 生成 Markdown 并通过 `PlanService.saveUserVisiblePlan` 保存，HTTP handler 只做参数校验与模型选择。
 
 - [x] 已审批计划执行进入工作流层：`TaskExecutionWorkflow` 统一封装执行与 resume 的 `TaskRunner` / `ToolStepExecutor` / `DryRunExecutor` 装配，Orchestrator 保留 Run/Task 持久化、回滚与 fallback。
-- [x] `planWorkflow` 编译阶段进入工作流层：`PlanCompileWorkflow` 将已确认 `UserVisibleTodo` 编译为 awaiting_approval `InternalTaskPlan` 草案，仍需 approve 后 execute。
+- [x] `planWorkflow` 编译阶段进入工作流层：`PlanCompileWorkflow` 将已确认 `UserVisibleTodo` 编译为 awaiting_approval `InternalTaskPlan` 草案（`Planner.generateExecutablePlan` + `planToolBinder` 绑定 tool；`assertToolBindings` 拦截 no-op），仍需 approve 后 execute。
 
 ## 5. 子 Agent 派生
 

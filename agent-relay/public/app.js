@@ -1779,30 +1779,75 @@ async function handleRunReports() {
   await loadRuns();
 }
 
-const STATUS_LABEL = {
-  pending: "待执行",
+const PLAN_STATUS_LABEL = {
+  draft: "草案",
+  validated: "已校验",
+  awaiting_approval: "待审批",
+  approved: "已审批",
+  scheduled: "已排程",
   running: "执行中",
-  blocked: "已阻塞",
   completed: "已完成",
-  failed: "失败",
+  rejected: "已拒绝",
   cancelled: "已取消",
+  failed: "失败",
+  paused: "已暂停",
+  superseded: "已替代",
+  rollback_required: "需回滚",
+  rolled_back: "已回滚",
 };
 
-function renderPlanPreview(data) {
-  clearWelcome();
-  const card = document.createElement("div");
+function setWorkflowStepState(steps, activeIndex) {
+  steps.forEach((el, index) => {
+    el.classList.toggle("active", index === activeIndex);
+    el.classList.toggle("done", index < activeIndex);
+  });
+}
+
+async function fetchPlanSummary(planId) {
+  return api(`/api/plans/${encodeURIComponent(planId)}`);
+}
+
+async function fetchPlanPreviewContent(planId, version, format = "markdown") {
+  const data = await api(
+    `/api/plans/${encodeURIComponent(planId)}/preview?version=${version}&format=${format}`,
+  );
+  return data.content ?? "";
+}
+
+function mountInternalPlanPreviewCard(card, data, hooks = {}) {
   card.className = "plan-card";
   card.dataset.planId = data.planId ?? "";
   card.dataset.planVersion = String(data.version ?? 1);
+  card.innerHTML = "";
 
-  if (data.previewMarkdown) {
-    const pre = document.createElement("pre");
-    pre.className = "plan-markdown-preview";
-    pre.textContent = data.previewMarkdown;
-    card.appendChild(pre);
-  } else if (data.publicPlanJson) {
-    card.appendChild(document.createTextNode(JSON.stringify(data.publicPlanJson, null, 2)));
+  const versionBar = document.createElement("div");
+  versionBar.className = "plan-version-bar";
+  const statusBadge = document.createElement("span");
+  statusBadge.className = "plan-status-badge";
+  statusBadge.textContent = `${PLAN_STATUS_LABEL[data.status] || data.status || "未知"} · v${data.version ?? 1}`;
+  versionBar.appendChild(statusBadge);
+  if (data.planId) {
+    const idSpan = document.createElement("span");
+    idSpan.className = "plan-perms";
+    idSpan.textContent = `planId: ${data.planId}`;
+    versionBar.appendChild(idSpan);
   }
+  const versionSelect = document.createElement("select");
+  versionSelect.className = "plan-version-select";
+  versionSelect.hidden = true;
+  versionBar.appendChild(versionSelect);
+  card.appendChild(versionBar);
+
+  const previewBox = document.createElement("div");
+  previewBox.className = "plan-markdown-preview";
+  card.appendChild(previewBox);
+
+  const jsonToggle = document.createElement("button");
+  jsonToggle.type = "button";
+  jsonToggle.className = "action-btn secondary";
+  jsonToggle.textContent = "查看 PublicPlanJson";
+  jsonToggle.hidden = !data.publicPlanJson;
+  card.appendChild(jsonToggle);
 
   if (data.warning) {
     const warn = document.createElement("p");
@@ -1816,59 +1861,515 @@ function renderPlanPreview(data) {
   const autoLabel = document.createElement("label");
   autoLabel.className = "field";
   autoLabel.innerHTML = '<input type="checkbox" class="auto-confirm" checked /> <span>自动确认高风险步骤（dry-run）</span>';
-  const runBtn = document.createElement("button");
-  runBtn.className = "action-btn";
-  runBtn.textContent = "dry-run 执行（planId）";
   const approveBtn = document.createElement("button");
+  approveBtn.type = "button";
   approveBtn.className = "action-btn secondary";
-  approveBtn.textContent = "审批计划";
-  actions.appendChild(autoLabel);
-  actions.appendChild(approveBtn);
-  actions.appendChild(runBtn);
+  approveBtn.textContent = "审批";
+  const rejectBtn = document.createElement("button");
+  rejectBtn.type = "button";
+  rejectBtn.className = "action-btn secondary";
+  rejectBtn.textContent = "拒绝";
+  const dryRunBtn = document.createElement("button");
+  dryRunBtn.type = "button";
+  dryRunBtn.className = "action-btn";
+  dryRunBtn.textContent = "dry-run 执行";
+  const execBtn = document.createElement("button");
+  execBtn.type = "button";
+  execBtn.className = "action-btn";
+  execBtn.textContent = "正式执行";
+  actions.append(approveBtn, rejectBtn, dryRunBtn, execBtn, autoLabel);
   card.appendChild(actions);
 
+  const reviseBox = document.createElement("div");
+  reviseBox.className = "plan-revise-box";
+  reviseBox.innerHTML = `
+    <label class="field"><span>修订说明（自然语言）</span></label>
+    <textarea class="plan-revise-input" placeholder="例如：把第 2 步改成先写测试再实现"></textarea>
+    <button type="button" class="action-btn secondary plan-revise-btn">生成修订版（version++）</button>`;
+  card.appendChild(reviseBox);
+
+  let showingJson = false;
+  let current = { ...data };
+
+  async function paintPreview() {
+    statusBadge.textContent = `${PLAN_STATUS_LABEL[current.status] || current.status || "未知"} · v${current.version ?? 1}`;
+    card.dataset.planVersion = String(current.version ?? 1);
+    if (showingJson && current.publicPlanJson) {
+      previewBox.classList.remove("markdown-body");
+      previewBox.textContent = JSON.stringify(current.publicPlanJson, null, 2);
+      return;
+    }
+    const markdown =
+      current.previewMarkdown ||
+      (current.planId
+        ? await fetchPlanPreviewContent(current.planId, current.version ?? 1, "markdown").catch(() => "")
+        : "");
+    renderMarkdownInto(previewBox, markdown || "（无 Markdown 预览）");
+  }
+
+  async function loadVersions() {
+    if (!current.planId) return;
+    const summary = await fetchPlanSummary(current.planId);
+    const versions = summary.versions || [];
+    versionSelect.innerHTML = "";
+    for (const v of versions) {
+      const opt = document.createElement("option");
+      opt.value = String(v.version);
+      opt.textContent = `v${v.version} · ${PLAN_STATUS_LABEL[v.status] || v.status}`;
+      if (v.version === current.version) opt.selected = true;
+      versionSelect.appendChild(opt);
+    }
+    versionSelect.hidden = versions.length <= 1;
+    current.status = summary.status ?? current.status;
+  }
+
+  versionSelect.addEventListener("change", async () => {
+    const version = Number(versionSelect.value);
+    if (!current.planId || !version) return;
+    current.version = version;
+    const record = await fetchPlanSummary(current.planId);
+    const picked = record.versions?.find((v) => v.version === version);
+    current.status = picked?.status ?? current.status;
+    current.previewMarkdown = await fetchPlanPreviewContent(current.planId, version, "markdown");
+    showingJson = false;
+    jsonToggle.textContent = "查看 PublicPlanJson";
+    await paintPreview();
+    hooks.onVersionChange?.(current);
+  });
+
+  jsonToggle.addEventListener("click", async () => {
+    showingJson = !showingJson;
+    jsonToggle.textContent = showingJson ? "查看 Markdown" : "查看 PublicPlanJson";
+    if (showingJson && current.planId && !current.publicPlanJson) {
+      try {
+        const jsonText = await fetchPlanPreviewContent(current.planId, current.version ?? 1, "json");
+        current.publicPlanJson = JSON.parse(jsonText);
+      } catch {
+        current.publicPlanJson = current.publicPlanJson ?? null;
+      }
+    }
+    await paintPreview();
+  });
+
   approveBtn.addEventListener("click", async () => {
-    if (!data.planId) return;
+    if (!current.planId) return;
     try {
-      await api(`/api/plans/${data.planId}/approve`, {
+      await api(`/api/plans/${current.planId}/approve`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ version: data.version ?? 1, comment: "测试台审批" }),
+        body: JSON.stringify({ version: current.version ?? 1, comment: "测试台审批" }),
       });
-      addMessage("system", "计划已审批");
+      current.status = "approved";
+      await paintPreview();
+      hooks.onStatusChange?.(current);
+      addMessage("system", `计划 v${current.version} 已审批`);
     } catch (err) {
       addSystemError(String(err.message || err));
     }
   });
 
-  runBtn.addEventListener("click", async () => {
-    if (!data.planId) return;
-    runBtn.disabled = true;
+  rejectBtn.addEventListener("click", async () => {
+    if (!current.planId) return;
+    const comment = window.prompt("拒绝原因（可选）", "") ?? "";
     try {
-      await api(`/api/plans/${data.planId}/approve`, {
+      await api(`/api/plans/${current.planId}/reject`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ version: data.version ?? 1 }),
-      }).catch(() => undefined);
-      const exec = await api(`/api/plans/${data.planId}/execute`, {
+        body: JSON.stringify({ version: current.version ?? 1, comment }),
+      });
+      current.status = "rejected";
+      await paintPreview();
+      hooks.onStatusChange?.(current);
+      addMessage("system", `计划 v${current.version} 已拒绝`);
+    } catch (err) {
+      addSystemError(String(err.message || err));
+    }
+  });
+
+  async function runExecute(dryRun) {
+    if (!current.planId) return;
+    const btn = dryRun ? dryRunBtn : execBtn;
+    btn.disabled = true;
+    try {
+      if (current.status !== "approved") {
+        await api(`/api/plans/${current.planId}/approve`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ version: current.version ?? 1 }),
+        }).catch(() => undefined);
+      }
+      const exec = await api(`/api/plans/${current.planId}/execute`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          version: data.version ?? 1,
-          dryRun: true,
+          version: current.version ?? 1,
+          dryRun,
           autoConfirm: autoLabel.querySelector("input").checked,
+          sessionId: activeSessionId,
         }),
       });
-      addMessage("system", `dry-run 完成 runId=${exec.runId ?? ""}`);
+      addMessage("system", `${dryRun ? "dry-run" : "正式"}执行完成 · runId=${exec.runId ?? ""}`);
+      hooks.onExecuted?.(exec, current);
     } catch (err) {
       addSystemError(String(err.message || err));
     } finally {
-      runBtn.disabled = false;
+      btn.disabled = false;
+    }
+  }
+
+  dryRunBtn.addEventListener("click", () => void runExecute(true));
+  execBtn.addEventListener("click", () => void runExecute(false));
+
+  reviseBox.querySelector(".plan-revise-btn")?.addEventListener("click", async () => {
+    if (!current.planId) return;
+    const revisionRequest = reviseBox.querySelector(".plan-revise-input")?.value?.trim();
+    if (!revisionRequest) {
+      addSystemError("请填写修订说明");
+      return;
+    }
+    const reviseBtn = reviseBox.querySelector(".plan-revise-btn");
+    reviseBtn.disabled = true;
+    try {
+      const revised = await api(`/api/plans/${current.planId}/revise`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          baseVersion: current.version ?? 1,
+          revisionRequest,
+          sessionId: activeSessionId,
+          clientName: modelSelect.value === "__default__" ? undefined : modelSelect.value,
+        }),
+      });
+      current = { ...current, ...revised };
+      showingJson = false;
+      await loadVersions();
+      await paintPreview();
+      reviseBox.querySelector(".plan-revise-input").value = "";
+      hooks.onRevised?.(current);
+      addMessage("system", `已生成修订版 v${current.version}（v${revised.supersededVersion} 已标记 superseded）`);
+    } catch (err) {
+      addSystemError(String(err.message || err));
+    } finally {
+      reviseBtn.disabled = false;
     }
   });
 
+  void loadVersions()
+    .then(() => paintPreview())
+    .catch(() => paintPreview());
+
+  return {
+    update(next) {
+      current = { ...current, ...next };
+      void loadVersions()
+        .then(() => paintPreview())
+        .catch(() => paintPreview());
+    },
+    getCurrent() {
+      return { ...current };
+    },
+  };
+}
+
+function renderPlanPreview(data) {
+  clearWelcome();
+  const card = document.createElement("div");
+  mountInternalPlanPreviewCard(card, data);
   addMessage("system", card);
 }
+
+async function handlePlanWorkflow() {
+  clearWelcome();
+  const panel = document.createElement("div");
+  panel.className = "plan-workflow-panel plan-card";
+
+  const head = document.createElement("div");
+  head.className = "plan-workflow-head";
+  head.innerHTML = `
+    <h2>计划全流程</h2>
+    <p>分析 → 审阅 Todo → 编译 / <strong>一键激活</strong> → 审批 → 执行；支持版本切换与自然语言修订。</p>`;
+  panel.appendChild(head);
+
+  const stepRow = document.createElement("div");
+  stepRow.className = "plan-workflow-steps";
+  const stepLabels = ["① 只读分析", "② 审阅 Todo", "③ 编译草案", "④ 审批 / 执行", "⑤ 修订"];
+  const stepEls = stepLabels.map((label) => {
+    const el = document.createElement("span");
+    el.className = "plan-workflow-step";
+    el.textContent = label;
+    stepRow.appendChild(el);
+    return el;
+  });
+  panel.appendChild(stepRow);
+  setWorkflowStepState(stepEls, 0);
+
+  const state = { userVisiblePlan: null, internalDraft: null };
+
+  const sectionAnalyze = document.createElement("section");
+  sectionAnalyze.className = "plan-workflow-section";
+  sectionAnalyze.innerHTML = `
+    <h3>① 只读分析（UserVisiblePlan）</h3>
+    <label class="field"><span>目标</span></label>
+    <textarea class="plan-goal-input" rows="3" placeholder="描述你想规划的任务，例如：只读分析项目架构并给出分阶段改造计划"></textarea>
+    <div class="plan-actions">
+      <button type="button" class="action-btn plan-analyze-btn">生成计划报告</button>
+    </div>
+    <p class="plan-perms">调用 POST /api/plans/analyze，产出 Markdown + TodoList，不可直接执行。</p>`;
+  panel.appendChild(sectionAnalyze);
+
+  const sectionReview = document.createElement("section");
+  sectionReview.className = "plan-workflow-section disabled";
+  sectionReview.innerHTML = `<h3>② 审阅 Todo</h3><div class="plan-review-body"></div>`;
+  panel.appendChild(sectionReview);
+
+  const sectionCompile = document.createElement("section");
+  sectionCompile.className = "plan-workflow-section disabled";
+  sectionCompile.innerHTML = `
+    <h3>③ 编译内部计划</h3>
+    <p class="plan-perms">将勾选的 Todo 编译为 awaiting_approval 的 InternalTaskPlan 草案。</p>
+    <div class="plan-actions">
+      <button type="button" class="action-btn plan-compile-btn">编译选中 Todo</button>
+      <button type="button" class="action-btn secondary plan-activate-dry-btn">一键 dry-run 激活（P0）</button>
+      <button type="button" class="action-btn plan-activate-btn">一键激活执行（Agent Loop）</button>
+    </div>`;
+  panel.appendChild(sectionCompile);
+
+  const sectionInternal = document.createElement("section");
+  sectionInternal.className = "plan-workflow-section disabled";
+  sectionInternal.innerHTML = `<h3>④ 内部计划预览 / 审批 / 执行</h3><div class="plan-internal-host"></div>`;
+  panel.appendChild(sectionInternal);
+
+  const sectionRevise = document.createElement("section");
+  sectionRevise.className = "plan-workflow-section disabled";
+  sectionRevise.innerHTML = `<h3>⑤ 版本与修订</h3><p class="plan-perms">在下方内部计划卡片中使用「生成修订版」；旧版本将标记为 superseded。</p>`;
+  panel.appendChild(sectionRevise);
+
+  const reviewBody = sectionReview.querySelector(".plan-review-body");
+  const internalHost = sectionInternal.querySelector(".plan-internal-host");
+  let internalController = null;
+
+  function enableFrom(index) {
+    const sections = [sectionAnalyze, sectionReview, sectionCompile, sectionInternal, sectionRevise];
+    sections.forEach((section, i) => {
+      section.classList.toggle("disabled", i > index);
+    });
+    setWorkflowStepState(stepEls, index);
+  }
+
+  function renderUserVisibleReview(plan) {
+    reviewBody.innerHTML = "";
+    const title = document.createElement("div");
+    title.className = "plan-goal";
+    title.textContent = plan.title || "用户可见计划";
+    reviewBody.appendChild(title);
+
+    const md = document.createElement("div");
+    md.className = "plan-markdown-preview";
+    renderMarkdownInto(md, plan.markdown || "");
+    reviewBody.appendChild(md);
+
+    const todoList = document.createElement("div");
+    todoList.className = "plan-todo-list";
+    for (const todo of plan.todos || []) {
+      const row = document.createElement("label");
+      row.className = "plan-todo-item";
+      row.innerHTML = `
+        <input type="checkbox" class="plan-todo-check" value="${escapeHtml(todo.id)}" checked />
+        <div>
+          <strong>${escapeHtml(todo.priority)} · ${escapeHtml(todo.title)}</strong>
+          <div class="plan-todo-meta">${escapeHtml(todo.goal || todo.implementationIdea || "")}</div>
+        </div>`;
+      todoList.appendChild(row);
+    }
+    reviewBody.appendChild(todoList);
+
+    const reportRevise = document.createElement("div");
+    reportRevise.className = "plan-revise-box";
+    reportRevise.innerHTML = `
+      <label class="field"><span>修订报告（重新分析）</span></label>
+      <textarea class="plan-report-revise-input" placeholder="例如：补充性能优化相关 Todo"></textarea>
+      <button type="button" class="action-btn secondary plan-report-revise-btn">按修订说明重新分析</button>`;
+    reviewBody.appendChild(reportRevise);
+
+    reportRevise.querySelector(".plan-report-revise-btn")?.addEventListener("click", async () => {
+      const extra = reportRevise.querySelector(".plan-report-revise-input")?.value?.trim();
+      const goalInput = sectionAnalyze.querySelector(".plan-goal-input");
+      const baseGoal = goalInput?.value?.trim() || plan.title;
+      const goal = extra ? `${baseGoal}\n\n修订要求：${extra}` : baseGoal;
+      if (goalInput) goalInput.value = goal;
+      sectionAnalyze.querySelector(".plan-analyze-btn")?.click();
+    });
+  }
+
+  function showInternalDraft(draft) {
+    state.internalDraft = draft;
+    internalHost.innerHTML = "";
+    const card = document.createElement("div");
+    internalController = mountInternalPlanPreviewCard(card, draft, {
+      onRevised(next) {
+        state.internalDraft = next;
+        enableFrom(4);
+      },
+    });
+    internalHost.appendChild(card);
+    enableFrom(3);
+  }
+
+  sectionAnalyze.querySelector(".plan-analyze-btn")?.addEventListener("click", async () => {
+    const goal = sectionAnalyze.querySelector(".plan-goal-input")?.value?.trim();
+    if (!goal) {
+      addSystemError("请填写分析目标");
+      return;
+    }
+    const btn = sectionAnalyze.querySelector(".plan-analyze-btn");
+    btn.disabled = true;
+    btn.textContent = "分析中…";
+    try {
+      const data = await api("/api/plans/analyze", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          goal,
+          sessionId: activeSessionId,
+          clientName: modelSelect.value === "__default__" ? undefined : modelSelect.value,
+        }),
+      });
+      state.userVisiblePlan = data.userVisiblePlan;
+      if (data.sessionId) {
+        setActiveSessionId(data.sessionId);
+        void loadHistorySessions();
+      }
+      renderUserVisibleReview(state.userVisiblePlan);
+      enableFrom(1);
+      addMessage("system", `UserVisiblePlan 已生成：${state.userVisiblePlan.id}`);
+    } catch (err) {
+      addSystemError(String(err.message || err));
+    } finally {
+      btn.disabled = false;
+      btn.textContent = "生成计划报告";
+    }
+  });
+
+  async function runPlanActivate({ dryRun, autoApprove, executionMode, label, btnSelector }) {
+    if (!state.userVisiblePlan?.id) {
+      addSystemError("请先生成用户可见计划");
+      return;
+    }
+    const selected = [...sectionReview.querySelectorAll(".plan-todo-check:checked")].map(
+      (el) => el.value,
+    );
+    if (selected.length === 0) {
+      addSystemError("请至少勾选一个 Todo");
+      return;
+    }
+    const btn = sectionCompile.querySelector(btnSelector);
+    btn.disabled = true;
+    const prev = btn.textContent;
+    btn.textContent = `${label}…`;
+    try {
+      const data = await api(`/api/plans/${state.userVisiblePlan.id}/activate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          confirmedTodoIds: selected,
+          sessionId: activeSessionId,
+          dryRun,
+          autoApprove,
+          autoConfirm: dryRun,
+          executionMode,
+        }),
+      });
+      if (data.phase === "compiled") {
+        showInternalDraft(data);
+        addMessage("system", `已编译 v${data.version}（待审批）；含副作用步骤须手动 approve`);
+      } else {
+        if (data.planId) {
+          showInternalDraft({
+            planId: data.planId,
+            version: data.version,
+            status: data.status,
+            previewMarkdown: data.execution?.plan
+              ? `执行完成：${data.execution.plan.steps?.filter((s) => s.status === "completed").length ?? 0} 步`
+              : "执行完成",
+          });
+        }
+        addMessage("system", `计划已激活执行（${executionMode}，dryRun=${dryRun}）`);
+        enableFrom(4);
+      }
+    } catch (err) {
+      addSystemError(String(err.message || err));
+    } finally {
+      btn.disabled = false;
+      btn.textContent = prev;
+    }
+  }
+
+  sectionCompile.querySelector(".plan-compile-btn")?.addEventListener("click", async () => {
+    if (!state.userVisiblePlan?.id) {
+      addSystemError("请先生成用户可见计划");
+      return;
+    }
+    const selected = [...sectionReview.querySelectorAll(".plan-todo-check:checked")].map(
+      (el) => el.value,
+    );
+    if (selected.length === 0) {
+      addSystemError("请至少勾选一个 Todo");
+      return;
+    }
+    const btn = sectionCompile.querySelector(".plan-compile-btn");
+    btn.disabled = true;
+    btn.textContent = "编译中…";
+    try {
+      const draft = await api(`/api/plans/${state.userVisiblePlan.id}/compile`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          confirmedTodoIds: selected,
+          sessionId: activeSessionId,
+        }),
+      });
+      showInternalDraft(draft);
+      addMessage("system", `内部计划草案 v${draft.version} 已生成（待审批）`);
+    } catch (err) {
+      addSystemError(String(err.message || err));
+    } finally {
+      btn.disabled = false;
+      btn.textContent = "编译选中 Todo";
+    }
+  });
+
+  sectionCompile.querySelector(".plan-activate-dry-btn")?.addEventListener("click", () =>
+    runPlanActivate({
+      dryRun: true,
+      autoApprove: true,
+      executionMode: "static",
+      label: "dry-run 激活",
+      btnSelector: ".plan-activate-dry-btn",
+    }),
+  );
+
+  sectionCompile.querySelector(".plan-activate-btn")?.addEventListener("click", () =>
+    runPlanActivate({
+      dryRun: false,
+      autoApprove: false,
+      executionMode: "agent_loop",
+      label: "激活执行",
+      btnSelector: ".plan-activate-btn",
+    }),
+  );
+
+  addMessage("system", panel);
+  messageInput.focus();
+}
+
+const STATUS_LABEL = {
+  pending: "待执行",
+  running: "执行中",
+  blocked: "已阻塞",
+  completed: "已完成",
+  failed: "失败",
+  cancelled: "已取消",
+};
 
 function renderPlan(plan) {
   clearWelcome();
@@ -3124,6 +3625,8 @@ document.querySelector(".sidebar").addEventListener("click", async (e) => {
     await handleStorage();
   } else if (action === "scheduler") {
     await handleScheduler();
+  } else if (action === "plan-workflow") {
+    await handlePlanWorkflow();
   } else if (action === "refresh-models") {
     const rows = await refreshModels();
     if (rows) {

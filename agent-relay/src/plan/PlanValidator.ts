@@ -62,7 +62,32 @@ export class PlanValidator {
         `计划状态 ${plan.status} 不可执行，需要 approved 或 scheduled`,
       );
     }
+    this.assertToolBindings(plan);
     this.validateHash(plan, expectedHash);
+  }
+
+  /** 执行前强制：每步须为可调用 tool_call，禁止无 tool 的 no-op 步骤。 */
+  assertToolBindings(plan: InternalTaskPlan): void {
+    if (plan.steps.length === 0) {
+      throw new PlanValidationError("MISSING_TOOL_BINDING", "计划至少包含一个可执行步骤");
+    }
+    for (const step of plan.steps) {
+      if (step.type !== "tool_call" || !step.toolName) {
+        throw new PlanValidationError(
+          "MISSING_TOOL_BINDING",
+          `步骤 ${step.stepId} 缺少 tool 绑定（type=tool_call 且 toolName 必填）`,
+        );
+      }
+      if (!step.args || Object.keys(step.args).length === 0) {
+        throw new PlanValidationError(
+          "MISSING_TOOL_BINDING",
+          `步骤 ${step.stepId} 缺少 toolInput/args`,
+        );
+      }
+      if (!this.options.registry.get(step.toolName)) {
+        throw new PlanValidationError("UNKNOWN_TOOL", `未知工具：${step.toolName}`);
+      }
+    }
   }
 
   rejectPublicPreview(input: unknown): void {

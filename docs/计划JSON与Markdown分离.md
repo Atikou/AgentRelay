@@ -59,10 +59,17 @@ flowchart TD
 
 ```http
 POST /api/plans/import-preview
-{ "preview": { ... }, "goal": "可选新目标" }
+{ "preview": { ... }, "goal": "可选新目标", "planId": "可选，保留版本链", "baseVersion": 1 }
 ```
 
-系统会生成**新版本** InternalTaskPlan（`origin: import_preview`），旧版本可标记 `superseded`，仍需重新审批才能执行。
+系统会生成**新版本** InternalTaskPlan（`origin: import_preview` 或 `revision`），指定 `planId` 时旧版本标记 `superseded`，仍需重新审批才能执行。
+
+自然语言修订：
+
+```http
+POST /api/plans/:planId/revise
+{ "baseVersion": 1, "revisionRequest": "把第 2 步改成先写测试" }
+```
 
 ## HTTP API 摘要
 
@@ -70,11 +77,14 @@ POST /api/plans/import-preview
 | --- | --- | --- |
 | POST | `/api/agent` + `mode=plan` | 给用户看的只读计划分析报告，可输出 Markdown |
 | POST | `/api/plans/analyze` | 生成并持久化 UserVisiblePlan（Markdown + TodoList），不可直接执行 |
-| POST | `/api/plans/:userVisiblePlanId/compile` | 将用户确认的 Todo 编译为待审批 InternalTaskPlan 草案 |
+| POST | `/api/plans/:userVisiblePlanId/compile` | 将用户确认的 Todo 编译为待审批 InternalTaskPlan 草案（**语义编译**：Planner 可执行计划 + `planToolBinder` 兜底绑定 tool/args） |
+| POST | `/api/plans/:userVisiblePlanId/activate` | **Plan Activation**：compile →（条件允许时 autoApprove）→ execute；支持 `dryRun` / `executionMode: static\|agent_loop` / `autoActivate` 同 analyze |
 | POST | `/api/plan` | 兼容入口：生成机器计划草案并持久化，返回预览（非完整内部计划）；拒绝报告型 Markdown prompt |
 | POST | `/api/plans/draft` | 同上，显式 draft 语义 |
 | GET | `/api/plans/:planId/preview?format=markdown\|json` | 读取已存预览，`executable: false` |
 | POST | `/api/plans/:planId/approve` | 审批 → `approved` |
+| GET | `/api/plans/:planId` | 计划摘要与版本链（各 version 状态 / planHash） |
+| POST | `/api/plans/:planId/revise` | 自然语言修订：同 planId 递增 version，旧版 `superseded` |
 | POST | `/api/plans/:planId/reject` | 拒绝 → `rejected`（不可再 `loadExecutable`） |
 | POST | `/api/plans/:planId/execute` | **仅** `{ version, autoConfirm?, ... }` |
 | POST | `/api/plans/import-preview` | 外部预览 → 新修订草案 |
@@ -92,13 +102,21 @@ POST /api/plans/import-preview
 
 ## 测试台行为
 
-主页面顶部模式中的「计划报告」走 `/api/agent` + `mode=plan`，用于只读分析与 Markdown 答复，不生成可执行计划。机器计划草案入口仍展示 `previewMarkdown`；「干跑」在拿到 `planId` 后走 `approve` + `execute`（或 dry-run 兼容路径）。真实「运行任务」必须使用 PlanStore 中的已审批版本。
+侧栏 **「计划工作流」** 提供全流程 UI：
+
+1. **只读分析** — `POST /api/plans/analyze` → `UserVisiblePlan`（Markdown + Todo）
+2. **审阅 Todo** — 勾选待编译项，可「按修订说明重新分析」
+3. **编译草案** — `POST /api/plans/:userVisiblePlanId/compile` → `awaiting_approval` InternalTaskPlan
+4. **审批 / 执行** — `approve` / `reject` / `execute`（dry-run 或正式），仅传 `planId + version`
+5. **版本与修订** — `GET /api/plans/:planId` 查看版本链；`POST /api/plans/:planId/revise` 自然语言修订（旧版 `superseded`）
+
+主输入区「强制计划」仍走 `/api/agent` + `mode=plan`（只读分析报告，不直接进执行链）。机器计划草案入口展示 `previewMarkdown`；真实执行必须使用 PlanStore 中已审批版本。
 
 ## 已知缺口（后续）
 
 - 高风险步骤在非 dry-run 下强制人工审批（当前 dry-run 仍 auto-approve legacy plan）。
 - 规范 §14 专用 trace 事件名（`plan.drafted` 等），当前为泛型 `plan_event`。
-- 用户 UI 上的计划拒绝 / 修订链可视化。
+- `task_plan_run_steps` 逐步执行审计表。
 
 ## 参考
 

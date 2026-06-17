@@ -58,7 +58,7 @@ test("compiles confirmed todos into an awaiting approval draft", async () => {
     }),
   );
 
-  const result = workflow.run({
+  const result = await workflow.run({
     userVisiblePlanId: visible.id,
     confirmedTodoIds: [visible.todos[0]!.id],
   });
@@ -77,6 +77,12 @@ test("compiles confirmed todos into an awaiting approval draft", async () => {
   assert.equal(body.publicPlanJson?.steps?.length, 1);
   assert.match(body.previewMarkdown ?? "", /Compile confirmed todos/);
   assert.match(body.warning ?? "", /approve before execute/);
+  const record = planService.getRecord(
+    (result.body as { planId: string }).planId,
+    (result.body as { version: number }).version,
+  );
+  assert.equal(record?.internal.steps[0]?.type, "tool_call");
+  assert.ok(record?.internal.steps[0]?.toolName);
   ctx.close();
   registry.close();
 });
@@ -92,7 +98,7 @@ test("keeps PlanService validation errors for bad compile input", async () => {
     }),
   );
 
-  assert.throws(
+  await assert.rejects(
     () =>
       workflow.run({
         userVisiblePlanId: visible.id,
@@ -100,7 +106,7 @@ test("keeps PlanService validation errors for bad compile input", async () => {
       }),
     /confirmedTodoIds/,
   );
-  assert.throws(
+  await assert.rejects(
     () =>
       workflow.run({
         userVisiblePlanId: "missing-plan",

@@ -55,14 +55,17 @@ import {
   handleSchedulerResume,
 } from "./handlers/scheduler.handlers.js";
 import {
+  handlePlanActivate,
   handlePlanApprove,
   handlePlanAnalyze,
   handlePlanCompile,
   handlePlanDraft,
   handlePlanExecute,
+  handlePlanGet,
   handlePlanImportPreview,
   handlePlanPreview,
   handlePlanReject,
+  handlePlanRevise,
 } from "./handlers/plan.handlers.js";
 import { handleSubAgentBatch, handleSubAgentCancel, handleSubAgentRun, handleSubAgentRunning } from "./handlers/subagent.handlers.js";
 import { handleToolsList, handleToolRun } from "./handlers/tools.handlers.js";
@@ -170,11 +173,31 @@ export function createHttpServer(app: AppContext, opts?: HttpServerOptions): Ser
           sendJson(res, result.status, result.body);
           return;
         }
+        const planReviseMatch = pathname.match(/^\/api\/plans\/([^/]+)\/revise$/);
+        if (planReviseMatch && method === "POST") {
+          const result = await handlePlanRevise(
+            app,
+            planReviseMatch[1]!,
+            await readBody(req, maxBodyBytes),
+          );
+          sendJson(res, result.status, result.body);
+          return;
+        }
         const planCompileMatch = pathname.match(/^\/api\/plans\/([^/]+)\/compile$/);
         if (planCompileMatch && method === "POST") {
           const result = await handlePlanCompile(
             app,
             planCompileMatch[1]!,
+            await readBody(req, maxBodyBytes),
+          );
+          sendJson(res, result.status, result.body);
+          return;
+        }
+        const planActivateMatch = pathname.match(/^\/api\/plans\/([^/]+)\/activate$/);
+        if (planActivateMatch && method === "POST") {
+          const result = await handlePlanActivate(
+            app,
+            planActivateMatch[1]!,
             await readBody(req, maxBodyBytes),
           );
           sendJson(res, result.status, result.body);
@@ -213,6 +236,12 @@ export function createHttpServer(app: AppContext, opts?: HttpServerOptions): Ser
             planExecuteMatch[1]!,
             await readBody(req, maxBodyBytes),
           );
+          sendJson(res, result.status, result.body);
+          return;
+        }
+        const planGetMatch = pathname.match(/^\/api\/plans\/([^/]+)$/);
+        if (planGetMatch && method === "GET") {
+          const result = await handlePlanGet(app, planGetMatch[1]!);
           sendJson(res, result.status, result.body);
           return;
         }

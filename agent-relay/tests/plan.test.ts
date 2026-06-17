@@ -16,6 +16,7 @@ import {
   PlanStore,
   PlanValidationError,
   PlanValidator,
+  bindPlanTools,
   internalPlanFromLegacy,
   renderUserVisiblePlan,
   renderPublicPlanJson,
@@ -30,7 +31,8 @@ function test(name: string, fn: () => Promise<void>) {
 let tmpDir = "";
 
 function samplePlan(): Plan {
-  return finalizePlan({
+  return bindPlanTools(
+    finalizePlan({
     goal: "测试目标",
     scope: { inScope: ["模块 A"], outOfScope: [] },
     inputs: ["README"],
@@ -68,7 +70,9 @@ function samplePlan(): Plan {
         status: "pending",
       },
     ],
-  });
+  }),
+    { registry: createDefaultRegistry({ dataDir: tmpDir }) },
+  );
 }
 
 function createPlanService(dataDir: string) {
@@ -210,11 +214,16 @@ test("UserVisiblePlan 编译为 awaiting_approval 内部计划草案", async () 
       ].join("\n"),
     }),
   );
-  const draft = service.compileUserVisiblePlan({
+  const draft = await service.compileUserVisiblePlan({
     userVisiblePlanId: visible.id,
     confirmedTodoIds: [visible.todos[0]!.id],
   });
   assert.equal(draft.status, "awaiting_approval");
+  const record = service.getRecord(draft.planId, draft.version);
+  assert.ok(record);
+  assert.equal(record!.internal.steps[0]?.type, "tool_call");
+  assert.ok(record!.internal.steps[0]?.toolName);
+  assert.ok(record!.internal.steps[0]?.args);
   assert.equal(draft.sourceUserVisiblePlan.id, visible.id);
   assert.ok(draft.previewMarkdown.includes("类型分离"));
   assert.equal(draft.publicPlanJson.executable, false);
@@ -240,6 +249,75 @@ test("PlanValidator 拒绝高风险但未审批步骤", async () => {
     (err: unknown) => err instanceof PlanValidationError && err.code === "INVALID_SCHEMA",
   );
   registry.close();
+});
+
+test("同 planId 修订递增 version 并 supersede 旧版", async () => {
+  const { service, ctx } = createPlanService(path.join(tmpDir, "revision-chain"));
+  const draft = service.persistLegacyAsDraft(samplePlan(), { originType: "planner" });
+  const planner = {
+    generatePlan: async () => samplePlan(),
+  } as unknown as import("../src/agent/Planner.js").Planner;
+  const revised = await service.revisePlan({
+    planId: draft.planId,
+    baseVersion: 1,
+    revisionRequest: "把第 2 步改成先写测试",
+    planner,
+  });
+  assert.equal(revised.version, 2);
+  assert.equal(revised.supersededVersion, 1);
+  const v1 = service.getRecord(draft.planId, 1);
+  assert.equal(v1?.status, "superseded");
+  const summary = service.getPlanSummary(draft.planId);
+  assert.equal(summary?.versions.length, 2);
+  assert.equal(summary?.latestVersion, 2);
+  ctx.close();
+});
+
+test("getPlanSummary 返回版本列表", async () => {
+  const { service, ctx } = createPlanService(path.join(tmpDir, "plan-summary"));
+  const draft = service.persistLegacyAsDraft(samplePlan(), { originType: "planner" });
+  const summary = service.getPlanSummary(draft.planId);
+  assert.ok(summary);
+  assert.equal(summary!.planId, draft.planId);
+  assert.equal(summary!.versions[0]?.version, 1);
+  ctx.close();
+});
+
+test("未绑定 tool 的已审批计划不可 loadExecutable", async () => {
+  const { ctx, service } = createPlanService(path.join(tmpDir, "missing-tool"));
+  const draft = service.persistLegacyAsDraft(
+    finalizePlan({
+      goal: "无工具绑定",
+      scope: { inScope: [], outOfScope: [] },
+      inputs: [],
+      outputs: [],
+      acceptanceCriteria: [],
+      risks: [],
+      dependencies: [],
+      steps: [
+        {
+          id: "s1",
+          title: "空步骤",
+          description: "无 tool",
+          requiredPermissions: ["read"],
+          needsConfirmation: false,
+          dependsOn: [],
+          requiredContext: [],
+          availableTools: ["read_file"],
+          expectedArtifacts: [],
+          priority: 10,
+          status: "pending",
+        },
+      ],
+    }),
+    { originType: "planner" },
+  );
+  service.approve(draft.planId, draft.version, "tester");
+  assert.throws(
+    () => service.loadExecutable(draft.planId, draft.version),
+    (err: unknown) => err instanceof PlanValidationError && err.code === "MISSING_TOOL_BINDING",
+  );
+  ctx.close();
 });
 
 async function main() {

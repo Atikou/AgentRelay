@@ -3,10 +3,56 @@ import type { ApiResult } from "../../orchestrator/Orchestrator.js";
 import { Planner } from "../../agent/Planner.js";
 import { PlanCompileWorkflow } from "../../agent/PlanCompileWorkflow.js";
 import { PlanReportWorkflow } from "../../agent/PlanReportWorkflow.js";
+import { PlanActivationWorkflow } from "../../plan/PlanActivationWorkflow.js";
+import type { PlanExecutionMode } from "../../plan/PlanActivationWorkflow.js";
 import { PlanValidationError } from "../../plan/index.js";
 import { detectPlanReportRequest } from "../../plan/planIntent.js";
 import type { PlanMode } from "../../plan/types.js";
 import type { RunBudget } from "../../agent/RunPolicyTypes.js";
+
+export async function handlePlanGet(app: AppContext, planId: string): Promise<ApiResult> {
+  const summary = app.planService.getPlanSummary(planId);
+  if (!summary) return { status: 404, body: { error: "计划不存在" } };
+  return { status: 200, body: summary };
+}
+
+export async function handlePlanRevise(app: AppContext, planId: string, body: unknown): Promise<ApiResult> {
+  const payload = (body ?? {}) as {
+    baseVersion?: number;
+    revisionRequest?: string;
+    sessionId?: string;
+    clientName?: string;
+  };
+  const revisionRequest = (payload.revisionRequest ?? "").trim();
+  if (!revisionRequest) {
+    return { status: 400, body: { error: "revisionRequest 不能为空" } };
+  }
+  const { forceClient, error } = app.resolveForceClient(payload.clientName);
+  if (error) return { status: 404, body: { error } };
+  const planner = forceClient ? new Planner(app.makeChatFn(forceClient)) : app.planner;
+  try {
+    const draft = await app.planService.revisePlan({
+      planId,
+      baseVersion: payload.baseVersion,
+      revisionRequest,
+      sessionId: payload.sessionId,
+      planner,
+    });
+    return {
+      status: 200,
+      body: {
+        ...draft,
+        warning: "修订版为 awaiting_approval 草案，需重新审批后才能执行",
+      },
+    };
+  } catch (err) {
+    if (err instanceof PlanValidationError) {
+      const status = err.message.includes("不存在") ? 404 : 400;
+      return { status, body: { error: err.message, code: err.code } };
+    }
+    return { status: 502, body: { error: `修订计划失败：${String(err)}` } };
+  }
+}
 
 export async function handlePlanDraft(app: AppContext, body: unknown): Promise<ApiResult> {
   const payload = (body ?? {}) as {
@@ -55,6 +101,12 @@ export async function handlePlanAnalyze(app: AppContext, body: unknown): Promise
     sessionId?: string;
     clientName?: string;
     budget?: Partial<RunBudget>;
+    autoActivate?: boolean;
+    dryRun?: boolean;
+    autoApprove?: boolean;
+    autoConfirm?: boolean;
+    executionMode?: PlanExecutionMode;
+    confirmedTodoIds?: string[];
   };
   const goal = (payload.goal ?? "").trim();
   if (!goal) return { status: 400, body: { error: "goal 不能为空" } };
@@ -62,7 +114,7 @@ export async function handlePlanAnalyze(app: AppContext, body: unknown): Promise
   const { forceClient, error } = app.resolveForceClient(payload.clientName);
   if (error) return { status: 404, body: { error } };
   const makeChat = forceClient ? app.makeChatFn(forceClient) : undefined;
-  return new PlanReportWorkflow({
+  const analyzeResult = await new PlanReportWorkflow({
     planService: app.planService,
     runAgent: (agentBody, agentMakeChat) => app.orchestrator.runAgent(agentBody, agentMakeChat),
   }).run({
@@ -73,6 +125,99 @@ export async function handlePlanAnalyze(app: AppContext, body: unknown): Promise
     budget: payload.budget,
     makeChat,
   });
+
+  if (analyzeResult.status !== 200) return analyzeResult;
+
+  const body200 = analyzeResult.body as {
+    userVisiblePlan?: { id: string };
+    runId?: string;
+    sessionId?: string;
+  };
+  const userVisiblePlanId = body200.userVisiblePlan?.id;
+  const enriched = {
+    ...(typeof analyzeResult.body === "object" && analyzeResult.body !== null
+      ? (analyzeResult.body as Record<string, unknown>)
+      : {}),
+    nextAction: userVisiblePlanId
+      ? {
+          activate: `POST /api/plans/${userVisiblePlanId}/activate`,
+          compile: `POST /api/plans/${userVisiblePlanId}/compile`,
+        }
+      : undefined,
+  };
+
+  if (!payload.autoActivate || !userVisiblePlanId) {
+    return { status: 200, body: enriched };
+  }
+
+  const activation = await handlePlanActivate(app, userVisiblePlanId, {
+    sessionId: body200.sessionId ?? payload.sessionId,
+    dryRun: payload.dryRun,
+    autoApprove: payload.autoApprove,
+    autoConfirm: payload.autoConfirm,
+    executionMode: payload.executionMode,
+    confirmedTodoIds: payload.confirmedTodoIds,
+  });
+  if (activation.status !== 200) {
+    return {
+      status: activation.status,
+      body: { analyze: enriched, activation: activation.body },
+    };
+  }
+  return {
+    status: 200,
+    body: { ...enriched, activation: activation.body },
+  };
+}
+
+export async function handlePlanActivate(
+  app: AppContext,
+  userVisiblePlanId: string,
+  body: unknown,
+): Promise<ApiResult> {
+  const payload = (body ?? {}) as {
+    confirmedTodoIds?: string[];
+    sessionId?: string;
+    dryRun?: boolean;
+    autoApprove?: boolean;
+    autoConfirm?: boolean;
+    executionMode?: PlanExecutionMode;
+    approvedBy?: string;
+    rollbackOnFailure?: boolean;
+    fallbackToPlanOnUncertainty?: boolean;
+    clientName?: string;
+  };
+  const { forceClient, error } = app.resolveForceClient(payload.clientName);
+  if (error) return { status: 404, body: { error } };
+  const planner = forceClient ? new Planner(app.makeChatFn(forceClient)) : app.planner;
+
+  const workflow = new PlanActivationWorkflow({
+    planService: app.planService,
+    executeStoredPlan: (planId, version, execPayload, dryRun) =>
+      app.orchestrator.executeStoredPlan(planId, version, execPayload, dryRun),
+    planner,
+  });
+
+  try {
+    return await workflow.activate({
+      userVisiblePlanId,
+      confirmedTodoIds: payload.confirmedTodoIds,
+      sessionId: payload.sessionId,
+      dryRun: payload.dryRun,
+      autoApprove: payload.autoApprove,
+      autoConfirm: payload.autoConfirm,
+      executionMode: payload.executionMode,
+      approvedBy: payload.approvedBy,
+      rollbackOnFailure: payload.rollbackOnFailure,
+      fallbackToPlanOnUncertainty: payload.fallbackToPlanOnUncertainty,
+    });
+  } catch (err) {
+    if (err instanceof PlanValidationError) {
+      const status = err.message.includes("不存在") ? 404 : 400;
+      return { status, body: { error: err.message, code: err.code } };
+    }
+    return { status: 400, body: { error: String(err) } };
+  }
 }
 
 export async function handlePlanPreview(app: AppContext, planId: string, url: URL): Promise<ApiResult> {
@@ -153,7 +298,7 @@ export async function handlePlanCompile(app: AppContext, userVisiblePlanId: stri
     return { status: 400, body: { error: "confirmedTodoIds 不能为空" } };
   }
   try {
-    return new PlanCompileWorkflow({ planService: app.planService }).run({
+    return await new PlanCompileWorkflow({ planService: app.planService, planner: app.planner }).run({
       userVisiblePlanId,
       confirmedTodoIds,
       sessionId: payload.sessionId,
@@ -187,6 +332,11 @@ export async function handlePlanExecute(app: AppContext, planId: string, body: u
     };
   }
 
+  const executionMode =
+    payload.executionMode === "agent_loop" || payload.executionMode === "static"
+      ? payload.executionMode
+      : undefined;
+
   return app.orchestrator.executeStoredPlan(
     planId,
     version,
@@ -195,6 +345,7 @@ export async function handlePlanExecute(app: AppContext, planId: string, body: u
       sessionId: payload.sessionId as string | undefined,
       rollbackOnFailure: payload.rollbackOnFailure as boolean | undefined,
       fallbackToPlanOnUncertainty: payload.fallbackToPlanOnUncertainty as boolean | undefined,
+      executionMode,
     },
     Boolean(payload.dryRun),
   );
@@ -206,6 +357,8 @@ export async function handlePlanImportPreview(app: AppContext, body: unknown): P
     goal?: string;
     sessionId?: string;
     clientName?: string;
+    planId?: string;
+    baseVersion?: number;
   };
   if (payload.preview === undefined) {
     return { status: 400, body: { error: "preview 不能为空" } };
@@ -218,6 +371,8 @@ export async function handlePlanImportPreview(app: AppContext, body: unknown): P
       preview: payload.preview,
       goal: payload.goal,
       sessionId: payload.sessionId,
+      planId: payload.planId,
+      baseVersion: payload.baseVersion,
       planner,
     });
     return { status: 200, body: draft };

@@ -43,7 +43,7 @@ function removeTempDir(dir: string): void {
   }
 }
 
-test("全新 memory.db 应用 v1–v11 并写入 schema_migrations", () => {
+test("全新 memory.db 应用 v1–v12 并写入 schema_migrations", () => {
   const dataDir = tempDataDir();
   let dbm: DatabaseManager | undefined;
   try {
@@ -52,7 +52,7 @@ test("全新 memory.db 应用 v1–v11 并写入 schema_migrations", () => {
     assert.equal(dbm.schemaInfo.userVersion, MEMORY_DB_SCHEMA_VERSION);
     assert.equal(dbm.schemaInfo.migrations.length, MEMORY_DB_MIGRATIONS.length);
     assert.equal(dbm.schemaInfo.migrations[0]?.name, "core_sessions_messages_memories");
-    assert.equal(dbm.schemaInfo.migrations.at(-1)?.name, "project_dependencies");
+    assert.equal(dbm.schemaInfo.migrations.at(-1)?.name, "task_plan_run_steps");
 
     const runStatesTable = dbm.connection
       .prepare(`SELECT name FROM sqlite_master WHERE type='table' AND name='run_states'`)

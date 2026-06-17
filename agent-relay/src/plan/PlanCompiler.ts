@@ -25,7 +25,7 @@ export class PlanCompiler {
       acceptance: todo.acceptanceCriteria.join("；"),
       dependsOn: index === 0 ? [] : [selected[index - 1]!.id],
       requiredContext: todo.relatedFiles ?? [],
-      availableTools: ["read_file", "search_text", "apply_patch", "git_diff"],
+      availableTools: inferAvailableTools(inferPermissions(todo)),
       expectedArtifacts: todo.acceptanceCriteria,
       priority: priorityNumber(todo.priority, index),
       status: "pending",
@@ -62,4 +62,19 @@ function inferPermissions(todo: UserVisibleTodo): ToolPermission[] {
 function priorityNumber(priority: UserVisibleTodo["priority"], index: number): number {
   const base = { P0: 0, P1: 100, P2: 200, P3: 300 }[priority];
   return base + index;
+}
+
+function inferAvailableTools(permissions: ToolPermission[]): string[] {
+  const tools = new Set<string>(["read_file", "search_text", "list_files"]);
+  if (permissions.includes("write")) {
+    tools.add("apply_patch");
+    tools.add("write_file");
+    tools.add("diff_file");
+  }
+  if (permissions.includes("shell")) tools.add("shell_run");
+  if (permissions.includes("read")) {
+    tools.add("git_diff");
+    tools.add("locate_relevant_files");
+  }
+  return [...tools];
 }
