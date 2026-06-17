@@ -2,6 +2,27 @@
 
 export const MIN_SUBAGENT_TIMEOUT_MS = 120_000;
 export const DEFAULT_SUBAGENT_BATCH_CONCURRENCY = 2;
+export const DEFAULT_SUBAGENT_TIMEOUT_CONFIG_MS = 180_000;
+
+let configuredDefaultTimeoutMs = DEFAULT_SUBAGENT_TIMEOUT_CONFIG_MS;
+
+export function setSubagentDefaultTimeoutMs(ms: number): void {
+  configuredDefaultTimeoutMs = Math.max(MIN_SUBAGENT_TIMEOUT_MS, Math.floor(ms));
+}
+
+/**
+ * 将主 Agent 传入的 timeoutMs 收敛到安全下限。
+ * 批量任务不因并发而缩短单任务预算（每任务仍至少 MIN）。
+ */
+export function resolveSubagentTimeoutMs(requested?: number): number {
+  const fallback = configuredDefaultTimeoutMs;
+  if (requested == null || !Number.isFinite(requested)) {
+    return Math.max(fallback, MIN_SUBAGENT_TIMEOUT_MS);
+  }
+  const n = Math.floor(requested);
+  if (n <= 0) return Math.max(fallback, MIN_SUBAGENT_TIMEOUT_MS);
+  return Math.max(n, MIN_SUBAGENT_TIMEOUT_MS);
+}
 
 const VALID_WRITE_FILE_PICK = new Set(["latest", "earliest", "arbitration"] as const);
 
@@ -11,19 +32,6 @@ const MODEL_POLICY_KEYS = new Set([
   "requiredCapabilities",
   "minQuality",
 ]);
-
-/**
- * 将主 Agent 传入的 timeoutMs 收敛到安全下限。
- * 批量任务不因并发而缩短单任务预算（每任务仍至少 MIN）。
- */
-export function resolveSubagentTimeoutMs(requested?: number): number {
-  if (requested == null || !Number.isFinite(requested)) {
-    return MIN_SUBAGENT_TIMEOUT_MS;
-  }
-  const n = Math.floor(requested);
-  if (n <= 0) return MIN_SUBAGENT_TIMEOUT_MS;
-  return Math.max(n, MIN_SUBAGENT_TIMEOUT_MS);
-}
 
 export function normalizeDispatchSubagentInput(rawInput: unknown): unknown {
   if (!isRecord(rawInput)) return rawInput;

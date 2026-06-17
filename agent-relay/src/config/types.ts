@@ -111,8 +111,12 @@ export const SecurityConfigSchema = z.object({
       maxDispatchDepth: z.number().int().min(0).max(3).default(1),
       /** 批量 dispatch_subagent 最大并行子任务数（缓解本地模型并发排队）。 */
       maxBatchConcurrency: z.number().int().min(1).max(3).default(2),
+      /** 子 Agent 默认超时（ms）；单任务 timeoutMs 不得低于 MIN 120s。 */
+      defaultTimeoutMs: z.number().int().min(120_000).max(600_000).optional(),
+      /** 本地模型子 Agent 同时运行上限（背压队列）。 */
+      localModelMaxConcurrent: z.number().int().min(1).max(3).default(1),
     })
-    .default({ maxDispatchDepth: 1, maxBatchConcurrency: 2 }),
+    .default({ maxDispatchDepth: 1, maxBatchConcurrency: 2, localModelMaxConcurrent: 1 }),
 });
 export type SecurityConfig = z.infer<typeof SecurityConfigSchema>;
 

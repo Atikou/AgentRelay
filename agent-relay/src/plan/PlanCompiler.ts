@@ -1,6 +1,7 @@
 import { finalizePlan } from "../agent/taskGraph.js";
 import type { Plan, PlanStep } from "../agent/types.js";
 import type { ToolPermission } from "../core/permissions.js";
+import { buildTodoDependsOn } from "./planDagBuilder.js";
 import type { UserVisiblePlan, UserVisibleTodo } from "./types.js";
 
 export interface CompileUserVisiblePlanInput {
@@ -23,7 +24,7 @@ export class PlanCompiler {
       requiredPermissions: inferPermissions(todo),
       needsConfirmation: todo.requiresUserConfirmation || todo.riskLevel !== "low",
       acceptance: todo.acceptanceCriteria.join("；"),
-      dependsOn: index === 0 ? [] : [selected[index - 1]!.id],
+      dependsOn: buildTodoDependsOn(selected, todo),
       requiredContext: todo.relatedFiles ?? [],
       availableTools: inferAvailableTools(inferPermissions(todo)),
       expectedArtifacts: todo.acceptanceCriteria,

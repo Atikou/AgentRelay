@@ -17,6 +17,7 @@ import { planFromTask } from "../agent/planFromTask.js";
 import { TaskExecutionWorkflow } from "../agent/TaskExecutionWorkflow.js";
 import type { PlanExecutionMode } from "../plan/PlanActivationWorkflow.js";
 import { PlanActivationWorkflow } from "../plan/PlanActivationWorkflow.js";
+import { buildCorrectionSteps } from "../plan/planReplanOnFailure.js";
 import {
   detectPlanActivationIntent,
   parseUserVisiblePlanIdFromMessage,
@@ -492,6 +493,27 @@ export class Orchestrator {
             stepId: event.step.id,
           });
         },
+        onDagWave: (event) => {
+          this.deps.trace?.write({
+            type: "plan_event",
+            eventType: "plan.dag_wave",
+            planRunId: planRun.id,
+            waveIndex: event.waveIndex,
+            stepIds: event.stepIds,
+            at: new Date().toISOString(),
+          });
+        },
+        onStepFailed:
+          (payload.fallbackToPlanOnUncertainty ?? false) && executionMode === "agent_loop"
+            ? async ({ step, plan }) =>
+                buildCorrectionSteps({
+                  failedStep: step,
+                  plan,
+                  planner: planner ?? this.deps.planner,
+                  registry: this.deps.registry,
+                })
+            : undefined,
+        maxDynamicReplans: 2,
       });
 
       this.persistTaskPlan(task.id, executedPlan);

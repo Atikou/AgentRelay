@@ -1,6 +1,7 @@
 import type { AppContext } from "../../app/createAppContext.js";
 import type { ApiResult } from "../../orchestrator/Orchestrator.js";
 import type { DelegatedTask } from "../../subagent/delegatedTask.js";
+import { getSubAgentLocalQueueGate } from "../../subagent/SubAgentLocalQueueGate.js";
 
 export async function handleSubAgentRun(app: AppContext, body: unknown): Promise<ApiResult> {
   const payload = (body ?? {}) as {
@@ -38,6 +39,23 @@ export function handleSubAgentRunning(app: AppContext): ApiResult {
   const coord = app.subAgentCoordinator;
   if (!coord) return { status: 503, body: { error: "子 Agent 未启用" } };
   return { status: 200, body: { running: coord.listRunning() } };
+}
+
+export function handleSubAgentSchedule(app: AppContext): ApiResult {
+  const gate = getSubAgentLocalQueueGate();
+  const coord = app.subAgentCoordinator;
+  return {
+    status: 200,
+    body: {
+      running: coord?.listRunning() ?? [],
+      localQueue: gate?.stats ?? { active: 0, maxConcurrent: 0, waiting: 0 },
+      policy: {
+        maxBatchConcurrency: app.config.security?.subagent?.maxBatchConcurrency ?? 2,
+        defaultTimeoutMs: app.config.security?.subagent?.defaultTimeoutMs,
+        localModelMaxConcurrent: app.config.security?.subagent?.localModelMaxConcurrent ?? 1,
+      },
+    },
+  };
 }
 
 export function handleSubAgentCancel(app: AppContext, body: unknown): ApiResult {

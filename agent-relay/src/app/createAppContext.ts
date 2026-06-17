@@ -27,6 +27,10 @@ import { HistoryFileRecaller } from "../context/HistoryFileRecaller.js";
 import { Scheduler } from "../scheduler/index.js";
 import { SubAgentCoordinator } from "../subagent/index.js";
 import { SubAgentRunRegistry } from "../subagent/SubAgentRunRegistry.js";
+import {
+  setSubagentDefaultTimeoutMs,
+} from "../subagent/dispatchInputNormalize.js";
+import { initSubAgentLocalQueueGate } from "../subagent/SubAgentLocalQueueGate.js";
 import { AgentRunRegistry } from "../orchestrator/AgentRunRegistry.js";
 import { createDefaultRegistry } from "../tools/index.js";
 import { createShellPolicy, type ShellPolicy } from "../policy/ShellPolicy.js";
@@ -410,6 +414,12 @@ export function createAppContext(): AppContext {
   const projectAllowedPermissions = resolveProjectAllowedPermissions(config.security?.permissions);
   const maxSubAgentDispatchDepth = config.security?.subagent?.maxDispatchDepth ?? 1;
   const maxSubAgentBatchConcurrency = config.security?.subagent?.maxBatchConcurrency ?? 2;
+  const subagentDefaultTimeoutMs = config.security?.subagent?.defaultTimeoutMs;
+  const subagentLocalMaxConcurrent = config.security?.subagent?.localModelMaxConcurrent ?? 1;
+  if (subagentDefaultTimeoutMs) {
+    setSubagentDefaultTimeoutMs(subagentDefaultTimeoutMs);
+  }
+  initSubAgentLocalQueueGate(subagentLocalMaxConcurrent);
 
   const clientMap = new Map<string, ModelClient>();
   const pricing = new Map<string, ClientPricing>();

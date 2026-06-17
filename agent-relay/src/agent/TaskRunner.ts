@@ -55,6 +55,12 @@ export interface TaskRunnerOptions {
     result?: StepResult;
     error?: string;
   }) => void;
+  onDagWave?: (event: { waveIndex: number; stepIds: string[] }) => void;
+  onStepFailed?: (input: {
+    step: PlanStep;
+    plan: Plan;
+  }) => Promise<PlanStep[] | undefined>;
+  maxDynamicReplans?: number;
 }
 
 /**
@@ -66,6 +72,7 @@ export class TaskRunner {
   private readonly confirmedStepIds = new Set<string>();
   private readonly allowed: ToolPermission[];
   private lastTaskStatus: string;
+  private dynamicReplanCount = 0;
 
   constructor(
     private readonly plan: Plan,
@@ -89,6 +96,18 @@ export class TaskRunner {
     return this.plan;
   }
 
+  /** 动态插入步骤（须通过 validateTaskGraph）；用于执行期 replan。 */
+  insertSteps(newSteps: PlanStep[], byId?: Map<string, PlanStep>): void {
+    const merged = [...this.plan.steps, ...newSteps];
+    validateTaskGraph(merged);
+    this.plan.steps = merged;
+    const map = byId ?? indexPlanSteps(this.plan.steps);
+    for (const step of newSteps) {
+      map.set(step.id, step);
+    }
+    this.emit();
+  }
+
   /** 请求中断：当前步骤完成后停止，剩余步骤标记为 cancelled。 */
   cancel(): void {
     this.cancelled = true;
@@ -103,6 +122,7 @@ export class TaskRunner {
     const byId = indexPlanSteps(this.plan.steps);
 
     let haltOnFailure = false;
+    let waveIndex = 0;
     while (!haltOnFailure) {
       if (this.cancelled) {
         for (const step of this.plan.steps) {
@@ -115,8 +135,26 @@ export class TaskRunner {
       const ready = readyPendingSteps(this.plan.steps, byId);
       if (ready.length === 0) break;
 
+      waveIndex += 1;
+      this.options.onDagWave?.({
+        waveIndex,
+        stepIds: ready.map((step) => step.id),
+      });
+
       const outcomes = await Promise.all(ready.map((step) => this.runStep(step)));
       this.propagateDependencyBlocks(byId);
+      const failedStep = ready.find((step) => step.status === "failed");
+      if (failedStep && this.options.onStepFailed) {
+        const maxReplans = this.options.maxDynamicReplans ?? 2;
+        if (this.dynamicReplanCount < maxReplans) {
+          const inserted = await this.options.onStepFailed({ step: failedStep, plan: this.plan });
+          if (inserted && inserted.length > 0) {
+            this.insertSteps(inserted, byId);
+            this.dynamicReplanCount += 1;
+            continue;
+          }
+        }
+      }
       if (outcomes.some((o) => o === "failed")) {
         haltOnFailure = true;
       }

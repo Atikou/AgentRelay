@@ -14,6 +14,8 @@ export {
   defaultConfirmedTodoIds,
   parseUserVisiblePlanIdFromMessage,
 } from "./planActivationIntent.js";
+export { buildTodoDependsOn, groupStepsIntoDagWaves } from "./planDagBuilder.js";
+export { buildCorrectionSteps } from "./planReplanOnFailure.js";
 export { canAutoApprovePlan, planRequiresHumanApproval } from "./planActivationPolicy.js";
 export { buildPlanAnalysisPrompt, renderUserVisiblePlan } from "./UserPlanRenderer.js";
 export type * from "./types.js";

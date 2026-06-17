@@ -11,7 +11,8 @@ import { aggregateSubAgentResultsStructured, SubAgentRunner, type SubAgentRunner
 import type { DelegatedTask } from "./delegatedTask.js";
 import type { SubAgentBatchOptions, SubAgentBatchResult } from "./types.js";
 import { attemptAutoMergeWriteConflicts, formatWriteMergeSummary } from "./writeConflictAutoMerge.js";
-import type { SubAgentCancelResult, SubAgentRunRegistry, SubAgentRunningRecord } from "./SubAgentRunRegistry.js";
+import { getSubAgentLocalQueueGate } from "./SubAgentLocalQueueGate.js";
+import type { SubAgentCancelResult, SubAgentRunningRecord } from "./SubAgentRunRegistry.js";
 
 const executionRouter = new ExecutionRouter();
 
@@ -30,11 +31,13 @@ export class SubAgentCoordinator {
       needsWrite: task.toolPolicy?.writeAllowed,
       needsShell: task.toolPolicy?.shellAllowed,
     });
-    return this.runner.runDelegated({
-      task,
-      ...opts,
-      executionRoute: route.mode === "delegate" ? route : opts?.executionRoute,
-    });
+    return this.runWithOptionalGate(() =>
+      this.runner.runDelegated({
+        task,
+        ...opts,
+        executionRoute: route.mode === "delegate" ? route : opts?.executionRoute,
+      }),
+    );
   }
 
   cancel(subAgentId: string): SubAgentCancelResult | undefined {
@@ -64,15 +67,17 @@ export class SubAgentCoordinator {
     const timeoutMs = resolveSubagentTimeoutMs(options.timeoutMs);
     const concurrency = this.deps.maxBatchConcurrency ?? DEFAULT_SUBAGENT_BATCH_CONCURRENCY;
     const settled = await mapWithConcurrencyLimit(entries, concurrency, (entry) =>
-      this.runner.runDelegated({
-        task: entry.task,
-        parentTaskId,
-        grantedPermissions: options.grantedPermissions,
-        timeoutMs,
-        sensitive: options.sensitive,
-        dispatchDepth: options.dispatchDepth,
-        executionRoute: entry.route,
-      }),
+      this.runWithOptionalGate(() =>
+        this.runner.runDelegated({
+          task: entry.task,
+          parentTaskId,
+          grantedPermissions: options.grantedPermissions,
+          timeoutMs,
+          sensitive: options.sensitive,
+          dispatchDepth: options.dispatchDepth,
+          executionRoute: entry.route,
+        }),
+      ),
     );
 
     let aggregate = aggregateSubAgentResultsStructured(settled);
@@ -135,6 +140,17 @@ export class SubAgentCoordinator {
       aggregate,
       durationMs: Math.round(performance.now() - start),
     };
+  }
+
+  private async runWithOptionalGate<T>(fn: () => Promise<T>): Promise<T> {
+    const gate = getSubAgentLocalQueueGate();
+    if (!gate) return fn();
+    const release = await gate.acquire();
+    try {
+      return await fn();
+    } finally {
+      release();
+    }
   }
 }
 

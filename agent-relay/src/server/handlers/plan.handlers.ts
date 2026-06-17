@@ -5,6 +5,7 @@ import { PlanCompileWorkflow } from "../../agent/PlanCompileWorkflow.js";
 import { PlanReportWorkflow } from "../../agent/PlanReportWorkflow.js";
 import { PlanActivationWorkflow } from "../../plan/PlanActivationWorkflow.js";
 import type { PlanExecutionMode } from "../../plan/PlanActivationWorkflow.js";
+import { PlanRuntime } from "../../plan/PlanRuntime.js";
 import { PlanValidationError } from "../../plan/index.js";
 import { detectPlanReportRequest } from "../../plan/planIntent.js";
 import type { PlanMode } from "../../plan/types.js";
@@ -61,6 +62,11 @@ export async function handlePlanDraft(app: AppContext, body: unknown): Promise<A
     sessionId?: string;
     mode?: PlanMode;
     clientName?: string;
+    autoActivate?: boolean;
+    dryRun?: boolean;
+    autoApprove?: boolean;
+    autoConfirm?: boolean;
+    executionMode?: PlanExecutionMode;
   };
   const goal = (payload.goal ?? "").trim();
   if (!goal) return { status: 400, body: { error: "goal 不能为空" } };
@@ -70,6 +76,26 @@ export async function handlePlanDraft(app: AppContext, body: unknown): Promise<A
   const { forceClient, error } = app.resolveForceClient(payload.clientName);
   if (error) return { status: 404, body: { error } };
   const planner = forceClient ? new Planner(app.makeChatFn(forceClient)) : app.planner;
+
+  const runtime = new PlanRuntime({
+    planService: app.planService,
+    executeStoredPlan: (planId, version, execPayload, dryRun) =>
+      app.orchestrator.executeStoredPlan(planId, version, execPayload, dryRun),
+    planner,
+  });
+
+  if (payload.autoActivate) {
+    return runtime.activateFromDraft({
+      goal,
+      context: payload.context,
+      sessionId: payload.sessionId,
+      dryRun: payload.dryRun,
+      autoApprove: payload.autoApprove,
+      autoConfirm: payload.autoConfirm,
+      executionMode: payload.executionMode,
+      planner,
+    });
+  }
 
   try {
     const draft = await app.planService.createDraftFromPlanner({
@@ -84,6 +110,11 @@ export async function handlePlanDraft(app: AppContext, body: unknown): Promise<A
       body: {
         ...draft,
         warning: "previewMarkdown / publicPlanJson 仅供展示，不可直接执行",
+        nextAction: {
+          activate: "POST /api/plans/draft with autoActivate:true",
+          approve: `POST /api/plans/${draft.planId}/approve`,
+          execute: `POST /api/plans/${draft.planId}/execute`,
+        },
       },
     };
   } catch (err) {

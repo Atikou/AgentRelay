@@ -67,7 +67,7 @@ import {
   handlePlanReject,
   handlePlanRevise,
 } from "./handlers/plan.handlers.js";
-import { handleSubAgentBatch, handleSubAgentCancel, handleSubAgentRun, handleSubAgentRunning } from "./handlers/subagent.handlers.js";
+import { handleSubAgentBatch, handleSubAgentCancel, handleSubAgentRun, handleSubAgentRunning, handleSubAgentSchedule } from "./handlers/subagent.handlers.js";
 import { handleToolsList, handleToolRun } from "./handlers/tools.handlers.js";
 import { handleTraceExport, handleTraceRecent, handleTraceReplay, handleTraceRotate } from "./handlers/trace.handlers.js";
 import { readBody } from "./http/body.js";
@@ -429,6 +429,11 @@ export function createHttpServer(app: AppContext, opts?: HttpServerOptions): Ser
         }
         if (pathname === "/api/subagent/running" && method === "GET") {
           const result = handleSubAgentRunning(app);
+          sendJson(res, result.status, result.body);
+          return;
+        }
+        if (pathname === "/api/subagent/schedule" && method === "GET") {
+          const result = handleSubAgentSchedule(app);
           sendJson(res, result.status, result.body);
           return;
         }
