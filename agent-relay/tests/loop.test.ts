@@ -12,7 +12,8 @@ import { shouldRunPlanWorkflow } from "../src/agent/PlanWorkflow.js";
 import { resolveRunPolicy } from "../src/agent/RunPolicy.js";
 import { defaultWorkflowSessionStore } from "../src/agent/WorkflowSessionSwitch.js";
 import type { NotificationQueue } from "../src/background/NotificationQueue.js";
-import type { ModelResponse } from "../src/model/types.js";
+import type { ContextManager } from "../src/context/ContextManager.js";
+import type { ChatMessage, ModelResponse } from "../src/model/types.js";
 import { readRecentTraceEvents } from "../src/trace/traceReader.js";
 import { TraceLogger } from "../src/trace/TraceLogger.js";
 import { createDefaultRegistry } from "../src/tools/index.js";
@@ -530,6 +531,102 @@ test("paused plan handoff restores workflow proposal before first write", async 
   assert.equal(await fs.readFile(path.join(sandbox, "resume-write.txt"), "utf-8"), "ok");
   assert.equal(res.executionMeta.workflowProposals?.length, 1);
   assert.equal(res.executionMeta.usedWriteCalls, 1);
+});
+
+test("paused plan handoff uses system context and does not persist parse errors", async () => {
+  const seen: ChatMessage[][] = [];
+  const savedAssistant: string[] = [];
+  const fakeContextManager = {
+    saveAssistantMessage: (_sessionId: string, content: string) => {
+      savedAssistant.push(content);
+      return {} as never;
+    },
+    saveToolMessage: () => ({} as never),
+    compactToolOutput: (_tool: string, output: unknown) => output,
+    finalizeTurn: async () => ({ compressed: null }),
+  } as unknown as ContextManager;
+  const chat: LoopChatFn = async (req) => {
+    seen.push(req.messages.map((m) => ({ ...m })));
+    const content =
+      seen.length === 1
+        ? "Sure, starting now."
+        : seen.length === 2
+          ? '{"action":"tool","tool":"write_file","input":{"path":"handoff/nested.txt","content":"ok","createDirs":false},"thought":"execute approved plan"}'
+          : '{"action":"final","answer":"done"}';
+    return {
+      content,
+      toolCalls: [],
+      clientName: "fake",
+      modelName: "fake",
+      location: "local",
+      latencyMs: 1,
+    };
+  };
+  const loop = new AgentLoop({
+    chat,
+    registry: createDefaultRegistry(),
+    workspaceRoot: sandbox,
+    autoConfirm: true,
+    contextManager: fakeContextManager,
+    policy: resolveRunPolicy({
+      requestedMode: "implement",
+      forceMode: true,
+      requestedPermissionPolicy: "autoEdit",
+      message: "create a nested file",
+    }),
+    pausedRun: {
+      runId: "paused-handoff-parse-error",
+      sessionId: "sess-handoff-parse-error",
+      goal: "create a nested file",
+      messages: [
+        { role: "system", content: "plan system" },
+        { role: "user", content: "create a nested file after approval" },
+        { role: "assistant", content: '{"action":"final","answer":"Plan: create handoff/nested.txt"}' },
+      ],
+      steps: [
+        {
+          iteration: 0,
+          tool: "context_pack",
+          input: { files: [] },
+          permission: "read",
+          ok: true,
+          output: { files: [] },
+        },
+      ],
+      modelTurns: 1,
+      mode: "plan",
+      permissionPolicy: "readOnly",
+      resumeMode: "implement",
+      createdAt: new Date().toISOString(),
+    },
+  });
+
+  const res = await loop.run("ignored");
+
+  const firstRequest = seen[0] ?? [];
+  const firstSystem = firstRequest.find((m) => m.role === "system")?.content ?? "";
+  const firstUserMessages = firstRequest.filter((m) => m.role === "user").map((m) => m.content);
+  assert.match(firstSystem, /ReAct JSON/);
+  assert.match(firstSystem, /write_file/);
+  assert.equal(firstUserMessages.some((content) => content.includes("write_file / apply_patch / shell_run")), false);
+  assert.ok(seen[1]?.some((m) => m.role === "assistant" && m.content === "Sure, starting now."));
+  assert.equal(savedAssistant.some((content) => content === "Sure, starting now."), false);
+  assert.equal(
+    savedAssistant.some((content) => content.includes('"tool":"write_file"')),
+    true,
+    `expected persisted valid tool action, got ${JSON.stringify(savedAssistant)}`,
+  );
+  assert.equal(
+    savedAssistant.some((content) => content.includes('"action":"final"')),
+    true,
+    `expected persisted final action, got ${JSON.stringify(savedAssistant)}`,
+  );
+  assert.equal(
+    res.steps.some((step) => step.tool === "write_file" && step.ok),
+    true,
+    `expected successful write_file step, got ${JSON.stringify(res.steps)}`,
+  );
+  assert.equal(await fs.readFile(path.join(sandbox, "handoff", "nested.txt"), "utf-8"), "ok");
 });
 
 test("debugWorkflow injects analysis phase and execution meta before model turn", async () => {

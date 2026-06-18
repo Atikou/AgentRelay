@@ -400,10 +400,26 @@ export const writeFileTool: Tool<
       }
       await fs.writeFile(full, input.content, "utf-8");
     } catch (writeErr) {
-      if (backupPath && oldContent !== null) {
-        await ctx.storage!.restoreFileFromBackup(backupPath, full);
+      if (
+        (writeErr as NodeJS.ErrnoException).code === "ENOENT" &&
+        !input.createDirs &&
+        oldContent === null
+      ) {
+        try {
+          await fs.mkdir(path.dirname(full), { recursive: true });
+          await fs.writeFile(full, input.content, "utf-8");
+        } catch (retryErr) {
+          if (backupPath && oldContent !== null) {
+            await ctx.storage!.restoreFileFromBackup(backupPath, full);
+          }
+          throw retryErr;
+        }
+      } else {
+        if (backupPath && oldContent !== null) {
+          await ctx.storage!.restoreFileFromBackup(backupPath, full);
+        }
+        throw writeErr;
       }
-      throw writeErr;
     }
 
     const afterHash = hashContent(input.content);

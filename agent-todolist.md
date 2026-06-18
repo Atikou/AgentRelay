@@ -187,6 +187,7 @@
 - [x] 支持工具失败分类：用户错误、环境错误、权限错误、临时错误、未知错误。（`ToolErrorCategory`：user/environment/permission/temporary/unknown）
 - [x] 支持工具调用审计日志。（`TraceLogger` 记录 start/ok/error）
 - [x] 支持 mock 工具，方便测试。（`createMockTool` / `createMockRegistry`：调用记录、静态/动态输出、失败注入）
+- [x] `write_file` 新建嵌套路径时可恢复 `ENOENT`：目标文件原本不存在且父目录缺失时自动补建目录并重试一次，减少模型误传 `createDirs:false` 带来的无意义失败轮次。
 
 > 已实现 17 个内置工具：`read_file` / `list_files` / `search_text` / `write_file` / `apply_patch` / `diff_file` / `backup_file` / `rollback_change` / `shell_run` / `git_status` / `git_diff` / `project_scan` / `project_index_update` / `locate_relevant_files` / `symbol_search` / `context_pack` / `dispatch_subagent`。安全机制：路径沙箱 + 自动备份/changeId/回滚 + 命令风险分级 + 输出限制 + `ToolStorage` tool_logs；相关文件定位结果会汇总到 `executionMeta.location`（含 `exploration` 与 `suggestedAction`）；`ProjectIndex.expandGraphNeighbors`（模块依赖扩展）+ LanceDB `ProjectSemanticIndexer` + `HistoryFileRecaller` 语义/依赖/历史记忆扩展。自检：`npm run test:tools`。
 
@@ -202,6 +203,7 @@
 - [x] 支持任务阻塞时自动切换到其他可执行任务。（`blocked` 不 halt，`failed` 才停止新波次）
 - [x] 防止死循环、自我重复和无限重试。（AgentLoop 分项 `RunBudget`：模型轮次/工具总数/读写 shell/运行时长 + 预算耗尽部分收尾 + `PlanWorkflow` 只读预扫描 + `executionMeta.stopReason`）
 - [x] 计划展示与执行分离：AgentStepPlan 只进 trace，用户 Markdown/PublicPlanJson 不可直接执行；须 analyze/compile 或 draft → validate → approve → execute。（`src/plan/`、`SCHEMA_VERSION=6`）
+- [x] 权限批准续跑不再伪造用户继续消息：计划→执行 handoff 仅注入 `system` 运行态上下文；模型非 JSON 输出只触发 `parse_error` 纠偏，不写入持久化 assistant 历史。
 
 ## 12. 记忆与知识库
 

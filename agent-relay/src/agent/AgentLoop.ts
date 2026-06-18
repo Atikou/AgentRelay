@@ -450,19 +450,19 @@ export class AgentLoop {
       // 快照里的首条 system 仍是“计划/只读”阶段提示，这里换成当前（implement）阶段的系统提示，
       // 否则模型会以为自己仍处于只读计划模式而拒绝执行。
       if (pausedRun.resumeMode) {
-        const executionSystemPrompt = this.buildSystemPrompt(pausedRun.system);
+        const handoffExecutionContext = [
+          "内部运行态：用户已通过权限弹窗批准执行计划。",
+          "这不是一条用户消息，不要复述、感谢或询问是否继续。",
+          '下一条回复必须直接输出一个 ReAct JSON 对象：{"action":"tool",...} 或 {"action":"final","answer":"..."}。',
+          "如果需要创建嵌套路径的新文件，调用 write_file 时必须使用 createDirs:true。",
+        ].join("\n");
+        const executionSystemPrompt = `${this.buildSystemPrompt(pausedRun.system)}\n\n${handoffExecutionContext}`;
         if (messages[0]?.role === "system") {
           messages[0] = { role: "system", content: executionSystemPrompt };
         } else {
           messages.unshift({ role: "system", content: executionSystemPrompt });
         }
       }
-      // 注入一条最小的执行指令（非“假装用户说继续”，而是明确的阶段切换信号）。
-      messages.push({
-        role: "user",
-        content:
-          "（系统）用户已批准执行。请立即按上文计划进入执行阶段，调用真实工具（write_file / apply_patch / shell_run）完成修改与验证，不要只复述计划或再次询问是否继续。",
-      });
     }
 
     if (this.options.timeline) {
@@ -556,9 +556,6 @@ export class AgentLoop {
         throw error;
       }
       messages.push({ role: "assistant", content: response.content });
-      if (ctx && sessionId) {
-        ctx.saveAssistantMessage(sessionId, response.content);
-      }
 
       const action = parseAction(response.content);
       if (!action) {
@@ -581,6 +578,9 @@ export class AgentLoop {
             '上一条不是合法的 JSON。请只输出一个 JSON 对象：{"action":"tool",...} 或 {"action":"final","answer":"..."}。禁止把 JSON 放进字符串（错误示例："{"action":"final",...}"）。',
         });
         continue;
+      }
+      if (ctx && sessionId) {
+        ctx.saveAssistantMessage(sessionId, response.content);
       }
 
       if (action.action === "final") {

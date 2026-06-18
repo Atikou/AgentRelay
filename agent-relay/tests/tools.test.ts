@@ -80,6 +80,19 @@ test("write_file 返回 changeId 与 diff", async () => {
   assert.match(out.diff, /v1/);
 });
 
+test("write_file 新建嵌套文件时会自动补建父目录", async () => {
+  const r = reg();
+  const w = await r.run(
+    "write_file",
+    { path: "auto-dir/nested/a.txt", content: "ok", createDirs: false, backup: false },
+    await ctx(),
+  );
+  assert.equal(w.ok, true);
+  const read = await r.run("read_file", { path: "auto-dir/nested/a.txt" }, await ctx());
+  assert.equal(read.ok, true);
+  assert.equal((read as { output: { content: string } }).output.content, "ok");
+});
+
 test("list_files 返回 files 数组", async () => {
   const r = reg();
   await r.run("write_file", { path: "list/x.txt", content: "1", backup: false }, await ctx());

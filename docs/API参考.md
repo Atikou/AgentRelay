@@ -279,6 +279,8 @@ Content-Type: application/json
 
 
 
+权限续跑不会合成 `role=user` 消息：计划批准 handoff 只改写首条 `system` 运行态上下文，要求模型下一轮直接输出 ReAct JSON。若模型输出普通说明文本导致 `parse_error`，该输出只用于当前内存对话的纠偏，不写入持久化 assistant 历史；只有成功解析为 `tool` / `final` 的动作才会保存。`write_file` 新建嵌套路径文件时会对 `ENOENT` 做一次父目录自动补建重试，因此模型误传 `createDirs:false` 不会导致首次写入直接失败。
+
 #### 流式 Agent（SSE）
 
 

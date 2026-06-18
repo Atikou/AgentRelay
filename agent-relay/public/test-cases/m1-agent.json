@@ -1802,6 +1802,36 @@
         },
         "bodyContains": ["parseAction", "final.answer", "Markdown/JSON", "```json fence"]
       }
+    },
+    {
+      "id": "m1-agent-permission-handoff-system-context-doc",
+      "title": "权限续跑不伪造用户消息",
+      "purpose": "确认对话循环文档声明批准后的 handoff 只写入 system 运行态上下文，不生成合成 role=user 继续执行消息。",
+      "method": "GET",
+      "path": "/api/docs/content?slug=%E5%AF%B9%E8%AF%9D%E5%BE%AA%E7%8E%AF",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyPaths": {
+          "markdown": "string"
+        },
+        "bodyContains": ["role=user", "system", "ReAct JSON", "handoff"]
+      }
+    },
+    {
+      "id": "m1-agent-parse-error-not-persisted-doc",
+      "title": "parse_error 不写入 assistant 历史",
+      "purpose": "确认 API 文档说明 handoff 后的普通文本只触发 parse_error 纠偏，不调用 saveAssistantMessage 持久化。",
+      "method": "GET",
+      "path": "/api/docs/content?slug=API%E5%8F%82%E8%80%83",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyPaths": {
+          "markdown": "string"
+        },
+        "bodyContains": ["resume-permission", "parse_error", "assistant", "role=user"]
+      }
     }
   ]
 }
