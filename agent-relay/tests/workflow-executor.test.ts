@@ -336,6 +336,7 @@ test("edit proposal records confirmation-required permission checks", async () =
   });
   const policy = resolveRunPolicy({
     requestedMode: "implement",
+    forceMode: true,
     message: "edit src/agent/AgentLoop.ts prompt text",
     requestedPermissionPolicy: "confirmBeforeEdit",
   });

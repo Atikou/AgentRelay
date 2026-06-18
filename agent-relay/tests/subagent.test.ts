@@ -368,11 +368,12 @@ test("SubAgentRunner 轻量只读子任务单次完成", async () => {
 });
 
 test("resolveSubagentTimeoutMs 不低于 120 秒下限", async () => {
-  const { resolveSubagentTimeoutMs, MIN_SUBAGENT_TIMEOUT_MS } = await import(
-    "../src/subagent/dispatchInputNormalize.js"
-  );
+  const { resolveSubagentTimeoutMs, MIN_SUBAGENT_TIMEOUT_MS, DEFAULT_SUBAGENT_TIMEOUT_CONFIG_MS } =
+    await import("../src/subagent/dispatchInputNormalize.js");
+  // 低于下限的请求被抬到 MIN；未指定时回落到（不低于下限的）配置默认值。
   assert.equal(resolveSubagentTimeoutMs(30_000), MIN_SUBAGENT_TIMEOUT_MS);
-  assert.equal(resolveSubagentTimeoutMs(undefined), MIN_SUBAGENT_TIMEOUT_MS);
+  assert.equal(resolveSubagentTimeoutMs(undefined), DEFAULT_SUBAGENT_TIMEOUT_CONFIG_MS);
+  assert.ok(resolveSubagentTimeoutMs(undefined) >= MIN_SUBAGENT_TIMEOUT_MS);
 });
 
 test("SubAgentCoordinator 并行汇总多个任务", async () => {
