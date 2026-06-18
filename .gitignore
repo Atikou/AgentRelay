@@ -20,9 +20,11 @@ agent-relay/node_modules/
 agent-relay/dist/
 
 # 运行时数据
+.agent/
 agent-relay/data/logs/
 agent-relay/data/traces/
 agent-relay/data/notifications/
 agent-relay/data/scheduler/
 agent-relay/data/agent_data/
+agent-relay/data/lifecycle/
 agent-relay/data/*.db
