@@ -4,6 +4,11 @@ import { defaultIntentRouter } from "./IntentRouter.js";
 import { defaultWorkflowSessionStore } from "./WorkflowSessionSwitch.js";
 import { defaultWorkflowRouter } from "./WorkflowRouter.js";
 import { runModeForIntent } from "./intentPatterns.js";
+import {
+  afterPlanForVariant,
+  detectPlanExecutionVariant,
+  type PlanExecutionVariant,
+} from "./planExecutionVariant.js";
 import type { AgentIntentType } from "./IntentTypes.js";
 import {
   parseRunModeValue,
@@ -127,6 +132,9 @@ export class RunPolicyManager {
       ? ["read"] satisfies ToolPermission[]
       : permissionsForPolicy(permissionPolicy);
 
+    const planVariant = resolvePlanVariant(route.intent, input.message);
+    const afterPlan = afterPlanForVariant(planVariant);
+
     return {
       mode,
       executionStage: stageForIntent(route.intent),
@@ -135,6 +143,8 @@ export class RunPolicyManager {
       workflowType: route.workflowType,
       permissionPolicy,
       permissionPolicySource: explicitPermissionPolicy ? "explicit" : "inferred",
+      planVariant,
+      afterPlan,
       budget,
       allowedPermissions,
       requireFinalAnswer: true,
@@ -308,4 +318,12 @@ function stageForIntent(intent: AgentIntentType): AgentExecutionStage {
   if (intent === "verify" || intent === "run" || intent === "debug") return "verify";
   if (intent === "edit" || intent === "refactor" || intent === "generate_file") return "execute";
   return "analyze";
+}
+
+function resolvePlanVariant(
+  intent: AgentIntentType,
+  message?: string,
+): PlanExecutionVariant | undefined {
+  if (intent !== "plan") return undefined;
+  return detectPlanExecutionVariant(message) ?? "plan_only";
 }

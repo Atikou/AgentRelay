@@ -34,6 +34,8 @@ test("resolve 计划模式使用只读权限与更高默认预算", () => {
   const policy = defaultRunPolicyManager.resolve({ message: "请进入计划模式，只读分析当前项目" });
   assert.equal(policy.mode, "plan");
   assert.equal(policy.executionStage, "plan");
+  assert.equal(policy.afterPlan, "final");
+  assert.equal(policy.planVariant, "plan_only");
   assert.equal(policy.modeSource, "inferred");
   assert.equal(policy.intent, "plan");
   assert.equal(policy.workflowType, "planWorkflow");
@@ -131,6 +133,15 @@ test("独立实例可复用", () => {
   const custom = new RunPolicyManager();
   assert.equal(custom.resolve({ requestedMode: "debug", forceMode: true, message: "x" }).mode, "debug");
   assert.equal(custom.resolve({ requestedMode: "debug", forceMode: true, message: "x" }).intent, "debug");
+});
+
+test("plan_then_execute 复合意图进入权限申请后续", () => {
+  const policy = defaultRunPolicyManager.resolve({
+    message: "先分析项目，制定 README 修改计划，然后按计划执行",
+  });
+  assert.equal(policy.intent, "plan");
+  assert.equal(policy.planVariant, "plan_then_execute");
+  assert.equal(policy.afterPlan, "request_permission_then_execute");
 });
 
 test("短句续写会沿用同会话上轮工作流", () => {

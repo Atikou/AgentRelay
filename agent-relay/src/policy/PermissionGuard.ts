@@ -2,8 +2,10 @@ import type { AgentIntentType } from "../agent/IntentTypes.js";
 import type { ToolPermission } from "../core/permissions.js";
 import type { UserPermissionPolicy } from "../agent/RunPolicyTypes.js";
 import { assessPermissionDeniedRisk, assessToolRisk, type StructuredToolRisk } from "./ToolRiskAssessment.js";
-import type { NetworkPolicy } from "./NetworkPolicy.js";
+import type { ScopedApprovedPermissions } from "./permissionRequestTypes.js";
+import { isToolCallGranted } from "./scopedPermissionCheck.js";
 import type { ShellPolicy } from "./ShellPolicy.js";
+import type { NetworkPolicy } from "./NetworkPolicy.js";
 
 export type PermissionGuardDecisionKind = "allow" | "needsConfirmation" | "deny";
 
@@ -45,6 +47,7 @@ export interface PermissionGuardInput {
   allowedPermissions: ToolPermission[];
   shellPolicy?: ShellPolicy;
   networkPolicy?: NetworkPolicy;
+  scopedGrants?: ScopedApprovedPermissions;
 }
 
 export function evaluatePermissionGuard(input: PermissionGuardInput): PermissionGuardDecision {
@@ -89,6 +92,18 @@ export function evaluatePermissionGuard(input: PermissionGuardInput): Permission
   });
 
   if (input.permission === "read") {
+    return { decision: "allow", risk };
+  }
+
+  if (
+    input.scopedGrants &&
+    isToolCallGranted({
+      toolName: input.toolName,
+      permission: input.permission,
+      toolInput: input.input,
+      grants: input.scopedGrants,
+    })
+  ) {
     return { decision: "allow", risk };
   }
 

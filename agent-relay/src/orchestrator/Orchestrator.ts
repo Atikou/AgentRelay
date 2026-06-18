@@ -14,6 +14,10 @@ import type { AgentStreamEvent } from "./AgentStream.js";
 import type { ChatStreamEvent } from "./ChatStream.js";
 
 import { planFromTask } from "../agent/planFromTask.js";
+import {
+  defaultPausedRunStore,
+  type PausedRunStore,
+} from "../agent/PausedRunStore.js";
 import { TaskExecutionWorkflow } from "../agent/TaskExecutionWorkflow.js";
 import type { PlanExecutionMode } from "../plan/PlanActivationWorkflow.js";
 import { PlanActivationWorkflow } from "../plan/PlanActivationWorkflow.js";
@@ -36,6 +40,7 @@ import type { TaskStore } from "../context/stores.js";
 import type { TaskRecord } from "../context/types.js";
 
 import type { CorrelationContext } from "../core/correlation.js";
+import type { ToolPermission } from "../core/permissions.js";
 
 import type { ModelOrchestrator } from "../model-orchestrator/index.js";
 import type { RouteOptions } from "../model/routeOptions.js";
@@ -47,7 +52,9 @@ import { toTaskRunnerPlan } from "../plan/planConverter.js";
 import type { PlanService } from "../plan/PlanService.js";
 import { PlanValidationError } from "../plan/types.js";
 
-import type { ToolPermission } from "../core/permissions.js";
+import type { PermissionRequestStore } from "../policy/PermissionRequestStore.js";
+import type { SessionPermissionGrants } from "../policy/SessionPermissionGrants.js";
+import type { ScopedApprovedPermissions } from "../policy/permissionRequestTypes.js";
 
 import type { SubAgentCoordinator } from "../subagent/SubAgentCoordinator.js";
 
@@ -122,6 +129,9 @@ export interface OrchestratorDeps {
   /** 流式 Agent / Chat Run 取消注册表。 */
   agentRunRegistry: AgentRunRegistry;
 
+  permissionRequestStore?: PermissionRequestStore;
+  sessionPermissionGrants?: SessionPermissionGrants;
+  pausedRunStore?: PausedRunStore;
 }
 
 
@@ -853,6 +863,123 @@ export class Orchestrator {
     return this.deps.runStateStore.get(runId);
   }
 
+  /**
+   * 弹窗批准后由客户端调用：用暂停时的对话快照忠实续跑同一段对话。
+   *
+   * 第一性原则：不重新喊话、不用正则猜权限。
+   * - 工具级 JIT 暂停：恢复后直接执行那个被批准的工具，再继续模型循环（沿用原模式/策略 + 作用域授权）。
+   * - 计划→执行交接：恢复后切到 implement，按对话历史中的计划继续执行（autoEdit 放行写入，
+   *   危险操作仍由 PermissionGuard 强制再确认）。
+   */
+  async resumeAfterPermission(body: unknown, makeChat?: LoopChatFn): Promise<ApiResult> {
+    const payload = (body ?? {}) as {
+      runId?: string;
+      permissionRequestId?: string;
+      autoConfirm?: boolean;
+      permissionPolicy?: string;
+    };
+    const runId = (payload.runId ?? "").trim();
+    if (!runId) return { status: 400, body: { error: "runId 不能为空" } };
+
+    const run = this.deps.runs.get(runId);
+    if (!run) return { status: 404, body: { error: "运行记录不存在", runId } };
+
+    const store = this.deps.permissionRequestStore;
+    if (!store) {
+      return { status: 500, body: { error: "权限申请服务未配置" } };
+    }
+
+    const request =
+      (payload.permissionRequestId ? store.get(payload.permissionRequestId.trim()) : null) ??
+      store.getPendingByRunId(runId);
+    if (!request || request.status !== "approved") {
+      return {
+        status: 400,
+        body: { error: "未找到已批准的权限申请", runId, permissionRequestId: payload.permissionRequestId },
+      };
+    }
+
+    const pausedStore = this.deps.pausedRunStore ?? defaultPausedRunStore;
+    const snapshot = pausedStore.take(runId);
+    if (!snapshot) {
+      return {
+        status: 409,
+        body: {
+          error: "无可恢复的执行快照（服务可能已重启，或该批准已被执行）。请重新发起请求。",
+          runId,
+        },
+      };
+    }
+
+    const sessionId = run.sessionId;
+    const scopedGrants: ScopedApprovedPermissions | undefined = request.approvedPermissions;
+
+    // 续跑策略：工具级续跑沿用原模式/策略；计划→执行交接切到 implement。
+    // 写入是否再次逐次确认，由用户的批准粒度决定：本次会话都允许 → autoEdit；仅允许一次 → confirmBeforeEdit。
+    const isHandoff = !snapshot.pendingAction;
+    const explicitPermissionPolicy = payload.permissionPolicy
+      ? defaultRunPolicyManager.parsePermissionPolicy(payload.permissionPolicy)
+      : undefined;
+    const handoffPolicy = request.decision === "allow_session" ? "autoEdit" : "confirmBeforeEdit";
+    const policy = defaultRunPolicyManager.resolve({
+      requestedMode: snapshot.resumeMode ?? snapshot.mode,
+      forceMode: true,
+      sessionId,
+      message: snapshot.goal,
+      autoConfirm: payload.autoConfirm,
+      requestedPermissionPolicy: explicitPermissionPolicy
+        ?? (isHandoff ? handoffPolicy : snapshot.permissionPolicy),
+    });
+
+    const task = run.taskId
+      ? this.deps.tasks.get(run.taskId)
+      : this.resolveOrCreateTask(sessionId, snapshot.goal.slice(0, 500));
+    if (!task) return { status: 404, body: { error: "关联 task 不存在", taskId: run.taskId } };
+
+    this.deps.runs.update(runId, { status: "running" });
+    this.deps.tasks.update(task.id, { status: "running" });
+
+    const abortController = this.deps.agentRunRegistry.register(runId, "agent");
+    const loop = new AgentLoop({
+      chat: makeChat ?? this.deps.makeChatFn(),
+      registry: this.deps.registry,
+      workspaceRoot: this.workspaceForSession(sessionId),
+      autoConfirm: payload.autoConfirm ?? false,
+      policy,
+      projectAllowedPermissions: this.deps.projectAllowedPermissions,
+      trace: this.deps.trace,
+      notificationQueue: this.deps.notificationQueue,
+      contextManager: sessionId ? this.deps.contextManager : undefined,
+      sessionId,
+      runId,
+      taskId: task.id,
+      requestId: runId,
+      runStateStore: this.deps.runStateStore,
+      projectIndex: this.deps.projectIndex,
+      permissionRequestStore: store,
+      sessionPermissionGrants: this.deps.sessionPermissionGrants,
+      pausedRunStore: pausedStore,
+      pausedRun: snapshot,
+      scopedGrants,
+      pauseOnPermissionRequest: payload.autoConfirm !== true,
+      maxCostUsdPerRun: this.deps.maxCostUsdPerRun,
+      subAgentDispatchDepth: 0,
+      maxSubAgentDispatchDepth: this.deps.maxSubAgentDispatchDepth ?? 1,
+      signal: abortController.signal,
+    });
+
+    const ctx = { message: snapshot.goal, sessionId, task, run: { id: runId }, loop };
+    try {
+      const result = await loop.run(snapshot.goal);
+      const body = this.finalizeAgentRunSuccess(ctx, result, { resumed: true });
+      return { status: 200, body };
+    } catch (error) {
+      return { status: 502, body: this.finalizeAgentRunFailure(ctx, error) };
+    } finally {
+      this.deps.agentRunRegistry.unregister(runId);
+    }
+  }
+
   listRunningAgentRuns() {
     return this.deps.agentRunRegistry.listRunning();
   }
@@ -1410,6 +1537,10 @@ export class Orchestrator {
       maxSubAgentDispatchDepth: this.deps.maxSubAgentDispatchDepth ?? 1,
       signal: cancelSignal,
       timeline,
+      permissionRequestStore: this.deps.permissionRequestStore,
+      sessionPermissionGrants: this.deps.sessionPermissionGrants,
+      pausedRunStore: this.deps.pausedRunStore,
+      pauseOnPermissionRequest: payload.autoConfirm !== true,
     });
 
     return {
@@ -1443,23 +1574,34 @@ export class Orchestrator {
     result: AgentRunResult,
     extra?: { resumed?: boolean },
   ): AgentRunResult & { runId: string; taskId: string; runState?: RunState | null; resumed?: boolean } {
+    const awaitingPermission = result.awaitingPermission === true || result.executionMeta.stopReason === "awaiting_permission";
     const cancelled = result.executionMeta.stopReason === "user_cancelled";
     this.deps.tasks.update(ctx.task.id, {
-      status: cancelled ? "cancelled" : result.reachedLimit ? "failed" : "done",
+      status: cancelled ? "cancelled" : awaitingPermission ? "blocked" : result.reachedLimit ? "failed" : "done",
       summary: result.answer.slice(0, 500),
     });
-    if (!result.reachedLimit && !cancelled) this.releaseTaskFromSession(ctx.sessionId, ctx.task.id);
+    if (!result.reachedLimit && !cancelled && !awaitingPermission) {
+      this.releaseTaskFromSession(ctx.sessionId, ctx.task.id);
+    }
     const runState = result.reachedLimit
       ? this.deps.runStateStore.get(ctx.run.id)
       : null;
     this.deps.runs.update(ctx.run.id, {
-      status: cancelled ? "cancelled" : result.reachedLimit ? "failed" : "completed",
+      status: cancelled
+        ? "cancelled"
+        : awaitingPermission
+          ? "waiting_confirmation"
+          : result.reachedLimit
+            ? "failed"
+            : "completed",
       resultJson: JSON.stringify({
         answer: result.answer,
         iterations: result.iterations,
         executionMeta: result.executionMeta,
         routerDecision: result.routerDecision,
         promptStrategy: result.promptStrategy,
+        permissionRequest: result.permissionRequest,
+        awaitingPermission,
         runState: runState
           ? { status: runState.status, pendingSteps: runState.pendingSteps, completedSteps: runState.completedSteps }
           : undefined,
@@ -1470,14 +1612,22 @@ export class Orchestrator {
       type: "run_end",
       runId: ctx.run.id,
       kind: "agent",
-      status: cancelled ? "cancelled" : result.reachedLimit ? "failed" : "completed",
+      status: cancelled
+        ? "cancelled"
+        : awaitingPermission
+          ? "waiting_confirmation"
+          : result.reachedLimit
+            ? "failed"
+            : "completed",
       resumed: extra?.resumed,
       resumable: runState?.status === "resumable",
+      awaitingPermission,
     });
     return {
       ...result,
       runId: ctx.run.id,
       taskId: ctx.task.id,
+      sessionId: ctx.sessionId,
       runState: runState ?? undefined,
       resumed: extra?.resumed,
     };

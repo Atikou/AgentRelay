@@ -97,6 +97,7 @@
     "test:schema-migration": "tsx tests/schema-migration.test.ts",
     "test:permission-policy": "tsx tests/permission-policy.test.ts",
     "test:permission-guard": "tsx tests/permission-guard.test.ts",
+    "test:permission-request": "tsx tests/permission-request.test.ts",
     "test:network-policy": "tsx tests/network-policy.test.ts",
     "test:tool-risk": "tsx tests/tool-risk.test.ts",
     "test:architecture-deps": "tsx tests/architecture-deps.test.ts",

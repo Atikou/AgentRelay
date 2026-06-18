@@ -2639,6 +2639,7 @@ async function handleUnifiedAgentStream(message) {
   const meta = panel.finalize(doneResult);
   const metaEl = msgWrap.querySelector(".msg-meta");
   if (metaEl) metaEl.textContent = meta + sessionMeta();
+  maybeShowPermissionRequest(doneResult);
   } catch (err) {
     if (streamAbort.signal.aborted || String(err).includes("aborted")) {
       panel.setStatus("已取消");
@@ -2837,6 +2838,132 @@ async function handleTools() {
   addMessage("system", panel);
 }
 
+function ensurePermissionRequestPanel() {
+  let panel = document.getElementById("permission-request-panel");
+  if (panel) return panel;
+  panel = document.createElement("aside");
+  panel.id = "permission-request-panel";
+  panel.className = "permission-request-panel";
+  panel.setAttribute("aria-live", "polite");
+  document.body.appendChild(panel);
+  return panel;
+}
+
+function groupPermissionItems(items) {
+  const groups = { write_file: [], shell: [], other: [] };
+  for (const item of items || []) {
+    if (item.type === "write_file") groups.write_file.push(item);
+    else if (item.type === "shell") groups.shell.push(item);
+    else groups.other.push(item);
+  }
+  return groups;
+}
+
+function renderPermissionItemList(items) {
+  if (!items.length) return "";
+  return items
+    .map(
+      (item) => `<div class="perm-item">
+        <div class="perm-item-target">${escapeHtml(item.target)}</div>
+        <div class="perm-item-reason">${escapeHtml(item.reason || "")}</div>
+      </div>`,
+    )
+    .join("");
+}
+
+async function respondPermissionRequest(request, decision) {
+  const responded = await api(`/api/permission-requests/${encodeURIComponent(request.id)}/respond`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ decision }),
+  });
+  if (decision === "deny") {
+    hidePermissionRequestPanel();
+    addMessage("system", `已拒绝权限申请：${escapeHtml(request.title || request.id)}`);
+    return responded;
+  }
+  hidePermissionRequestPanel();
+  addMessage("system", `已批准权限（${decision === "allow_session" ? "本次会话" : "仅一次"}），正在继续执行…`);
+  try {
+    const resume = await api(`/api/runs/${encodeURIComponent(request.runId)}/resume-permission`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        runId: request.runId,
+        permissionRequestId: request.id,
+        permissionPolicy: getSelectedPermissionPolicy(),
+      }),
+    });
+    if (resume.sessionId) {
+      setActiveSessionId(resume.sessionId);
+      void loadHistorySessions();
+    }
+    renderAgentRun(resume);
+    return responded;
+  } catch (err) {
+    addMessage("system", `续跑失败：${escapeHtml(String(err))}`);
+    throw err;
+  }
+}
+
+function showPermissionRequestPanel(request) {
+  if (!request || request.status !== "pending") return;
+  const panel = ensurePermissionRequestPanel();
+  const groups = groupPermissionItems(request.requiredPermissions || []);
+  panel.innerHTML = `
+    <h3>${escapeHtml(request.title || "AI 需要权限继续执行")}</h3>
+    <div class="perm-summary">${escapeHtml(request.summary || "")}</div>
+    ${
+      groups.write_file.length
+        ? `<div class="perm-group"><div class="perm-group-title">文件修改</div>${renderPermissionItemList(groups.write_file)}</div>`
+        : ""
+    }
+    ${
+      groups.shell.length
+        ? `<div class="perm-group"><div class="perm-group-title">命令执行</div>${renderPermissionItemList(groups.shell)}</div>`
+        : ""
+    }
+    ${
+      groups.other.length
+        ? `<div class="perm-group"><div class="perm-group-title">其他权限</div>${renderPermissionItemList(groups.other)}</div>`
+        : ""
+    }
+    <div class="perm-actions">
+      <button type="button" class="btn-allow" data-decision="allow_once">允许</button>
+      <button type="button" class="btn-session" data-decision="allow_session">本次会话都允许</button>
+      <button type="button" class="btn-deny" data-decision="deny">拒绝</button>
+    </div>`;
+  panel.classList.add("visible");
+  panel.querySelectorAll("[data-decision]").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const decision = btn.getAttribute("data-decision");
+      btn.disabled = true;
+      try {
+        await respondPermissionRequest(request, decision);
+      } catch (err) {
+        addSystemError(String(err.message || err));
+      } finally {
+        panel.querySelectorAll("button").forEach((b) => {
+          b.disabled = false;
+        });
+      }
+    });
+  });
+}
+
+function hidePermissionRequestPanel() {
+  const panel = document.getElementById("permission-request-panel");
+  if (!panel) return;
+  panel.classList.remove("visible");
+  panel.innerHTML = "";
+}
+
+function maybeShowPermissionRequest(result) {
+  if (result?.permissionRequest?.status === "pending") {
+    showPermissionRequestPanel(result.permissionRequest);
+  }
+}
+
 function renderAgentRun(result) {
   clearWelcome();
   const card = document.createElement("div");
@@ -2897,6 +3024,7 @@ function renderAgentRun(result) {
   const workflowLabel = metaInfo ? getWorkflowStatusLabel(metaInfo) : "";
   const meta = `模型轮次 ${result.iterations} · 工具请求 ${result.steps ? result.steps.length : 0} 次${metaInfo ? ` · ${workflowLabel || metaInfo.mode}/${metaInfo.stopReason}` : ""}${result.reachedLimit ? " · 已达预算" : ""}${sessionMeta()}`;
   addMessage("assistant", card, meta);
+  maybeShowPermissionRequest(result);
 }
 
 function renderConfirmationRequest(request) {

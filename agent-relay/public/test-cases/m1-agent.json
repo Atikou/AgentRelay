@@ -675,7 +675,63 @@
       }
     },
     {
-      "id": "m1-agent-explicit-permission-policy-meta",
+      "id": "m1-permission-request-pending-list",
+      "title": "查询待处理权限申请列表",
+      "purpose": "确认 GET /api/permission-requests/pending 返回固定 schemaVersion=1 的 permissionRequests 数组，供网页右侧弹窗轮询或初始化。",
+      "method": "GET",
+      "path": "/api/permission-requests/pending",
+      "input": {},
+      "expect": {
+        "status": 200,
+        "bodyHasKeys": ["permissionRequests", "count"]
+      }
+    },
+    {
+      "id": "m1-permission-request-respond-invalid",
+      "title": "非法 decision 拒绝权限响应",
+      "purpose": "确认 POST /api/permission-requests/:id/respond 只接受 allow_once/allow_session/deny，避免前端或脚本传入未知决策值。",
+      "method": "POST",
+      "path": "/api/permission-requests/00000000-0000-0000-0000-000000000000/respond",
+      "input": {
+        "decision": "allow_forever"
+      },
+      "expect": {
+        "status": 400,
+        "bodyHasKeys": ["error"]
+      }
+    },
+    {
+      "id": "m1-resume-permission-missing-run",
+      "title": "无效 runId 续跑返回 404",
+      "purpose": "确认 POST /api/runs/:runId/resume-permission 对不存在的运行记录返回 404，且不会凭空创建续跑（续跑仅由弹窗批准触发，不依赖用户再发「继续」）。",
+      "method": "POST",
+      "path": "/api/runs/no-such-run/resume-permission",
+      "input": {
+        "runId": "no-such-run",
+        "permissionRequestId": "00000000-0000-0000-0000-000000000000"
+      },
+      "expect": {
+        "status": 404,
+        "bodyHasKeys": ["error"]
+      }
+    },
+    {
+      "id": "m1-resume-permission-flow-doc",
+      "title": "文档记录快照忠实续跑链路",
+      "purpose": "确认文档说明权限批准后用对话快照（PausedRunStore）忠实续跑，而非正则猜权限或合成「假用户消息」重新喊话；并覆盖工具级 JIT 暂停与计划→执行交接。",
+      "method": "GET",
+      "path": "/api/docs/content?slug=Plan-Approval-Execute-TodoList",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyPaths": {
+          "markdown": "string"
+        },
+        "bodyContains": ["PausedRunStore", "忠实续跑", "JIT", "resume-permission"]
+      }
+    },
+    {
+      "id": "m1-agent-explicit-permission-policy",
       "title": "显式权限策略进入 executionMeta",
       "purpose": "确认统一 Agent 入口接受 permissionPolicy，并在 executionMeta 中返回策略与来源，作为后续 PermissionGuard 的可观测输入。",
       "method": "POST",

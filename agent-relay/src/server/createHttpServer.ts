@@ -48,6 +48,12 @@ import {
 import { handleDocContent, handleDocsList } from "./handlers/docs.handlers.js";
 import { handleRunCancel, handleRunDelete, handleRunGet, handleRunReport, handleRunsList, handleRunsRunning } from "./handlers/runs.handlers.js";
 import {
+  handlePermissionRequestGet,
+  handlePermissionRequestRespond,
+  handlePermissionRequestsPending,
+  handleRunApprove,
+} from "./handlers/permission.handlers.js";
+import {
   handleSchedulerCancel,
   handleSchedulerCreate,
   handleSchedulerList,
@@ -336,6 +342,47 @@ export function createHttpServer(app: AppContext, opts?: HttpServerOptions): Ser
           const result = handleRunCancel(app, await readBody(req, maxBodyBytes));
           sendJson(res, result.status, result.body);
           return;
+        }
+        if (pathname === "/api/permission-requests/pending" && method === "GET") {
+          const result = handlePermissionRequestsPending(app, url);
+          sendJson(res, result.status, result.body);
+          return;
+        }
+        const permissionRequestMatch = pathname.match(/^\/api\/permission-requests\/([^/]+)$/);
+        if (permissionRequestMatch && method === "GET") {
+          const requestId = decodeURIComponent(permissionRequestMatch[1]!);
+          const result = handlePermissionRequestGet(app, requestId);
+          sendJson(res, result.status, result.body);
+          return;
+        }
+        const permissionRespondMatch = pathname.match(/^\/api\/permission-requests\/([^/]+)\/respond$/);
+        if (permissionRespondMatch && method === "POST") {
+          const result = handlePermissionRequestRespond(
+            app,
+            decodeURIComponent(permissionRespondMatch[1]!),
+            await readBody(req, maxBodyBytes),
+          );
+          sendJson(res, result.status, result.body);
+          return;
+        }
+        if (pathname.startsWith("/api/runs/") && method === "POST") {
+          const rest = decodeURIComponent(pathname.slice("/api/runs/".length));
+          if (rest.endsWith("/approve")) {
+            const runId = rest.slice(0, -"/approve".length);
+            const result = handleRunApprove(app, runId, await readBody(req, maxBodyBytes));
+            sendJson(res, result.status, result.body);
+            return;
+          }
+          if (rest.endsWith("/resume-permission")) {
+            const runId = rest.slice(0, -"/resume-permission".length);
+            const rawBody = (await readBody(req, maxBodyBytes)) as Record<string, unknown>;
+            const result = await app.orchestrator.resumeAfterPermission(
+              { ...rawBody, runId: rawBody.runId ?? runId },
+              app.makeChatFn(),
+            );
+            sendJson(res, result.status, result.body);
+            return;
+          }
         }
         if (pathname.startsWith("/api/runs/") && method === "GET") {
           const rest = decodeURIComponent(pathname.slice("/api/runs/".length));

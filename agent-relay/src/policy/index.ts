@@ -4,3 +4,7 @@ export * from "./NetworkPolicy.js";
 export * from "./PermissionPolicy.js";
 export * from "./ToolRiskAssessment.js";
 export * from "./PermissionGuard.js";
+export * from "./permissionRequestTypes.js";
+export * from "./PermissionRequestStore.js";
+export * from "./SessionPermissionGrants.js";
+export * from "./scopedPermissionCheck.js";

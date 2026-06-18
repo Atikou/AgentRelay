@@ -42,6 +42,15 @@ import { createDefaultRegistry } from "../tools/index.js";
 import { createShellPolicy, type ShellPolicy } from "../policy/ShellPolicy.js";
 import { createNetworkPolicy, type NetworkPolicy } from "../policy/NetworkPolicy.js";
 import { resolveProjectAllowedPermissions, PERMISSION_SCOPE_ORDER } from "../policy/PermissionPolicy.js";
+import {
+  defaultPermissionRequestStore,
+  type PermissionRequestStore,
+} from "../policy/PermissionRequestStore.js";
+import {
+  defaultSessionPermissionGrants,
+  type SessionPermissionGrants,
+} from "../policy/SessionPermissionGrants.js";
+import { defaultPausedRunStore } from "../agent/PausedRunStore.js";
 import { ModelOrchestrator } from "../model-orchestrator/index.js";
 import {
   buildModelProfiles,
@@ -123,6 +132,8 @@ export class AppContext {
   readonly shellPolicy: ShellPolicy;
   readonly networkPolicy: NetworkPolicy;
   readonly dataLifecycle: DataLifecycleService;
+  readonly permissionRequestStore: PermissionRequestStore;
+  readonly sessionPermissionGrants: SessionPermissionGrants;
   private readonly defaultAgentChat: LoopChatFn;
   readonly startupRecovery?: StartupRecoverySummary;
 
@@ -167,6 +178,8 @@ export class AppContext {
     shellPolicy: ShellPolicy;
     networkPolicy: NetworkPolicy;
     dataLifecycle: DataLifecycleService;
+    permissionRequestStore?: PermissionRequestStore;
+    sessionPermissionGrants?: SessionPermissionGrants;
     startupRecovery?: StartupRecoverySummary;
   }) {
     this.profile = opts.profile;
@@ -210,6 +223,8 @@ export class AppContext {
     this.shellPolicy = opts.shellPolicy;
     this.networkPolicy = opts.networkPolicy;
     this.dataLifecycle = opts.dataLifecycle;
+    this.permissionRequestStore = opts.permissionRequestStore ?? defaultPermissionRequestStore;
+    this.sessionPermissionGrants = opts.sessionPermissionGrants ?? defaultSessionPermissionGrants;
     this.startupRecovery = opts.startupRecovery;
   }
 
@@ -673,6 +688,9 @@ export function createAppContext(): AppContext {
     projectAllowedPermissions,
     maxSubAgentDispatchDepth,
     agentRunRegistry,
+    permissionRequestStore: defaultPermissionRequestStore,
+    sessionPermissionGrants: defaultSessionPermissionGrants,
+    pausedRunStore: defaultPausedRunStore,
   });
   orchestratorHolder.current = orchestrator;
 

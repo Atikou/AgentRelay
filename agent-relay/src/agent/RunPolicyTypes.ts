@@ -5,7 +5,16 @@ import type { ToolPermission } from "../core/permissions.js";
 export type AgentRunMode = "chat" | "plan" | "implement" | "debug" | "review";
 export type AgentExecutionStage = "analyze" | "plan" | "execute" | "verify";
 
-export type AgentStopReason = "completed" | "budget_exhausted" | "error" | "user_cancelled";
+export type AgentStopReason =
+  | "completed"
+  | "budget_exhausted"
+  | "error"
+  | "user_cancelled"
+  | "awaiting_permission";
+
+export type PlanExecutionVariant = "plan_only" | "plan_wait_approval" | "plan_then_execute";
+
+export type PlanAfterAction = "final" | "request_permission" | "request_permission_then_execute";
 
 export type UserPermissionPolicy =
   | "readOnly"
@@ -214,6 +223,7 @@ export interface AgentWorkflowSwitch {
 export interface AgentExecutionMeta {
   mode: AgentRunMode;
   executionStage?: AgentExecutionStage;
+  planVariant?: PlanExecutionVariant;
   modeSource?: "explicit" | "inferred";
   intent?: AgentIntentType;
   workflowType?: AgentWorkflowType;
@@ -263,6 +273,8 @@ export interface RunPolicy {
   workflowType: AgentWorkflowType;
   permissionPolicy: UserPermissionPolicy;
   permissionPolicySource: UserPermissionPolicySource;
+  planVariant?: PlanExecutionVariant;
+  afterPlan: PlanAfterAction;
   budget: RunBudget;
   allowedPermissions: ToolPermission[];
   requireFinalAnswer: boolean;

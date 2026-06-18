@@ -1,0 +1,148 @@
+/**
+ * Plan → Approval → Execute 权限申请自检。
+ * 运行：npm run test:permission-request
+ */
+import assert from "node:assert/strict";
+
+import { detectPlanExecutionVariant } from "../src/agent/planExecutionVariant.js";
+import { PermissionRequestStore } from "../src/policy/PermissionRequestStore.js";
+import { SessionPermissionGrants } from "../src/policy/SessionPermissionGrants.js";
+import { isToolCallGranted } from "../src/policy/scopedPermissionCheck.js";
+import { evaluatePermissionGuard } from "../src/policy/PermissionGuard.js";
+import { PausedRunStore } from "../src/agent/PausedRunStore.js";
+
+const tests: Array<{ name: string; fn: () => void }> = [];
+function test(name: string, fn: () => void) {
+  tests.push({ name, fn });
+}
+
+test("detectPlanExecutionVariant 识别 plan_then_execute", () => {
+  assert.equal(
+    detectPlanExecutionVariant("先分析项目，制定 README 修改计划，然后按计划执行"),
+    "plan_then_execute",
+  );
+  assert.equal(
+    detectPlanExecutionVariant("请制定计划，但不要执行"),
+    "plan_only",
+  );
+});
+
+test("PermissionRequestStore respond allow_session", () => {
+  const store = new PermissionRequestStore();
+  const created = store.create({
+    runId: "run-1",
+    sessionId: "sess-1",
+    title: "测试",
+    summary: "需要写 README",
+    requiredPermissions: [{ type: "write_file", target: "README.md", reason: "更新文档" }],
+  });
+  const responded = store.respond(created.id, { decision: "allow_session" });
+  assert.equal(responded?.status, "approved");
+  assert.deepEqual(responded?.approvedPermissions?.write_file, ["README.md"]);
+});
+
+test("scoped grants 允许已批准写文件", () => {
+  assert.equal(
+    isToolCallGranted({
+      toolName: "write_file",
+      permission: "write",
+      toolInput: { path: "README.md" },
+      grants: { write_file: ["README.md"] },
+    }),
+    true,
+  );
+  assert.equal(
+    isToolCallGranted({
+      toolName: "write_file",
+      permission: "write",
+      toolInput: { path: "secret.env" },
+      grants: { write_file: ["README.md"] },
+    }),
+    false,
+  );
+});
+
+test("PermissionGuard 在 scoped grants 下放行写入", () => {
+  const decision = evaluatePermissionGuard({
+    intent: "edit",
+    permissionPolicy: "confirmBeforeEdit",
+    toolName: "write_file",
+    permission: "write",
+    input: { path: "README.md" },
+    allowedPermissions: ["read", "write"],
+    scopedGrants: { write_file: ["README.md"] },
+  });
+  assert.equal(decision.decision, "allow");
+});
+
+test("SessionPermissionGrants merge 累积会话授权", () => {
+  const grants = new SessionPermissionGrants();
+  grants.merge("s1", { write_file: ["README.md"] });
+  grants.merge("s1", { shell: ["npm run typecheck"] });
+  const merged = grants.get("s1");
+  assert.deepEqual(merged?.write_file, ["README.md"]);
+  assert.deepEqual(merged?.shell, ["npm run typecheck"]);
+});
+
+test("PausedRunStore take 取出后即失效（避免对同一快照重复续跑）", () => {
+  const store = new PausedRunStore();
+  store.save({
+    runId: "run-paused",
+    sessionId: "sess-paused",
+    goal: "修改 README 并验证",
+    messages: [
+      { role: "system", content: "sys" },
+      { role: "user", content: "修改 README 并验证" },
+      { role: "assistant", content: '{"action":"tool","tool":"write_file","input":{"path":"README.md"}}' },
+    ],
+    steps: [],
+    modelTurns: 1,
+    pendingAction: { tool: "write_file", input: { path: "README.md" } },
+    mode: "implement",
+    permissionPolicy: "confirmBeforeEdit",
+    createdAt: new Date().toISOString(),
+  });
+  const taken = store.take("run-paused");
+  assert.equal(taken?.runId, "run-paused");
+  assert.equal(taken?.pendingAction?.tool, "write_file");
+  assert.equal(taken?.messages.length, 3);
+  assert.equal(store.take("run-paused"), null);
+});
+
+test("PausedRunStore 计划→执行交接快照无 pendingAction 且 resumeMode=implement", () => {
+  const store = new PausedRunStore();
+  store.save({
+    runId: "run-handoff",
+    sessionId: "sess-handoff",
+    goal: "制定计划然后执行",
+    messages: [
+      { role: "user", content: "制定计划然后执行" },
+      { role: "assistant", content: "## 计划\n- 改 README" },
+    ],
+    steps: [],
+    modelTurns: 1,
+    mode: "plan",
+    permissionPolicy: "readOnly",
+    resumeMode: "implement",
+    createdAt: new Date().toISOString(),
+  });
+  const snapshot = store.get("run-handoff");
+  assert.equal(snapshot?.pendingAction, undefined);
+  assert.equal(snapshot?.resumeMode, "implement");
+});
+
+let passed = 0;
+let failed = 0;
+for (const { name, fn } of tests) {
+  try {
+    fn();
+    passed += 1;
+    console.log(`  ok ${name}`);
+  } catch (error) {
+    failed += 1;
+    console.error(`  FAIL ${name}`);
+    console.error(error);
+  }
+}
+console.log(`\npermission-request: ${passed} passed, ${failed} failed`);
+if (failed > 0) process.exit(1);

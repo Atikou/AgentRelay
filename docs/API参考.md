@@ -265,6 +265,16 @@ Content-Type: application/json
 
 当工具调用被确认门阻塞或被策略拒绝时，对应 `steps[]` 项会包含 `confirmationRequest`，其中有 `status`、`message`、`affects.files`、`affects.commands`、`affects.networkTargets` 和结构化 `risk`，用于测试台展示“将要做什么、影响什么、为什么等待确认/被拒绝”。
 
+**通用权限申请（固定 JSON）**：当 AI 需要副作用权限（写文件 / shell 等）且未开启 `autoConfirm` 时，Run 会进入 `waiting_confirmation`，响应额外包含 `permissionRequest`（`schemaVersion: 1`）。测试台会在页面右侧弹出权限面板，提供「允许」「拒绝」「本次会话都允许」三按钮。
+
+- `GET /api/permission-requests/pending?sessionId=&runId=` — 查询待处理申请
+- `GET /api/permission-requests/:id` — 查询单个申请
+- `POST /api/permission-requests/:id/respond` — 响应申请，`decision` 为 `allow_once` / `allow_session` / `deny`
+- `POST /api/runs/:runId/approve` — 批准该 Run 的待处理申请（等价 respond）
+- `POST /api/runs/:runId/resume-permission` — 在批准后继续执行
+
+复合计划意图：`plan_then_execute`（如「先制定计划，然后执行」）会在只读 plan 阶段结束后生成 `requiredPermissions` 并等待批准，而不是直接获得写权限。
+
 
 
 #### 流式 Agent（SSE）

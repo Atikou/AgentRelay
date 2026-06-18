@@ -42,7 +42,25 @@ import {
   resolveEffectivePermissions,
 } from "../policy/PermissionPolicy.js";
 import { evaluatePermissionGuard } from "../policy/PermissionGuard.js";
+import {
+  defaultPermissionRequestStore,
+  permissionItemsFromConfirmation,
+  type PermissionRequestStore,
+} from "../policy/PermissionRequestStore.js";
+import {
+  defaultSessionPermissionGrants,
+  type SessionPermissionGrants,
+} from "../policy/SessionPermissionGrants.js";
+import type {
+  PermissionRequestPayload,
+  ScopedApprovedPermissions,
+} from "../policy/permissionRequestTypes.js";
 import type { AgentToolStep } from "./toolStep.js";
+import {
+  defaultPausedRunStore,
+  type PausedRunSnapshot,
+  type PausedRunStore,
+} from "./PausedRunStore.js";
 import { BudgetManager } from "./BudgetManager.js";
 import { defaultFinalizer } from "./Finalizer.js";
 import { defaultRunPolicyManager } from "./RunPolicy.js";
@@ -89,8 +107,12 @@ export interface AgentRunResult {
   answer: string;
   steps: AgentToolStep[];
   iterations: number;
-  /** 因达到运行预算而未给出 final 答案时为 true。 */
+  /** 本轮运行预算耗尽时为 true。 */
   reachedLimit: boolean;
+  /** 等待用户权限确认时为 true。 */
+  awaitingPermission?: boolean;
+  /** 固定 JSON 权限申请（通用弹窗 / API）。 */
+  permissionRequest?: PermissionRequestPayload;
   /** 本次运行实际生效的模式、预算、调用计数与停止原因。 */
   executionMeta: AgentExecutionMeta;
   /** 首轮模型调用的 Smart 路由摘要（默认 Smart 路径；显式 clientName 时省略）。 */
@@ -172,6 +194,18 @@ export interface AgentLoopOptions {
   signal?: AbortSignal;
   /** Activity Timeline：公开执行摘要（非模型 CoT）。 */
   timeline?: AgentTimelineService;
+  /** 遇权限确认门时暂停 Run 并返回 permissionRequest（默认：未开启 autoConfirm 时）。 */
+  pauseOnPermissionRequest?: boolean;
+  /** 权限申请存储（HTTP 入口注入单例）。 */
+  permissionRequestStore?: PermissionRequestStore;
+  /** 会话级已批准作用域权限。 */
+  sessionPermissionGrants?: SessionPermissionGrants;
+  /** 本轮一次性已批准作用域权限。 */
+  scopedGrants?: ScopedApprovedPermissions;
+  /** 暂停 Run 快照存储（HTTP 入口注入单例），用于权限暂停后的忠实续跑。 */
+  pausedRunStore?: PausedRunStore;
+  /** 恢复执行：从该快照忠实续跑同一段对话（执行被批准工具或按计划进入执行阶段）。 */
+  pausedRun?: PausedRunSnapshot;
 }
 
 interface ToolAction {
@@ -195,6 +229,11 @@ type AgentAction = ToolAction | FinalAction;
  */
 export class AgentLoop {
   private readonly allowed: ToolPermission[];
+  private readonly scopedGrants?: ScopedApprovedPermissions;
+  private readonly permissionRequestStore: PermissionRequestStore;
+  private readonly pausedRunStore: PausedRunStore;
+  private readonly sessionPermissionGrants: SessionPermissionGrants;
+  private readonly pauseOnPermissionRequest: boolean;
   private readonly budgetManager: BudgetManager;
   private readonly policy: RunPolicy;
   private readonly finalizer = defaultFinalizer;
@@ -232,6 +271,25 @@ export class AgentLoop {
     });
     this.allowed = resolved.allowed;
     this.budgetManager = defaultRunPolicyManager.createBudgetManager(this.policy);
+    this.scopedGrants = options.scopedGrants;
+    this.permissionRequestStore = options.permissionRequestStore ?? defaultPermissionRequestStore;
+    this.pausedRunStore = options.pausedRunStore ?? defaultPausedRunStore;
+    this.sessionPermissionGrants = options.sessionPermissionGrants ?? defaultSessionPermissionGrants;
+    this.pauseOnPermissionRequest =
+      options.pauseOnPermissionRequest ?? options.autoConfirm !== true;
+  }
+
+  private resolveScopedGrants(): ScopedApprovedPermissions | undefined {
+    const sessionId = this.options.sessionId;
+    const sessionGrants = sessionId ? this.sessionPermissionGrants.get(sessionId) : undefined;
+    if (!this.scopedGrants && !sessionGrants) return undefined;
+    return {
+      write_file: [...new Set([...(this.scopedGrants?.write_file ?? []), ...(sessionGrants?.write_file ?? [])])],
+      shell: [...new Set([...(this.scopedGrants?.shell ?? []), ...(sessionGrants?.shell ?? [])])],
+      delete_file: [...new Set([...(this.scopedGrants?.delete_file ?? []), ...(sessionGrants?.delete_file ?? [])])],
+      network: [...new Set([...(this.scopedGrants?.network ?? []), ...(sessionGrants?.network ?? [])])],
+      dangerous: [...new Set([...(this.scopedGrants?.dangerous ?? []), ...(sessionGrants?.dangerous ?? [])])],
+    };
   }
 
   private get budget(): RunBudget {
@@ -256,19 +314,27 @@ export class AgentLoop {
     this.workflowDebugFixes = [];
     this.workflowSwitch = undefined;
     this.pendingWritePhaseContext = undefined;
+    const pausedRun = this.options.pausedRun;
     const isResume = Boolean(this.options.resumeState);
-    const effectiveGoal = isResume ? this.options.resumeState!.goal : userMessage;
+    const effectiveGoal = pausedRun
+      ? pausedRun.goal
+      : isResume
+        ? this.options.resumeState!.goal
+        : userMessage;
     const ctx = this.options.contextManager;
-    let sessionId = this.options.resumeState?.sessionId ?? this.options.sessionId;
-    const steps: AgentToolStep[] = isResume
-      ? [...(this.options.resumeState?.completedToolSteps ?? [])]
-      : [];
+    let sessionId =
+      pausedRun?.sessionId ?? this.options.resumeState?.sessionId ?? this.options.sessionId;
+    const steps: AgentToolStep[] = pausedRun
+      ? [...pausedRun.steps]
+      : isResume
+        ? [...(this.options.resumeState?.completedToolSteps ?? [])]
+        : [];
     const consumedNotifications: AgentNotification[] = [];
-    let modelTurns = 0;
+    let modelTurns = pausedRun?.modelTurns ?? 0;
     let analysisStepId: string | undefined;
 
     try {
-    if (!isResume && this.options.timeline) {
+    if (!isResume && !pausedRun && this.options.timeline) {
       const runId = this.options.runId ?? this.options.timeline.getRun()?.id ?? "";
       const s = this.options.timeline.startStep({
         runId,
@@ -281,20 +347,23 @@ export class AgentLoop {
     if (ctx && !sessionId) {
       sessionId = ctx.createSession().id;
     }
-    if (ctx && sessionId && !isResume) {
+    if (ctx && sessionId && !isResume && !pausedRun) {
       ctx.saveUserMessage(sessionId, userMessage);
     }
 
-    const messages: ChatMessage[] = ctx && sessionId
-      ? ctx.buildChatMessages(
-          await ctx.restoreContextPackage(sessionId, effectiveGoal),
-          this.buildSystemPrompt(system),
-          { phase: "pre_call", currentUser: isResume ? "继续上次计划扫描" : effectiveGoal },
-        )
-      : [
-          { role: "system", content: this.buildSystemPrompt(system) },
-          { role: "user", content: effectiveGoal },
-        ];
+    // 续跑：直接复用暂停时的对话快照，忠实从同一段对话继续（不重建上下文、不重跑预扫描工作流）。
+    const messages: ChatMessage[] = pausedRun
+      ? [...pausedRun.messages]
+      : ctx && sessionId
+        ? ctx.buildChatMessages(
+            await ctx.restoreContextPackage(sessionId, effectiveGoal),
+            this.buildSystemPrompt(system),
+            { phase: "pre_call", currentUser: isResume ? "继续上次计划扫描" : effectiveGoal },
+          )
+        : [
+            { role: "system", content: this.buildSystemPrompt(system) },
+            { role: "user", content: effectiveGoal },
+          ];
 
     const injectNotifications = () => {
       const notes = this.drainNotifications();
@@ -310,7 +379,7 @@ export class AgentLoop {
 
     injectNotifications();
 
-    if (sessionId && !isResume && this.policy.intent && this.policy.workflowType) {
+    if (!pausedRun && sessionId && !isResume && this.policy.intent && this.policy.workflowType) {
       this.workflowSwitch = resolveWorkflowSwitch({
         previous: defaultWorkflowSessionStore.get(sessionId),
         current: {
@@ -326,17 +395,53 @@ export class AgentLoop {
       }
     }
 
-    const workflowResult = await this.runWorkflowExecutor(effectiveGoal, isResume, sessionId);
-    this.workflowProposals = workflowResult.workflowProposals;
-    this.workflowDebugAnalyses = workflowResult.workflowDebugAnalyses;
-    this.workflowRefactorPlans = workflowResult.workflowRefactorPlans;
-    this.workflowInternalPlans = workflowResult.workflowInternalPlans;
-    for (const step of workflowResult.steps) {
-      steps.push(step);
-      this.options.onStep?.(step);
+    if (!pausedRun) {
+      const workflowResult = await this.runWorkflowExecutor(effectiveGoal, isResume, sessionId);
+      this.workflowProposals = workflowResult.workflowProposals;
+      this.workflowDebugAnalyses = workflowResult.workflowDebugAnalyses;
+      this.workflowRefactorPlans = workflowResult.workflowRefactorPlans;
+      this.workflowInternalPlans = workflowResult.workflowInternalPlans;
+      for (const step of workflowResult.steps) {
+        steps.push(step);
+        this.options.onStep?.(step);
+      }
+      for (const modelContext of workflowResult.modelContexts) {
+        messages.push({ role: "user", content: modelContext });
+      }
     }
-    for (const modelContext of workflowResult.modelContexts) {
-      messages.push({ role: "user", content: modelContext });
+
+    // 续跑且存在被批准的待执行工具：先忠实执行它，再进入正常循环。
+    if (pausedRun?.pendingAction) {
+      const resumed = await this.resumePendingAction({
+        pendingAction: pausedRun.pendingAction,
+        messages,
+        steps,
+        modelTurns,
+        goal: effectiveGoal,
+        system,
+        sessionId,
+        consumedNotifications,
+        injectNotifications,
+      });
+      if (resumed) return resumed;
+    } else if (pausedRun) {
+      // 计划→执行交接：计划已在对话历史中。
+      // 快照里的首条 system 仍是“计划/只读”阶段提示，这里换成当前（implement）阶段的系统提示，
+      // 否则模型会以为自己仍处于只读计划模式而拒绝执行。
+      if (pausedRun.resumeMode) {
+        const executionSystemPrompt = this.buildSystemPrompt(pausedRun.system);
+        if (messages[0]?.role === "system") {
+          messages[0] = { role: "system", content: executionSystemPrompt };
+        } else {
+          messages.unshift({ role: "system", content: executionSystemPrompt });
+        }
+      }
+      // 注入一条最小的执行指令（非“假装用户说继续”，而是明确的阶段切换信号）。
+      messages.push({
+        role: "user",
+        content:
+          "（系统）用户已批准执行。请立即按上文计划进入执行阶段，调用真实工具（write_file / apply_patch / shell_run）完成修改与验证，不要只复述计划或再次询问是否继续。",
+      });
     }
 
     if (this.options.timeline) {
@@ -472,6 +577,44 @@ export class AgentLoop {
           action: "final",
           answerLength: action.answer.length,
         });
+        // 计划→执行交接：计划已产出（只读阶段），冻结对话快照并申请执行批准。
+        // 批准后由 resumeAfterPermission 用该快照在 implement 模式下忠实续跑，无需正则猜权限或合成续跑消息。
+        if (!pausedRun && this.shouldHandoffAfterPlan() && action.answer.trim()) {
+          const permissionRequest = this.permissionRequestStore.create({
+            runId: this.options.runId ?? "unknown-run",
+            sessionId,
+            title: "AI 已完成计划，是否批准执行？",
+            summary: "批准后将进入执行阶段，按计划调用真实工具完成修改与验证。",
+            requiredPermissions: [
+              { type: "write_file", target: "计划涉及的文件", reason: "按已批准计划执行修改与验证" },
+            ],
+            planMarkdown: action.answer,
+            intent: this.policy.intent,
+            executionStage: this.policy.executionStage,
+            planVariant: this.policy.planVariant,
+          });
+          this.snapshotPausedRun({
+            sessionId,
+            goal: effectiveGoal,
+            system,
+            messages,
+            steps,
+            modelTurns: iteration,
+            resumeMode: "implement",
+          });
+          return await this.finishRun({
+            answer: `${action.answer}\n\n---\n\n**等待执行批准**：在侧栏权限弹窗选择「允许」「拒绝」或「本次会话都允许」，批准后将自动按计划执行。`,
+            steps,
+            iterations: iteration,
+            reachedLimit: false,
+            consumedNotifications,
+            sessionId,
+            userMessage: effectiveGoal,
+            stopReason: "awaiting_permission",
+            permissionRequest,
+            awaitingPermission: true,
+          });
+        }
         return await this.finishRun({
           answer: action.answer,
           steps,
@@ -531,6 +674,23 @@ export class AgentLoop {
       });
       steps.push(step);
       this.options.onStep?.(step);
+      if (
+        step.blocked &&
+        step.confirmationRequest?.status === "waiting_confirmation" &&
+        this.pauseOnPermissionRequest
+      ) {
+        return await this.pauseForToolPermission({
+          step,
+          action,
+          messages,
+          steps,
+          modelTurns,
+          goal: effectiveGoal,
+          system,
+          sessionId,
+          consumedNotifications,
+        });
+      }
       this.recordToolStepMessages({
         messages,
         step,
@@ -612,6 +772,8 @@ export class AgentLoop {
     sessionId?: string;
     userMessage: string;
     stopReason?: AgentStopReason;
+    permissionRequest?: PermissionRequestPayload;
+    awaitingPermission?: boolean;
   }): Promise<AgentRunResult> {
     const isResume = Boolean(this.options.resumeState);
     this.writeAgentStepPlanTrace(input.steps);
@@ -628,7 +790,13 @@ export class AgentLoop {
       budgetExhausted: input.budgetExhausted,
       goal: input.userMessage,
     });
+    executionMeta.planVariant = this.policy.planVariant;
     this.writeRunUsageSummary(input.steps, executionMeta);
+
+    // 计划→执行的权限申请已在 run() 的 final 分支按对话快照就地处理（不再用正则从计划文本猜权限）。
+    const permissionRequest = input.permissionRequest;
+    const awaitingPermission = input.awaitingPermission === true;
+    const answer = input.answer;
 
     if (
       input.sessionId &&
@@ -673,10 +841,12 @@ export class AgentLoop {
     this.finalizeActivityTimeline(input);
 
     return {
-      answer: input.answer,
+      answer,
       steps: input.steps,
       iterations: input.iterations,
       reachedLimit: input.reachedLimit,
+      awaitingPermission,
+      permissionRequest,
       executionMeta,
       routerDecision: this.runRoutingMeta?.routerDecision,
       promptStrategy: this.runRoutingMeta?.promptStrategy,
@@ -950,6 +1120,7 @@ export class AgentLoop {
       permission: tool.permission,
       input: action.input ?? {},
       allowedPermissions: this.allowed,
+      scopedGrants: this.resolveScopedGrants(),
     });
 
     if (permissionDecision.decision === "deny") {
@@ -1306,6 +1477,167 @@ export class AgentLoop {
       goal,
       location: buildLocationMeta(steps),
     });
+  }
+
+  private createPermissionRequestFromStep(step: AgentToolStep): PermissionRequestPayload {
+    const confirmation = step.confirmationRequest!;
+    const requiredPermissions = permissionItemsFromConfirmation(confirmation);
+    return this.permissionRequestStore.create({
+      runId: this.options.runId ?? "unknown-run",
+      sessionId: this.options.sessionId,
+      title: confirmation.title,
+      summary: confirmation.message,
+      requiredPermissions,
+      intent: this.policy.intent,
+      executionStage: this.policy.executionStage,
+      planVariant: this.policy.planVariant,
+      blockedTool: {
+        name: step.tool,
+        input: step.input as Record<string, unknown> | undefined,
+      },
+    });
+  }
+
+  /** 计划阶段是否需要在产出计划后申请执行批准（plan_wait_approval / plan_then_execute）。 */
+  private shouldHandoffAfterPlan(): boolean {
+    return (
+      this.policy.intent === "plan" &&
+      (this.policy.afterPlan === "request_permission" ||
+        this.policy.afterPlan === "request_permission_then_execute")
+    );
+  }
+
+  /** 冻结当前对话快照，供权限批准后忠实续跑。 */
+  private snapshotPausedRun(input: {
+    sessionId?: string;
+    goal: string;
+    system?: string;
+    messages: ChatMessage[];
+    steps: AgentToolStep[];
+    modelTurns: number;
+    pendingAction?: { tool: string; input?: Record<string, unknown> };
+    resumeMode?: AgentRunMode;
+  }): void {
+    this.pausedRunStore.save({
+      runId: this.options.runId ?? "unknown-run",
+      sessionId: input.sessionId,
+      goal: input.goal,
+      system: input.system,
+      messages: input.messages.map((m) => ({ ...m })),
+      steps: [...input.steps],
+      modelTurns: input.modelTurns,
+      pendingAction: input.pendingAction,
+      mode: this.policy.mode,
+      permissionPolicy: this.policy.permissionPolicy,
+      resumeMode: input.resumeMode,
+      createdAt: new Date().toISOString(),
+    });
+  }
+
+  /** 工具级 JIT 暂停：申请权限并冻结对话，等待批准后从被阻塞工具处续跑。 */
+  private async pauseForToolPermission(input: {
+    step: AgentToolStep;
+    action: ToolAction;
+    messages: ChatMessage[];
+    steps: AgentToolStep[];
+    modelTurns: number;
+    goal: string;
+    system?: string;
+    sessionId?: string;
+    consumedNotifications: AgentNotification[];
+  }): Promise<AgentRunResult> {
+    const permissionRequest = this.createPermissionRequestFromStep(input.step);
+    this.snapshotPausedRun({
+      sessionId: input.sessionId,
+      goal: input.goal,
+      system: input.system,
+      messages: input.messages,
+      steps: input.steps.slice(0, -1),
+      modelTurns: input.modelTurns,
+      pendingAction: { tool: input.action.tool, input: input.action.input },
+    });
+    return await this.finishRun({
+      answer: "等待权限确认后继续执行。",
+      steps: input.steps,
+      iterations: input.modelTurns,
+      reachedLimit: false,
+      consumedNotifications: input.consumedNotifications,
+      sessionId: input.sessionId,
+      userMessage: input.goal,
+      stopReason: "awaiting_permission",
+      permissionRequest,
+      awaitingPermission: true,
+    });
+  }
+
+  /** 续跑时先忠实执行被批准的待办工具；若再次被阻塞则再次暂停，否则记录结果并返回 null 继续循环。 */
+  private async resumePendingAction(input: {
+    pendingAction: { tool: string; input?: Record<string, unknown> };
+    messages: ChatMessage[];
+    steps: AgentToolStep[];
+    modelTurns: number;
+    goal: string;
+    system?: string;
+    sessionId?: string;
+    consumedNotifications: AgentNotification[];
+    injectNotifications: () => void;
+  }): Promise<AgentRunResult | null> {
+    const action: ToolAction = {
+      action: "tool",
+      tool: input.pendingAction.tool,
+      input: input.pendingAction.input,
+    };
+    const iteration = input.modelTurns;
+    const toolCallId = this.makeToolCallId(iteration, action.tool);
+    const step = await this.runToolAction(action, iteration, toolCallId, {
+      steps: input.steps,
+      goal: input.goal,
+    });
+    input.steps.push(step);
+    this.options.onStep?.(step);
+    if (
+      step.blocked &&
+      step.confirmationRequest?.status === "waiting_confirmation" &&
+      this.pauseOnPermissionRequest
+    ) {
+      return await this.pauseForToolPermission({
+        step,
+        action,
+        messages: input.messages,
+        steps: input.steps,
+        modelTurns: input.modelTurns,
+        goal: input.goal,
+        system: input.system,
+        sessionId: input.sessionId,
+        consumedNotifications: input.consumedNotifications,
+      });
+    }
+    this.recordToolStepMessages({
+      messages: input.messages,
+      step,
+      steps: input.steps,
+      goal: input.goal,
+      sessionId: input.sessionId,
+    });
+    const autoVerificationStep = await this.runEditAutoVerification(
+      step,
+      input.steps,
+      iteration,
+      input.goal,
+    );
+    if (autoVerificationStep) {
+      input.steps.push(autoVerificationStep);
+      this.options.onStep?.(autoVerificationStep);
+      this.recordToolStepMessages({
+        messages: input.messages,
+        step: autoVerificationStep,
+        steps: input.steps,
+        goal: input.goal,
+        sessionId: input.sessionId,
+      });
+    }
+    input.injectNotifications();
+    return null;
   }
 
   private writeAgentDecisionTrace(event: {

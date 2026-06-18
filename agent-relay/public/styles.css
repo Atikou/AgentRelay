@@ -1207,6 +1207,81 @@ body {
   padding: 8px 10px;
 }
 
+.permission-request-panel {
+  position: fixed;
+  top: 72px;
+  right: 16px;
+  width: min(360px, calc(100vw - 32px));
+  max-height: calc(100vh - 96px);
+  overflow: auto;
+  z-index: 1200;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.18);
+  padding: 14px 16px;
+  display: none;
+}
+.permission-request-panel.visible {
+  display: block;
+}
+.permission-request-panel h3 {
+  margin: 0 0 8px;
+  font-size: 15px;
+}
+.permission-request-panel .perm-summary {
+  color: var(--text-soft);
+  font-size: 12px;
+  margin-bottom: 10px;
+  line-height: 1.5;
+}
+.permission-request-panel .perm-group {
+  margin: 10px 0;
+}
+.permission-request-panel .perm-group-title {
+  font-size: 12px;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+.permission-request-panel .perm-item {
+  font-size: 12px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: var(--hover);
+  margin-bottom: 4px;
+}
+.permission-request-panel .perm-item-target {
+  font-family: var(--mono, monospace);
+  word-break: break-all;
+}
+.permission-request-panel .perm-item-reason {
+  color: var(--text-soft);
+  margin-top: 2px;
+}
+.permission-request-panel .perm-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 12px;
+}
+.permission-request-panel .perm-actions button {
+  width: 100%;
+}
+.permission-request-panel .perm-actions .btn-allow {
+  background: #0d7a4c;
+  color: #fff;
+  border: none;
+}
+.permission-request-panel .perm-actions .btn-session {
+  background: #1a5fb4;
+  color: #fff;
+  border: none;
+}
+.permission-request-panel .perm-actions .btn-deny {
+  background: transparent;
+  border: 1px solid var(--border);
+}
+
 /* 输入区 */
 .composer {
   padding: 10px clamp(16px, 6vw, 80px) 22px;
