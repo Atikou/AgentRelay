@@ -124,11 +124,39 @@ test("PausedRunStore 计划→执行交接快照无 pendingAction 且 resumeMode
     mode: "plan",
     permissionPolicy: "readOnly",
     resumeMode: "implement",
+    workflowProposals: [
+      {
+        workflowType: "generateFileWorkflow",
+        phase: "proposal",
+        goal: "制定计划然后执行",
+        intent: "generate_file",
+        permissionPolicy: "autoEdit",
+        requiredFields: ["targetFiles", "changeSummary", "diffPlan", "verificationPlan", "permissionCheck"],
+        writeAllowedByPolicy: true,
+        requiresConfirmationBeforeWrite: false,
+        permissionSummary: "write_allowed",
+        permissionChecks: [
+          {
+            toolName: "write_file",
+            permission: "write",
+            decision: "allow",
+            risk: {
+              tier: "low",
+              category: "file_write",
+              requiresConfirmation: false,
+              policyBlocked: false,
+            },
+          },
+        ],
+      },
+    ],
     createdAt: new Date().toISOString(),
   });
   const snapshot = store.get("run-handoff");
   assert.equal(snapshot?.pendingAction, undefined);
   assert.equal(snapshot?.resumeMode, "implement");
+  assert.equal(snapshot?.workflowProposals?.length, 1);
+  assert.equal(snapshot?.workflowProposals?.[0]?.workflowType, "generateFileWorkflow");
 });
 
 let passed = 0;

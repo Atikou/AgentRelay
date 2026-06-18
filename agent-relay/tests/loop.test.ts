@@ -46,6 +46,8 @@ test("parseAction 能从夹杂文本/围栏中提取 JSON 动作", async () => {
   assert.equal(a?.action, "final");
   const b = parseAction('{"action":"tool","tool":"read_file","input":{"path":"a"}}');
   assert.equal(b?.action, "tool");
+  const c = parseAction(JSON.stringify('{"action":"final","answer":"字符串化 JSON 也能恢复"}'));
+  assert.deepEqual(c, { action: "final", answer: "字符串化 JSON 也能恢复" });
   assert.equal(parseAction("没有 JSON"), null);
 });
 
@@ -466,6 +468,59 @@ test("editWorkflow injects proposal phase before model writes", async () => {
   assert.equal(res.executionMeta.workflowProposals?.[0]?.permissionChecks[0]?.toolName, "apply_patch");
   assert.equal(res.executionMeta.workflowProposals?.[0]?.permissionChecks[0]?.decision, "allow");
   assert.equal(res.executionMeta.usedWriteCalls, 0);
+});
+
+test("paused plan handoff restores workflow proposal before first write", async () => {
+  const chat = scriptedChat([
+    '{"action":"tool","tool":"write_file","input":{"path":"resume-write.txt","content":"ok","createDirs":true},"thought":"执行已批准计划"}',
+    '{"action":"final","answer":"已写入"}',
+  ]);
+  const loop = new AgentLoop({
+    chat,
+    registry: createDefaultRegistry(),
+    workspaceRoot: sandbox,
+    autoConfirm: true,
+    policy: resolveRunPolicy({
+      requestedMode: "implement",
+      forceMode: true,
+      requestedPermissionPolicy: "autoEdit",
+      message: "新建文件",
+    }),
+    pausedRun: {
+      runId: "paused-handoff",
+      sessionId: "sess-handoff",
+      goal: "新建文件",
+      messages: [
+        { role: "system", content: "plan system" },
+        { role: "user", content: "新建文件，先计划再执行" },
+        { role: "assistant", content: '{"action":"final","answer":"计划：创建 resume-write.txt"}' },
+      ],
+      steps: [
+        {
+          iteration: 0,
+          tool: "context_pack",
+          input: { files: [] },
+          permission: "read",
+          ok: true,
+          output: { files: [] },
+        },
+      ],
+      modelTurns: 1,
+      mode: "plan",
+      permissionPolicy: "readOnly",
+      resumeMode: "implement",
+      createdAt: new Date().toISOString(),
+    },
+  });
+
+  const res = await loop.run("ignored");
+
+  assert.equal(res.steps.some((step) => step.workflowPhaseBlocked), false);
+  const writeStep = res.steps.find((step) => step.tool === "write_file");
+  assert.equal(writeStep?.ok, true);
+  assert.equal(await fs.readFile(path.join(sandbox, "resume-write.txt"), "utf-8"), "ok");
+  assert.equal(res.executionMeta.workflowProposals?.length, 1);
+  assert.equal(res.executionMeta.usedWriteCalls, 1);
 });
 
 test("debugWorkflow injects analysis phase and execution meta before model turn", async () => {

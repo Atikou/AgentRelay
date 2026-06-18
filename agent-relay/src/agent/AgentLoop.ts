@@ -13,6 +13,7 @@ import { assertWithinCostBudget, sumModelTurnCost } from "../util/costBudget.js"
 import { wrapUntrustedToolOutput } from "../util/injection.js";
 import { redactPreview } from "../util/redact.js";
 import { EditAutoVerificationWorkflow } from "./EditAutoVerificationWorkflow.js";
+import { EditProposalWorkflow } from "./EditProposalWorkflow.js";
 import { MAX_WORKFLOW_CORRECTION_ATTEMPTS, WorkflowCorrectionWorkflow } from "./WorkflowCorrectionWorkflow.js";
 import { hasPlanningPhaseArtifacts, resolveWorkflowTaskState } from "./WorkflowTaskState.js";
 import { WorkflowExecutor } from "./WorkflowExecutor.js";
@@ -296,6 +297,19 @@ export class AgentLoop {
     return this.budgetManager.budget;
   }
 
+  private restoreApprovedHandoffArtifacts(pausedRun: PausedRunSnapshot): void {
+    if (!pausedRun.resumeMode || this.workflowProposals.length > 0) return;
+    const result = new EditProposalWorkflow().run({
+      goal: pausedRun.goal,
+      intent: this.policy.intent,
+      permissionPolicy: this.policy.permissionPolicy,
+      allowedPermissions: this.allowed,
+    });
+    if (result) {
+      this.workflowProposals = [result.proposal];
+    }
+  }
+
   private assertNotCancelled(): void {
     const signal = this.options.signal;
     if (!signal?.aborted) return;
@@ -315,6 +329,13 @@ export class AgentLoop {
     this.workflowSwitch = undefined;
     this.pendingWritePhaseContext = undefined;
     const pausedRun = this.options.pausedRun;
+    if (pausedRun) {
+      this.workflowProposals = [...(pausedRun.workflowProposals ?? [])];
+      this.workflowDebugAnalyses = [...(pausedRun.workflowDebugAnalyses ?? [])];
+      this.workflowRefactorPlans = [...(pausedRun.workflowRefactorPlans ?? [])];
+      this.workflowInternalPlans = [...(pausedRun.workflowInternalPlans ?? [])];
+      this.restoreApprovedHandoffArtifacts(pausedRun);
+    }
     const isResume = Boolean(this.options.resumeState);
     const effectiveGoal = pausedRun
       ? pausedRun.goal
@@ -1517,6 +1538,10 @@ export class AgentLoop {
     modelTurns: number;
     pendingAction?: { tool: string; input?: Record<string, unknown> };
     resumeMode?: AgentRunMode;
+    workflowProposals?: AgentWorkflowProposal[];
+    workflowDebugAnalyses?: AgentWorkflowDebugAnalysis[];
+    workflowRefactorPlans?: AgentWorkflowRefactorPlan[];
+    workflowInternalPlans?: AgentWorkflowInternalPlan[];
   }): void {
     this.pausedRunStore.save({
       runId: this.options.runId ?? "unknown-run",
@@ -1525,6 +1550,10 @@ export class AgentLoop {
       system: input.system,
       messages: input.messages.map((m) => ({ ...m })),
       steps: [...input.steps],
+      workflowProposals: [...(input.workflowProposals ?? this.workflowProposals)],
+      workflowDebugAnalyses: [...(input.workflowDebugAnalyses ?? this.workflowDebugAnalyses)],
+      workflowRefactorPlans: [...(input.workflowRefactorPlans ?? this.workflowRefactorPlans)],
+      workflowInternalPlans: [...(input.workflowInternalPlans ?? this.workflowInternalPlans)],
       modelTurns: input.modelTurns,
       pendingAction: input.pendingAction,
       mode: this.policy.mode,
@@ -1779,13 +1808,23 @@ export function stripModelNoise(content: string): string {
 
 /** 从模型输出中提取第一个平衡的 JSON 对象并解析为动作。 */
 export function parseAction(content: string): AgentAction | null {
-  const obj = extractFirstJsonObject(stripModelNoise(content));
+  const cleaned = stripModelNoise(content);
+  const direct = parseActionJson(cleaned);
+  if (direct) return direct;
+  const obj = extractFirstJsonObject(cleaned);
   if (!obj) return null;
+  return parseActionJson(obj);
+}
+
+function parseActionJson(json: string): AgentAction | null {
   let parsed: unknown;
   try {
-    parsed = JSON.parse(obj);
+    parsed = JSON.parse(json);
   } catch {
     return null;
+  }
+  if (typeof parsed === "string" && parsed !== json) {
+    return parseAction(parsed);
   }
   if (!parsed || typeof parsed !== "object") return null;
   const p = parsed as Record<string, unknown>;

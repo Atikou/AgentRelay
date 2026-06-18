@@ -1745,6 +1745,33 @@
         },
         "bodyContains": ["dispatch_subagent", "主 Agent", "递归派生"]
       }
+    },
+    {
+      "id": "m1-agent-resume-permission-missing-run",
+      "title": "权限续跑缺失 run 返回 404",
+      "purpose": "确认 /api/runs/:runId/resume-permission 在找不到运行记录时返回明确错误，不会重新喊话或创建新的执行 Run。",
+      "method": "POST",
+      "path": "/api/runs/00000000-0000-0000-0000-000000000000/resume-permission",
+      "input": { "runId": "00000000-0000-0000-0000-000000000000" },
+      "expect": {
+        "status": 404,
+        "bodyHasKeys": ["error", "runId"]
+      }
+    },
+    {
+      "id": "m1-agent-permission-resume-doc-artifacts",
+      "title": "API 文档记录权限续跑工作流产物",
+      "purpose": "确认 API 文档说明 resume-permission 会恢复 PausedRunStore 快照中的 workflowProposals 等阶段产物，避免首次写入被 proposal 门禁误拦截。",
+      "method": "GET",
+      "path": "/api/docs/content?slug=API参考",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyPaths": {
+          "markdown": "string"
+        },
+        "bodyContains": ["resume-permission", "PausedRunStore", "workflowProposals", "WorkflowWriteGate"]
+      }
     }
   ]
 }

@@ -1,6 +1,13 @@
 import type { ChatMessage } from "../model/types.js";
 import type { AgentToolStep } from "./toolStep.js";
-import type { AgentRunMode, UserPermissionPolicy } from "./RunPolicyTypes.js";
+import type {
+  AgentRunMode,
+  AgentWorkflowDebugAnalysis,
+  AgentWorkflowInternalPlan,
+  AgentWorkflowProposal,
+  AgentWorkflowRefactorPlan,
+  UserPermissionPolicy,
+} from "./RunPolicyTypes.js";
 
 /**
  * 暂停中的 Agent Run 对话快照。
@@ -19,6 +26,11 @@ export interface PausedRunSnapshot {
   messages: ChatMessage[];
   /** 已完成的工具步骤（不含被阻塞的那一步）。 */
   steps: AgentToolStep[];
+  /** 暂停前已生成的工作流产物；恢复时用于保持写入门禁状态一致。 */
+  workflowProposals?: AgentWorkflowProposal[];
+  workflowDebugAnalyses?: AgentWorkflowDebugAnalysis[];
+  workflowRefactorPlans?: AgentWorkflowRefactorPlan[];
+  workflowInternalPlans?: AgentWorkflowInternalPlan[];
   /** 暂停时已用的模型轮次。 */
   modelTurns: number;
   /** 工具级 JIT 暂停：被阻塞、待批准后执行的工具调用。 */
