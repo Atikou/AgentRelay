@@ -1772,6 +1772,36 @@
         },
         "bodyContains": ["resume-permission", "PausedRunStore", "workflowProposals", "WorkflowWriteGate"]
       }
+    },
+    {
+      "id": "m1-agent-react-parser-doc-fenced-answer",
+      "title": "ReAct parser keeps fenced final answers",
+      "purpose": "Verify the dialogue loop docs describe that final.answer Markdown code fences are payload, not action JSON.",
+      "method": "GET",
+      "path": "/api/docs/content?slug=%E5%AF%B9%E8%AF%9D%E5%BE%AA%E7%8E%AF",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyPaths": {
+          "markdown": "string"
+        },
+        "bodyContains": ["final.answer", "```json", "parse_error", "平衡 JSON 候选"]
+      }
+    },
+    {
+      "id": "m1-agent-react-parser-api-doc-fenced-answer",
+      "title": "API docs record parser boundary",
+      "purpose": "Verify API docs state parseAction parses the outer action first and no longer treats the first fenced JSON block as the action.",
+      "method": "GET",
+      "path": "/api/docs/content?slug=API%E5%8F%82%E8%80%83",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyPaths": {
+          "markdown": "string"
+        },
+        "bodyContains": ["parseAction", "final.answer", "Markdown/JSON", "```json fence"]
+      }
     }
   ]
 }

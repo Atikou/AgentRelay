@@ -48,6 +48,15 @@ test("parseAction 能从夹杂文本/围栏中提取 JSON 动作", async () => {
   assert.equal(b?.action, "tool");
   const c = parseAction(JSON.stringify('{"action":"final","answer":"字符串化 JSON 也能恢复"}'));
   assert.deepEqual(c, { action: "final", answer: "字符串化 JSON 也能恢复" });
+  const d = parseAction(
+    JSON.stringify({
+      action: "final",
+      answer:
+        "## 计划\n\n**package.json**\n```json\n{\"name\":\"testts\",\"scripts\":{\"build\":\"tsc\"}}\n```\n\n继续说明。",
+    }),
+  );
+  assert.equal(d?.action, "final");
+  assert.match(d?.action === "final" ? d.answer : "", /package\.json/);
   assert.equal(parseAction("没有 JSON"), null);
 });
 

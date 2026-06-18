@@ -275,7 +275,7 @@ Content-Type: application/json
 
 复合计划意图：`plan_then_execute`（如「先制定计划，然后执行」）会在只读 plan 阶段结束后生成 `requiredPermissions` 并等待批准，而不是直接获得写权限。
 
-批准后续跑语义：`POST /api/runs/:runId/resume-permission` 会取出 `PausedRunStore` 中冻结的同一段对话快照继续执行；快照包含 `messages`、已完成工具步骤、被阻塞的 `pendingAction`，以及 `workflowProposals` / `workflowDebugAnalyses` / `workflowRefactorPlans` / `workflowInternalPlans` 等工作流阶段产物。计划→执行交接时这些产物会被恢复到新的 `AgentLoop`；如果计划阶段没有产生 edit/generate-file proposal，恢复时会根据已批准 handoff 补一个最小 proposal artifact。因此 `WorkflowWriteGate` 会把已批准计划视为已完成 proposal/analysis 阶段，不会在首次 `write_file` / `apply_patch` 时误报“缺少 proposal phase”。若模型偶发把动作 JSON 作为字符串返回，`parseAction` 会尝试解包一次并继续解析；真正无法解析时仍会产生 `parse_error` 并要求模型只输出动作对象。
+批准后续跑语义：`POST /api/runs/:runId/resume-permission` 会取出 `PausedRunStore` 中冻结的同一段对话快照继续执行；快照包含 `messages`、已完成工具步骤、被阻塞的 `pendingAction`，以及 `workflowProposals` / `workflowDebugAnalyses` / `workflowRefactorPlans` / `workflowInternalPlans` 等工作流阶段产物。计划→执行交接时这些产物会被恢复到新的 `AgentLoop`；如果计划阶段没有产生 edit/generate-file proposal，恢复时会根据已批准 handoff 补一个最小 proposal artifact。因此 `WorkflowWriteGate` 会把已批准计划视为已完成 proposal/analysis 阶段，不会在首次 `write_file` / `apply_patch` 时误报“缺少 proposal phase”。`parseAction` 会先按完整动作对象解析，再处理字符串化动作与平衡 JSON 候选；`final.answer` 内允许包含 Markdown/JSON 代码块，不会再优先抽取第一个 ```json fence 当作动作对象。真正无法解析时仍会产生 `parse_error` 并要求模型只输出动作对象。
 
 
 

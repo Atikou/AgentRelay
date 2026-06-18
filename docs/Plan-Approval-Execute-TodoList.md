@@ -45,7 +45,7 @@
 - [x] `AgentLoop` JIT：副作用工具被阻塞时就地冻结对话并申请精确权限
 - [x] `AgentLoop` 忠实续跑：从快照执行被批准工具 / 按计划进入执行阶段，复用同一 messages 链
 - [x] `resumeAfterPermission` 基于快照续跑（去掉合成续跑消息与正则权限提取）
-- [x] `parseAction` 兼容模型偶发返回的字符串化 JSON 动作，减少权限恢复后无效 parse_error 重试
+- [x] `parseAction` 先解析完整外层动作对象，再兼容字符串化动作与平衡 JSON 候选；`final.answer` 内的 Markdown/JSON 代码块不再被误当作动作 JSON
 - [x] 删除 `planPermissionExtractor.ts` 与 `permissionResumeMessage.ts`
 
 ## P2

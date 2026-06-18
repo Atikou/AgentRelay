@@ -1796,24 +1796,24 @@ export function renderNotifications(notes: AgentNotification[]): string {
   ].join("\n");
 }
 
-/** 去掉思考块、围栏等噪声，便于从小模型输出中提取 JSON。 */
+/** 去掉思考块噪声；Markdown 围栏可能出现在 final.answer 中，不能在解析前剥离。 */
 export function stripModelNoise(content: string): string {
   let s = content;
   s = s.replace(/<think>[\s\S]*?<\/think>/gi, "");
   s = s.replace(/<redacted_reasoning>[\s\S]*?<\/redacted_reasoning>/gi, "");
-  const fenced = s.match(/```(?:json)?\s*([\s\S]*?)```/i);
-  if (fenced?.[1]) return fenced[1].trim();
   return s.trim();
 }
 
-/** 从模型输出中提取第一个平衡的 JSON 对象并解析为动作。 */
+/** 从模型输出中提取可执行动作；final.answer 内部允许包含 Markdown/JSON 代码块。 */
 export function parseAction(content: string): AgentAction | null {
   const cleaned = stripModelNoise(content);
   const direct = parseActionJson(cleaned);
   if (direct) return direct;
-  const obj = extractFirstJsonObject(cleaned);
-  if (!obj) return null;
-  return parseActionJson(obj);
+  for (const obj of extractJsonObjects(cleaned)) {
+    const action = parseActionJson(obj);
+    if (action) return action;
+  }
+  return null;
 }
 
 function parseActionJson(json: string): AgentAction | null {
@@ -1842,14 +1842,14 @@ function parseActionJson(json: string): AgentAction | null {
   return null;
 }
 
-/** 扫描出首个平衡的 {...}（忽略字符串内的花括号）。 */
-function extractFirstJsonObject(text: string): string | null {
-  const start = text.indexOf("{");
-  if (start < 0) return null;
+/** 扫描出所有平衡的 {...} 候选（忽略字符串内的花括号）。 */
+function extractJsonObjects(text: string): string[] {
+  const objects: string[] = [];
+  let start = -1;
   let depth = 0;
   let inStr = false;
   let escaped = false;
-  for (let i = start; i < text.length; i += 1) {
+  for (let i = 0; i < text.length; i += 1) {
     const ch = text[i]!;
     if (inStr) {
       if (escaped) escaped = false;
@@ -1858,11 +1858,18 @@ function extractFirstJsonObject(text: string): string | null {
       continue;
     }
     if (ch === '"') inStr = true;
-    else if (ch === "{") depth += 1;
+    else if (ch === "{") {
+      if (depth === 0) start = i;
+      depth += 1;
+    }
     else if (ch === "}") {
+      if (depth === 0) continue;
       depth -= 1;
-      if (depth === 0) return text.slice(start, i + 1);
+      if (depth === 0 && start >= 0) {
+        objects.push(text.slice(start, i + 1));
+        start = -1;
+      }
     }
   }
-  return null;
+  return objects;
 }
