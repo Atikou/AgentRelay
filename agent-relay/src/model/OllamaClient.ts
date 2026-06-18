@@ -1,6 +1,7 @@
 import { performance } from "node:perf_hooks";
 
 import { withTimeout } from "../util/timeout.js";
+import { normalizeMessagesForModelTransport } from "./messageBoundary.js";
 import type {
   ChatMessage,
   ChatRequest,
@@ -202,7 +203,7 @@ export class OllamaClient implements ModelClient {
 }
 
 function toOllamaMessages(messages: ChatMessage[]): Array<Record<string, unknown>> {
-  return messages.map((m) => ({
+  return normalizeMessagesForModelTransport(messages).map((m) => ({
     role: m.role,
     content: m.content,
     ...(m.name ? { name: m.name } : {}),

@@ -11,7 +11,9 @@ import { AgentLoop } from "../src/agent/AgentLoop.js";
 import { ContextManager } from "../src/context/ContextManager.js";
 import { createLlmMemoryExtractor } from "../src/context/MemoryExtractor.js";
 import { InMemoryVectorStore } from "../src/context/VectorStore.js";
-import type { ModelResponse } from "../src/model/types.js";
+import { normalizeMessagesForModelTransport } from "../src/model/messageBoundary.js";
+import { toOpenAIMessages } from "../src/model/OpenAICompatibleClient.js";
+import type { ChatMessage, ModelResponse } from "../src/model/types.js";
 
 const tests: Array<{ name: string; fn: () => Promise<void> }> = [];
 function test(name: string, fn: () => Promise<void>) {
@@ -321,7 +323,7 @@ test("pre_call 不含本次 assistant 回复", async () => {
   mgr.close();
 });
 
-test("PromptBuilder converts persisted tool messages before model calls", async () => {
+test("PromptBuilder preserves persisted tool role before model transport", async () => {
   const mgr = new ContextManager({
     dataDir: path.join(tmpDir, "tool-role-sanitize"),
     useLanceDb: false,
@@ -341,15 +343,16 @@ test("PromptBuilder converts persisted tool messages before model calls", async 
     currentUser: "continue",
   });
   const final = snap.renderedPrompt.finalMessages;
-  assert.equal(final.some((m) => m.role === "tool"), false);
+  assert.equal(final.some((m) => m.role === "tool"), true);
   assert.ok(
     final.some(
       (m) =>
-        m.role === "user" &&
-        m.content.includes("历史工具执行结果") &&
+        m.role === "tool" &&
+        m.content.includes("tool read_file result JSON") &&
         m.content.includes("read_file"),
     ),
   );
+  assert.equal(final.some((m) => m.role === "user" && m.content.includes("read_file")), false);
   assert.equal(snap.contextPackage.messages.some((m) => m.role === "tool"), true);
   mgr.close();
 });
@@ -629,6 +632,40 @@ test("deleteSession 级联删除消息与会话", async () => {
   assert.equal(mgr.messages.countInSession(session.id), 0);
   assert.equal(mgr.deleteSession(session.id), false);
   mgr.close();
+});
+
+test("model transport maps internal tool role to system boundary", async () => {
+  const messages: ChatMessage[] = [
+    { role: "system", content: "base system" },
+    { role: "user", content: "inspect" },
+    { role: "assistant", content: '{"action":"tool","tool":"read_file","input":{"path":"a.ts"}}' },
+    {
+      role: "tool",
+      name: "read_file",
+      toolCallId: "run-1:iter-1:read_file",
+      content: "tool result content",
+    },
+  ];
+
+  const normalized = normalizeMessagesForModelTransport(messages);
+  assert.equal(normalized.at(-1)?.role, "system");
+  assert.match(normalized.at(-1)?.content ?? "", /Source: tool/);
+  assert.match(normalized.at(-1)?.content ?? "", /read_file/);
+
+  const openAiMessages = toOpenAIMessages(messages);
+  assert.equal(openAiMessages.some((m) => m.role === "tool"), false);
+  assert.equal(
+    openAiMessages.some(
+      (m) => m.role === "user" && typeof m.content === "string" && m.content.includes("tool result content"),
+    ),
+    false,
+  );
+  assert.equal(
+    openAiMessages.some(
+      (m) => m.role === "system" && typeof m.content === "string" && m.content.includes("tool result content"),
+    ),
+    true,
+  );
 });
 
 async function main() {

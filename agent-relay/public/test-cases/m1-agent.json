@@ -1832,6 +1832,36 @@
         },
         "bodyContains": ["resume-permission", "parse_error", "assistant", "role=user"]
       }
+    },
+    {
+      "id": "m1-agent-message-boundary-doc",
+      "title": "AgentLoop message role boundary docs",
+      "purpose": "Verify the dialogue loop docs state that runtime context is system, tool results stay tool internally, and provider compatibility happens in messageBoundary.",
+      "method": "GET",
+      "path": "/api/docs/content?slug=%E5%AF%B9%E8%AF%9D%E5%BE%AA%E7%8E%AF",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyPaths": {
+          "markdown": "string"
+        },
+        "bodyContains": ["messageBoundary", "role=tool", "Source: tool", "system"]
+      }
+    },
+    {
+      "id": "m1-agent-context-tool-not-user-doc",
+      "title": "Context restore does not fake user tool text",
+      "purpose": "Verify the context persistence docs state PromptBuilder preserves internal tool role and does not rewrite tool output as user history.",
+      "method": "GET",
+      "path": "/api/docs/content?slug=%E4%B8%8A%E4%B8%8B%E6%96%87%E5%8E%8B%E7%BC%A9%E4%B8%8E%E6%8C%81%E4%B9%85%E5%8C%96",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyPaths": {
+          "markdown": "string"
+        },
+        "bodyContains": ["PromptBuilder", "messageBoundary", "role=tool", "Source: tool"]
+      }
     }
   ]
 }

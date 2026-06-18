@@ -1,6 +1,7 @@
 import { performance } from "node:perf_hooks";
 
 import { withTimeout } from "../util/timeout.js";
+import { normalizeMessagesForModelTransport } from "./messageBoundary.js";
 import type {
   ChatMessage,
   ChatRequest,
@@ -41,7 +42,7 @@ interface AnthropicMessagesResponse {
  *
  * 与 OpenAI 协议的差异已在此处理：
  *  - system 是顶层参数，不放进 messages。
- *  - messages 仅 user/assistant；tool 结果以 user 消息的 tool_result 块表示。
+ *  - messages 仅 user/assistant；内部 tool 结果先在传输边界渲染为 system 文本，避免伪装成用户消息或触发原生 tool_result 协议。
  *  - 鉴权用 x-api-key 头，并需 anthropic-version 头。
  *  - max_tokens 为必填。
  */
@@ -96,7 +97,8 @@ export class AnthropicClient implements ModelClient {
     const { signal, cancel } = withTimeout(this.timeoutMs, request.signal);
     const start = performance.now();
 
-    const system = request.messages
+    const transportMessages = normalizeMessagesForModelTransport(request.messages);
+    const system = transportMessages
       .filter((m) => m.role === "system")
       .map((m) => m.content)
       .join("\n\n");
@@ -110,7 +112,7 @@ export class AnthropicClient implements ModelClient {
             model: this.model,
             max_tokens: request.maxTokens ?? this.defaultMaxTokens,
             ...(system ? { system } : {}),
-            messages: toAnthropicMessages(request.messages),
+            messages: toAnthropicMessages(transportMessages),
             tools: toAnthropicTools(request.tools),
             temperature: request.temperature,
             stream: true,
@@ -200,7 +202,7 @@ export class AnthropicClient implements ModelClient {
           model: this.model,
           max_tokens: request.maxTokens ?? this.defaultMaxTokens,
           ...(system ? { system } : {}),
-          messages: toAnthropicMessages(request.messages),
+          messages: toAnthropicMessages(transportMessages),
           tools: toAnthropicTools(request.tools),
           temperature: request.temperature,
         }),
@@ -241,15 +243,6 @@ function toAnthropicMessages(messages: ChatMessage[]): Array<Record<string, unkn
   const result: Array<Record<string, unknown>> = [];
   for (const m of messages) {
     if (m.role === "system") continue;
-    if (m.role === "tool") {
-      result.push({
-        role: "user",
-        content: [
-          { type: "tool_result", tool_use_id: m.toolCallId ?? "", content: m.content },
-        ],
-      });
-      continue;
-    }
     result.push({
       role: m.role === "assistant" ? "assistant" : "user",
       content: m.content,

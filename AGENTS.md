@@ -36,7 +36,7 @@ AgentRelay/
       ├─ config/
       ├─ model-router/          # SmartModelRouter / 规则路由 / 路由日志
       ├─ model-orchestrator/    # 单模型与草拟+审查流水线
-      ├─ model/
+      ├─ model/                  # ModelClient / provider clients / messageBoundary
       ├─ agent/
       │   └─ timeline/              # Agent Activity Timeline（公开执行摘要，非 CoT）
       ├─ plan/                    # AgentStepPlan / UserVisiblePlan / InternalTaskPlan / PlanStore / 编译、预览与审批
@@ -79,6 +79,7 @@ npm run serve          # 启动后端与测试台 http://localhost:18787
 - M1 阶段补强（2026-06-17）：`RunPolicy` / `executionMeta` 新增 `executionStage`（`analyze`/`plan`/`execute`/`verify`），用于弱化 mode 中心语义并强化执行阶段可观测；同会话短句续写在上一轮为 `plan` 时支持 `plan → execute/verify` 自动跃迁（如“按计划开始执行”“继续并跑测试验证”）。
 - **Plan → Approval → Execute（2026-06-18 第一性原则重写）**：通用 `permissionRequest`（schemaVersion=1）+ `PermissionRequestStore`；`plan_only` / `plan_wait_approval` / `plan_then_execute` 复合意图；**JIT（just-in-time）工具级权限**——模型在循环中真要调用副作用工具时由 `AgentLoop` **就地暂停**（`pauseForToolPermission`），把对话快照写入 **`PausedRunStore`**（含 messages / 已完成步骤 / 工作流阶段产物 / 被阻塞的 `pendingAction`），返回**精确到该工具调用**的弹窗；用户批准后 `resumeAfterPermission` 取出快照**忠实续跑同一段对话**（`resumePendingAction` 先执行被批准工具再继续循环；计划→执行交接切到 implement、同步系统提示并恢复 `workflowProposals` 等阶段产物；计划阶段无 proposal 时生成最小 handoff proposal），**不再用正则从计划文本猜权限、也不再合成「假用户消息」重新喊话**（已删除 `planPermissionExtractor` / `permissionResumeMessage`）；多轮 JIT 弹窗与主流 agent 一致；`parseAction` 会先解析完整外层动作对象，再兼容字符串化动作与平衡 JSON 候选，并保持 `final.answer` Markdown/代码块不参与动作猜测，避免回答里的 ```json 示例触发无效 `parse_error`；`GET/POST /api/permission-requests/*`、`POST /api/runs/:id/approve`、`POST /api/runs/:id/resume-permission`；测试台右侧权限弹窗（允许 / 拒绝 / 本次会话都允许）；详见 `docs/Plan-Approval-Execute-TodoList.md`。
 - **权限续跑协议补强（2026-06-18）**：计划→执行 handoff 只作为首条 `system` 运行态上下文注入，禁止合成 `role=user` 继续执行消息；handoff 后模型输出的非 JSON 文本只触发 `parse_error` 与本轮内存纠偏，不写入持久化 assistant 历史；`write_file` 新建嵌套文件遇到可恢复 `ENOENT` 时会补建父目录重试一次。
+- **消息角色边界补强（2026-06-18）**：内部严格区分 `user` / `system` / `assistant` / `tool`；用户消息只来自真实用户，通知、续跑、工作流上下文和解析纠偏均为 `system`，工具结果持久化为 `tool`。Provider 兼容集中在 `src/model/messageBoundary.ts` 与各 `ModelClient`，发送前把内部 `tool` 渲染为带 `Source: tool` 的 `system` 文本，禁止再把工具或系统上下文伪装成 `user`。
 - 自动工作流控制流补强：`WorkflowStateCenter` 从 plan/write/verify/correction 事件派生 `executionMeta.workflowState`，`WorkflowWriteGate` 基于状态中心统一约束 edit/generate-file/debug/refactor 写入，阻止未验证前连续写入与达到修正上限后的继续写入；架构测试只禁止 value import 控制流循环，允许纯类型/数据层循环。
 - 文档站：`/docs` 自动渲染 `docs/*.md`（Mermaid + 截图，ChatGPT 配色 + 深色模式）；**API 参考**：`/api-docs`（本地 Scalar + `public/api-spec.json`），说明总览见 `docs/API参考.md`。
 - 多 profile 配置、测试台网页（配置 / 可用性 / 调用统计 / 敏感开关 / **统一自动工作流入口** / 权限策略 / **测试用例** / 工具系统）。

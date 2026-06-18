@@ -379,12 +379,20 @@ export class AgentLoop {
         ? ctx.buildChatMessages(
             await ctx.restoreContextPackage(sessionId, effectiveGoal),
             this.buildSystemPrompt(system),
-            { phase: "pre_call", currentUser: isResume ? "继续上次计划扫描" : effectiveGoal },
+            { phase: "pre_call", currentUser: isResume ? undefined : effectiveGoal },
           )
         : [
             { role: "system", content: this.buildSystemPrompt(system) },
             { role: "user", content: effectiveGoal },
           ];
+
+    if (isResume) {
+      messages.push({
+        role: "system",
+        content:
+          "AgentRelay runtime resume: continue from the saved RunState. This is not a user message.",
+      });
+    }
 
     const injectNotifications = () => {
       const notes = this.drainNotifications();
@@ -393,7 +401,7 @@ export class AgentLoop {
       const rendered = renderNotifications(notes);
       const wrapped = wrapUntrustedToolOutput("notification", rendered);
       messages.push({
-        role: "user",
+        role: "system",
         content: typeof wrapped === "string" ? wrapped : JSON.stringify(wrapped),
       });
     };
@@ -410,7 +418,7 @@ export class AgentLoop {
       });
       if (this.workflowSwitch?.switched) {
         messages.push({
-          role: "user",
+          role: "system",
           content: renderWorkflowSwitchContext(this.workflowSwitch),
         });
       }
@@ -427,7 +435,7 @@ export class AgentLoop {
         this.options.onStep?.(step);
       }
       for (const modelContext of workflowResult.modelContexts) {
-        messages.push({ role: "user", content: modelContext });
+        messages.push({ role: "system", content: modelContext });
       }
     }
 
@@ -573,7 +581,7 @@ export class AgentLoop {
           rawPreview: redactPreview(response.content, 300),
         });
         messages.push({
-          role: "user",
+          role: "system",
           content:
             '上一条不是合法的 JSON。请只输出一个 JSON 对象：{"action":"tool",...} 或 {"action":"final","answer":"..."}。禁止把 JSON 放进字符串（错误示例："{"action":"final",...}"）。',
         });
@@ -956,7 +964,12 @@ export class AgentLoop {
     sessionId?: string;
   }): void {
     const toolText = this.renderToolResult(input.step, input.steps);
-    input.messages.push({ role: "user", content: toolText });
+    input.messages.push({
+      role: "tool",
+      name: input.step.tool,
+      toolCallId: input.step.toolCallId,
+      content: toolText,
+    });
     const followups = buildWorkflowFollowupContexts({
       intent: this.policy.intent,
       goal: input.goal,
@@ -972,7 +985,7 @@ export class AgentLoop {
       followups.editVerificationContext,
       followups.workflowCorrectionContext,
     ]) {
-      if (extra) input.messages.push({ role: "user", content: extra });
+      if (extra) input.messages.push({ role: "system", content: extra });
     }
     const ctx = this.options.contextManager;
     if (ctx && input.sessionId) {
@@ -984,7 +997,7 @@ export class AgentLoop {
         followups.editVerificationContext,
         followups.workflowCorrectionContext,
       ]) {
-        if (extra) ctx.saveToolMessage(input.sessionId, extra);
+        if (extra) ctx.saveSystemMessage(input.sessionId, extra);
       }
     }
   }
@@ -1782,7 +1795,7 @@ function sumOptional(values: Array<number | undefined>): number | undefined {
   return seen ? Number(sum.toFixed(6)) : undefined;
 }
 
-/** 将安全点消费的通知格式化为可回灌给模型的用户消息。 */
+/** 将安全点消费的通知格式化为可回灌给模型的系统运行态消息。 */
 export function renderNotifications(notes: AgentNotification[]): string {
   const lines = notes.map((n) => {
     const merged = readMergeCount(n.payload);

@@ -379,7 +379,7 @@ DELETE /api/runs/{runId}
 | 文档 | `/api/docs`、`/api/docs/content` | Markdown 文档元数据（供 `/docs` 使用） |
 
 
-`/api/context/sessions/:id/restore` 返回的 `renderedPrompt.finalMessages` 是模型调用前的调试快照。历史 `role=tool` 消息会被渲染为普通 `user` 历史文本，而不会作为 OpenAI/DeepSeek 原生 `tool` 消息发送；真实持久化记录仍保留在 `contextPackage.messages`，供摘要、审计和文件片段提取使用。
+`/api/context/sessions/:id/restore` 返回的 `renderedPrompt.finalMessages` 是 AgentRelay 内部模型输入调试快照。历史 `role=tool` 消息会在内部保持 `tool` 角色，真实持久化记录也保留在 `contextPackage.messages`，供摘要、审计和文件片段提取使用；OpenAI/DeepSeek/Anthropic/Ollama 的兼容转换只发生在 `ModelClient` 发送前的 `messageBoundary` 传输层，内部工具结果会渲染为带 `Source: tool` 标记的 `system` 文本，不会作为用户消息发送。
 
 `/api/tools/run` 中的 `shell_run` 与 `/api/background/start` 共享 `ShellPolicy`。除内置高风险命令拦截外，可通过 `config/*.json` 的 `security.shell.denyCommands` / `allowCommands` 正则进一步限制可执行命令；未配置时保持原有风险分级行为。
 

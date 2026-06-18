@@ -31,6 +31,7 @@
 > 已删除的错误逻辑：① 用正则从计划 Markdown 猜权限（`planPermissionExtractor`）；② 批准后用合成「假用户消息」重新 prompt（`permissionResumeMessage`）；③ 靠检测「继续」短语推进。普通 `/api/agent` 新消息**不会**、也**不应**解析「继续」替代弹窗续跑。
 
 补充约束：计划→执行 handoff 只能作为 `system` 运行态上下文注入，不能再向模型消息链追加合成 `role=user` 指令；handoff 后模型若输出非 JSON 说明文本，只允许作为本轮内存纠偏上下文触发 `parse_error`，不得写入持久化 assistant 历史。新建嵌套文件时 `write_file` 会对 `ENOENT` 做一次父目录自动补建重试，减少模型误传 `createDirs:false` 带来的无意义失败轮次。
+消息角色补充约束：`user` 只代表真实用户输入；系统运行态、权限续跑、通知、工作流切换和解析纠偏只能写入 `system`；工具执行结果只能写入 `tool`。Provider 不支持内部 `tool` 角色时，只能由 `src/model/messageBoundary.ts` 在发送前渲染成带 `Source: tool` 的 `system` 文本，禁止在上下文层或 AgentLoop 中把这些内容改写成 `user`。
 
 ---
 

@@ -542,6 +542,7 @@ test("paused plan handoff uses system context and does not persist parse errors"
       return {} as never;
     },
     saveToolMessage: () => ({} as never),
+    saveSystemMessage: () => ({} as never),
     compactToolOutput: (_tool: string, output: unknown) => output,
     finalizeTurn: async () => ({ compressed: null }),
   } as unknown as ContextManager;
@@ -610,6 +611,8 @@ test("paused plan handoff uses system context and does not persist parse errors"
   assert.match(firstSystem, /write_file/);
   assert.equal(firstUserMessages.some((content) => content.includes("write_file / apply_patch / shell_run")), false);
   assert.ok(seen[1]?.some((m) => m.role === "assistant" && m.content === "Sure, starting now."));
+  assert.ok(seen[1]?.some((m) => m.role === "system" && m.content.includes("JSON")));
+  assert.equal(seen[1]?.some((m) => m.role === "user" && m.content.includes("JSON")), false);
   assert.equal(savedAssistant.some((content) => content === "Sure, starting now."), false);
   assert.equal(
     savedAssistant.some((content) => content.includes('"tool":"write_file"')),
@@ -626,6 +629,8 @@ test("paused plan handoff uses system context and does not persist parse errors"
     true,
     `expected successful write_file step, got ${JSON.stringify(res.steps)}`,
   );
+  assert.ok(seen[2]?.some((m) => m.role === "tool" && m.name === "write_file"));
+  assert.equal(seen[2]?.some((m) => m.role === "user" && m.content.includes("write_file")), false);
   assert.equal(await fs.readFile(path.join(sandbox, "handoff", "nested.txt"), "utf-8"), "ok");
 });
 

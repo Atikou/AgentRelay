@@ -6,6 +6,10 @@ import type {
 import { performance } from "node:perf_hooks";
 
 import { safeJsonParse, withTimeout } from "../util/timeout.js";
+import {
+  normalizeMessagesForModelTransport,
+  renderInternalToolMessage,
+} from "./messageBoundary.js";
 import type {
   ChatMessage,
   ChatRequest,
@@ -143,15 +147,11 @@ export class OpenAICompatibleClient implements ModelClient {
   }
 }
 
-function toOpenAIMessages(messages: ChatMessage[]): ChatCompletionMessageParam[] {
-  return messages.map((m): ChatCompletionMessageParam => {
+export function toOpenAIMessages(messages: ChatMessage[]): ChatCompletionMessageParam[] {
+  return normalizeMessagesForModelTransport(messages).map((m): ChatCompletionMessageParam => {
     switch (m.role) {
       case "tool":
-        return {
-          role: "tool",
-          content: m.content,
-          tool_call_id: m.toolCallId ?? "",
-        };
+        return { role: "system", content: renderInternalToolMessage(m) };
       case "system":
         return { role: "system", content: m.content };
       case "assistant":

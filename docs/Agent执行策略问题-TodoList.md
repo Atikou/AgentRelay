@@ -192,7 +192,7 @@
 #### P2-2：实现 RunStateStore
 
 - [x] `RunState`：runId、completedSteps、pendingSteps、scannedPaths、readFiles、toolResultRefs
-- [x] 用户「继续上次计划扫描」从 pendingSteps 续跑
+- [x] 通过 `runId` / `RunState` 系统运行态恢复 pendingSteps 续跑，不再依赖合成用户短语
 - [x] HTTP/API 传 runId 恢复（`POST /api/agent/resume`）
 
 **验收**：✅（`npm run test:run-state-store`）

@@ -111,6 +111,7 @@
   - [x] 当前任务状态。（`task_state` section + tasks 表）
   - [x] 文件和代码片段。（`file_snippets` section：从近期 `read_file`/`search_text`/`git_diff` 等 tool 消息解析）
   - [x] 工具调用结果。（`recent_tool_results` 从 session tool 消息注入）
+  - [x] 历史工具消息保持 `role=tool` 内部语义；`PromptBuilder` 不再把工具结果改写为 `user`，provider 兼容下沉到模型传输边界。
   - [x] 历史决策摘要。
 - [x] 支持上下文隔离，避免不同任务互相污染。（scope: global/session/project/task）
 - [x] 支持长期记忆与短期上下文分离。
@@ -204,6 +205,7 @@
 - [x] 防止死循环、自我重复和无限重试。（AgentLoop 分项 `RunBudget`：模型轮次/工具总数/读写 shell/运行时长 + 预算耗尽部分收尾 + `PlanWorkflow` 只读预扫描 + `executionMeta.stopReason`）
 - [x] 计划展示与执行分离：AgentStepPlan 只进 trace，用户 Markdown/PublicPlanJson 不可直接执行；须 analyze/compile 或 draft → validate → approve → execute。（`src/plan/`、`SCHEMA_VERSION=6`）
 - [x] 权限批准续跑不再伪造用户继续消息：计划→执行 handoff 仅注入 `system` 运行态上下文；模型非 JSON 输出只触发 `parse_error` 纠偏，不写入持久化 assistant 历史。
+- [x] 消息角色边界严格分离：真实用户输入才是 `user`；通知、续跑、工作流上下文、解析纠偏为 `system`；工具结果为 `tool`，并由 `messageBoundary` 在发送给 provider 前转换为带来源说明的 `system` 文本。
 
 ## 12. 记忆与知识库
 

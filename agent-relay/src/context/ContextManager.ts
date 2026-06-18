@@ -215,6 +215,10 @@ export class ContextManager {
     return this.saveMessage(sessionId, "assistant", content);
   }
 
+  saveSystemMessage(sessionId: string, content: string): MessageRecord {
+    return this.saveMessage(sessionId, "system", content);
+  }
+
   saveToolMessage(sessionId: string, content: string): MessageRecord {
     return this.saveMessage(sessionId, "tool", content);
   }
