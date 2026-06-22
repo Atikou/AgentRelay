@@ -1,3 +1,5 @@
+import type { DatabaseSync } from "node:sqlite";
+
 import type { ChatMessage } from "../model/types.js";
 import type { AgentToolStep } from "./toolStep.js";
 import type {
@@ -44,30 +46,80 @@ export interface PausedRunSnapshot {
   createdAt: string;
 }
 
-/**
- * 暂停 Run 快照存储（进程内单例）。键为 runId。
- * 服务重启会丢失，与 `PermissionRequestStore` 同为内存态；这对本地优先后端足够。
- */
+/** 暂停 Run 快照存储。传入数据库时持久化到 memory.db；否则使用进程内 Map。 */
 export class PausedRunStore {
   private readonly snapshots = new Map<string, PausedRunSnapshot>();
 
+  constructor(private readonly db?: DatabaseSync) {}
+
   save(snapshot: PausedRunSnapshot): void {
+    if (this.db) {
+      const now = new Date().toISOString();
+      this.db
+        .prepare(
+          `INSERT INTO paused_run_snapshots
+           (run_id, session_id, status, snapshot_json, created_at, updated_at)
+           VALUES (?, ?, 'paused', ?, ?, ?)
+           ON CONFLICT(run_id) DO UPDATE SET
+             session_id=excluded.session_id,
+             status='paused',
+             snapshot_json=excluded.snapshot_json,
+             updated_at=excluded.updated_at`,
+        )
+        .run(
+          snapshot.runId,
+          snapshot.sessionId ?? null,
+          JSON.stringify(snapshot),
+          snapshot.createdAt || now,
+          now,
+        );
+      return;
+    }
     this.snapshots.set(snapshot.runId, snapshot);
   }
 
   get(runId: string): PausedRunSnapshot | null {
+    if (this.db) {
+      const row = this.db
+        .prepare(
+          `SELECT snapshot_json FROM paused_run_snapshots
+           WHERE run_id=? AND status='paused'`,
+        )
+        .get(runId) as { snapshot_json: string } | undefined;
+      return this.parseSnapshot(row);
+    }
     return this.snapshots.get(runId) ?? null;
   }
 
   /** 取出并移除：恢复开始时调用，避免对同一快照重复续跑。 */
   take(runId: string): PausedRunSnapshot | null {
+    if (this.db) {
+      const snapshot = this.get(runId);
+      if (snapshot) this.delete(runId);
+      return snapshot;
+    }
     const snapshot = this.snapshots.get(runId);
     if (snapshot) this.snapshots.delete(runId);
     return snapshot ?? null;
   }
 
   delete(runId: string): void {
+    if (this.db) {
+      this.db.prepare(`DELETE FROM paused_run_snapshots WHERE run_id=?`).run(runId);
+      return;
+    }
     this.snapshots.delete(runId);
+  }
+
+  private parseSnapshot(row: { snapshot_json: string } | undefined): PausedRunSnapshot | null {
+    if (!row) return null;
+    try {
+      const parsed = JSON.parse(row.snapshot_json) as PausedRunSnapshot;
+      if (!parsed || typeof parsed !== "object" || typeof parsed.runId !== "string") return null;
+      return parsed;
+    } catch {
+      return null;
+    }
   }
 }
 

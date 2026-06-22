@@ -4,7 +4,7 @@ import { ensureRoutingTables } from "../model-router/route-stores.js";
 import { ensureEvalTables } from "../model-router/eval-set-store.js";
 import { addColumnIfMissing, hashRowId, type SqliteMigration } from "../storage/sqliteMigration.js";
 
-export const MEMORY_DB_SCHEMA_VERSION = 13;
+export const MEMORY_DB_SCHEMA_VERSION = 14;
 
 function ensureFts(
   db: DatabaseSync,
@@ -42,7 +42,7 @@ function ensureFts(
     .run(`fts_sync:${ftsName}`, new Date().toISOString());
 }
 
-/** memory.db 递增迁移（v1–v11）；每步须幂等。归属 context/（owns memory.db），不在通用 storage/ 框架层。 */
+/** memory.db 递增迁移（v1–v14）；每步须幂等。归属 context/（owns memory.db），不在通用 storage/ 框架层。 */
 export const MEMORY_DB_MIGRATIONS: readonly SqliteMigration[] = [
   {
     version: 1,
@@ -454,6 +454,39 @@ export const MEMORY_DB_MIGRATIONS: readonly SqliteMigration[] = [
     name: "sessions_workspace_key",
     up(db) {
       addColumnIfMissing(db, "sessions", "workspace_key", "workspace_key TEXT");
+    },
+  },
+  {
+    version: 14,
+    name: "durable_permission_pauses",
+    up(db) {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS permission_requests (
+          id TEXT PRIMARY KEY,
+          run_id TEXT NOT NULL,
+          session_id TEXT,
+          status TEXT NOT NULL,
+          payload_json TEXT NOT NULL,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          responded_at TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_permission_requests_run_status
+          ON permission_requests(run_id, status, updated_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_permission_requests_session_status
+          ON permission_requests(session_id, status, updated_at DESC);
+
+        CREATE TABLE IF NOT EXISTS paused_run_snapshots (
+          run_id TEXT PRIMARY KEY,
+          session_id TEXT,
+          status TEXT NOT NULL,
+          snapshot_json TEXT NOT NULL,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_paused_run_snapshots_session_status
+          ON paused_run_snapshots(session_id, status, updated_at DESC);
+      `);
     },
   },
 ];

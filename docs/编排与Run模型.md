@@ -70,7 +70,11 @@ AppContext         →  依赖容器（单例装配）
 | `task_dry_run` | `POST /api/task/dry-run` | 干跑（可 legacy ingest plan） |
 | `chat` | `POST /api/chat` | 单次对话 |
 | `plan` | `POST /api/plan`、`POST /api/plans/draft` | 计划生成（预览，非可执行体） |
+| `subagent` | `POST /api/subagent/run` | 独立子任务执行单元，接收一个 `DelegatedTask` |
+| `subagent_batch` | `POST /api/subagent/batch` | 一组可并行 `DelegatedTask` 的批量委派 Run |
 | `scheduled` | 调度器（预留） | 触发待执行 Run |
+
+启动恢复会扫描悬挂的 `running` Run：如果存在 `PausedRunStore` 快照，则说明 Run 在等待用户授权，恢复为 `waiting_confirmation`；否则标记为 `failed` 并记录 `startup_recovery_run` trace。这样权限弹窗与 `/api/runs/:id/resume-permission` 在服务重启后仍保持同一条 Run 边界。
 
 ## 数据流
 

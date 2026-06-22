@@ -38,6 +38,8 @@ import {
 
   aggregateSubAgentResultsStructured,
 
+  limitsToRunBudget,
+
   normalizeDelegatedTask,
 
 } from "../src/subagent/index.js";
@@ -81,6 +83,45 @@ function task(goal: string, instructions?: string) {
   return normalizeDelegatedTask({ goal, instructions: instructions ?? goal });
 
 }
+
+test("normalizeDelegatedTask 拒绝旧 TaskLimits 字段", async () => {
+  assert.throws(
+    () =>
+      normalizeDelegatedTask({
+        goal: "检查预算字段",
+        limits: { maxIterations: 3 } as never,
+      }),
+    /legacy fields removed/,
+  );
+});
+
+test("TaskLimits 使用分项预算映射 RunBudget", async () => {
+  const delegated = normalizeDelegatedTask({
+    goal: "检查分项预算",
+    toolPolicy: {
+      allowedTools: ["read_file", "write_file", "shell_run"],
+      writeAllowed: true,
+      shellAllowed: true,
+      requireApproval: true,
+    },
+    limits: {
+      maxModelTurns: 5,
+      maxToolCalls: 8,
+      maxReadCalls: 4,
+      maxWriteCalls: 2,
+      maxShellCalls: 1,
+      maxRuntimeMs: 30_000,
+    },
+  });
+
+  const budget = limitsToRunBudget(delegated.limits!, true);
+  assert.equal(budget.maxModelTurns, 5);
+  assert.equal(budget.maxToolCalls, 8);
+  assert.equal(budget.maxReadCalls, 4);
+  assert.equal(budget.maxWriteCalls, 2);
+  assert.equal(budget.maxShellCalls, 1);
+  assert.equal(budget.maxRuntimeMs, 30_000);
+});
 
 
 

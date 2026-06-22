@@ -32,6 +32,34 @@
       "expect": { "status": 400, "bodyHasKeys": ["error"] }
     },
     {
+      "id": "m5-run-legacy-max-iterations-rejected",
+      "title": "旧 maxIterations 预算字段被拒绝",
+      "purpose": "确认子 Agent HTTP 入口不再兼容旧迭代次数字段，必须改用 maxModelTurns 分项预算。",
+      "method": "POST",
+      "path": "/api/subagent/run",
+      "input": {
+        "task": {
+          "goal": "检查旧预算字段",
+          "limits": { "maxIterations": 1 }
+        }
+      },
+      "expect": { "status": 400, "bodyHasKeys": ["error"] }
+    },
+    {
+      "id": "m5-run-legacy-max-files-rejected",
+      "title": "旧 maxFiles 预算字段被拒绝",
+      "purpose": "确认子 Agent TaskLimits 不再使用文件数预算字段，读取预算必须改用 maxReadCalls。",
+      "method": "POST",
+      "path": "/api/subagent/run",
+      "input": {
+        "task": {
+          "goal": "检查旧读取预算字段",
+          "limits": { "maxFiles": 2 }
+        }
+      },
+      "expect": { "status": 400, "bodyHasKeys": ["error"] }
+    },
+    {
       "id": "m5-batch-aggregate-contract",
       "title": "batch 返回结构化 aggregate",
       "purpose": "确认并行子 Agent 成功响应除 summary 外，还返回 aggregate 结构，便于父 Agent 读取共同结论与冲突信息。",

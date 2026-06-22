@@ -100,7 +100,7 @@
 - [x] 支持 **模型仲裁式**冲突复核。（`arbitrateConflicts` on batch / `dispatch_subagent`）
 - [x] 支持子 Agent 超时、取消和失败上报。（超时 + `POST /api/subagent/cancel` 显式 cancel + `SubAgentRunRegistry`）
 - [x] 子 Agent 不能默认继承全部权限，必须显式授予。（`resolveGrantedPermissions`）
-- [x] 记录父子 Agent 的任务链路和决策过程。（trace `subagent_start/end` + `parentTaskId`）
+- [x] 记录父子 Agent 的任务链路和决策过程。（RunKind `subagent` / `subagent_batch` + trace `subagent_start/end` + `parentTaskId`）
 
 ## 6. 上下文管理与压缩
 
@@ -260,7 +260,7 @@
 - [ ] 提供模型配置、权限配置、工具配置和调度配置。（模型/调度/部分 shell 安全策略已进入 zod schema；完整工具/用户权限配置待补）
 - [ ] 启动时检查必要依赖。
 - [ ] 启动时检查模型可用性。
-- [ ] 启动时恢复未完成任务和未消费通知。
+- [ ] 启动时恢复未完成任务和未消费通知。（部分：启动时统计未消费通知；带 `PausedRunStore` 快照的 running Run 会恢复为 `waiting_confirmation`，无快照的 running Run 标记 failed）
 
 ## 17. 用户交互
 

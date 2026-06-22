@@ -1,5 +1,13 @@
-/** 编排 Run 的类型（统一 Agent / Task / Chat / 调度触发）。 */
-export type RunKind = "agent" | "task" | "task_dry_run" | "chat" | "plan" | "scheduled";
+/** 编排 Run 的类型（统一 Agent / Task / Chat / 子 Agent / 调度触发）。 */
+export type RunKind =
+  | "agent"
+  | "task"
+  | "task_dry_run"
+  | "chat"
+  | "plan"
+  | "scheduled"
+  | "subagent"
+  | "subagent_batch";
 
 export type RunStatus =
   | "pending"

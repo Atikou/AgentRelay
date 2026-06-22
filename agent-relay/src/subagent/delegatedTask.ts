@@ -42,10 +42,11 @@ export interface DelegatedTaskContext {
 }
 
 export interface TaskLimits {
-  maxIterations?: number;
+  maxModelTurns?: number;
   maxToolCalls?: number;
-  maxFiles?: number;
-  maxTokens?: number;
+  maxReadCalls?: number;
+  maxWriteCalls?: number;
+  maxShellCalls?: number;
   maxRuntimeMs?: number;
 }
 
@@ -117,16 +118,20 @@ export const DEFAULT_PATCH_TOOL_POLICY: ToolPolicy = {
 };
 
 export const DEFAULT_READONLY_LIMITS: TaskLimits = {
-  maxIterations: 16,
+  maxModelTurns: 16,
   maxToolCalls: 20,
-  maxFiles: 20,
+  maxReadCalls: 20,
+  maxWriteCalls: 0,
+  maxShellCalls: 0,
   maxRuntimeMs: 180_000,
 };
 
 export const DEFAULT_PATCH_LIMITS: TaskLimits = {
-  maxIterations: 12,
+  maxModelTurns: 12,
   maxToolCalls: 16,
-  maxFiles: 12,
+  maxReadCalls: 12,
+  maxWriteCalls: 6,
+  maxShellCalls: 0,
   maxRuntimeMs: 240_000,
 };
 
@@ -152,11 +157,11 @@ export const DEFAULT_OUTPUT_CONTRACT: OutputContract = {
 /** 将 TaskLimits 转为 AgentLoop RunBudget。 */
 export function limitsToRunBudget(limits: TaskLimits, writeAllowed = false): RunBudget {
   return {
-    maxModelTurns: limits.maxIterations ?? 16,
+    maxModelTurns: limits.maxModelTurns ?? 16,
     maxToolCalls: limits.maxToolCalls ?? 20,
-    maxReadCalls: limits.maxFiles ?? 20,
-    maxWriteCalls: writeAllowed ? Math.min(limits.maxToolCalls ?? 6, 6) : 0,
-    maxShellCalls: 0,
+    maxReadCalls: limits.maxReadCalls ?? 20,
+    maxWriteCalls: writeAllowed ? Math.min(limits.maxWriteCalls ?? limits.maxToolCalls ?? 6, 6) : 0,
+    maxShellCalls: limits.maxShellCalls ?? 0,
     maxRuntimeMs: limits.maxRuntimeMs ?? 180_000,
   };
 }
@@ -174,9 +179,59 @@ export function normalizeDelegatedTask(partial: Partial<DelegatedTask> & Pick<De
     instructions: (partial.instructions ?? partial.goal).trim(),
     input: (partial.input ?? "").trim(),
     context: partial.context,
-    limits: { ...defaultLimits, ...partial.limits },
+    limits: normalizeTaskLimits(defaultLimits, partial.limits),
     toolPolicy: { ...defaultTool, ...partial.toolPolicy, allowedTools: partial.toolPolicy?.allowedTools ?? defaultTool.allowedTools },
     modelPolicy: { ...defaultModel, ...partial.modelPolicy },
     outputContract: { ...DEFAULT_OUTPUT_CONTRACT, ...partial.outputContract },
   };
+}
+
+function normalizeTaskLimits(defaultLimits: TaskLimits, input: TaskLimits | undefined): TaskLimits {
+  const raw = (input ?? {}) as Record<string, unknown>;
+  const legacy = ["maxIterations", "maxFiles", "maxTokens"].filter((key) =>
+    Object.prototype.hasOwnProperty.call(raw, key),
+  );
+  if (legacy.length > 0) {
+    throw new Error(
+      `TaskLimits legacy fields removed: ${legacy.join(", ")}. Use maxModelTurns/maxToolCalls/maxReadCalls/maxWriteCalls/maxShellCalls/maxRuntimeMs.`,
+    );
+  }
+  return {
+    maxModelTurns: readPositiveIntegerLimit(raw, "maxModelTurns", defaultLimits.maxModelTurns),
+    maxToolCalls: readPositiveIntegerLimit(raw, "maxToolCalls", defaultLimits.maxToolCalls),
+    maxReadCalls: readPositiveIntegerLimit(raw, "maxReadCalls", defaultLimits.maxReadCalls),
+    maxWriteCalls: readNonNegativeIntegerLimit(raw, "maxWriteCalls", defaultLimits.maxWriteCalls),
+    maxShellCalls: readNonNegativeIntegerLimit(raw, "maxShellCalls", defaultLimits.maxShellCalls),
+    maxRuntimeMs: readPositiveIntegerLimit(raw, "maxRuntimeMs", defaultLimits.maxRuntimeMs),
+  };
+}
+
+function readPositiveIntegerLimit(
+  raw: Record<string, unknown>,
+  key: keyof TaskLimits,
+  fallback: number | undefined,
+): number | undefined {
+  return readIntegerLimit(raw, key, fallback, 1);
+}
+
+function readNonNegativeIntegerLimit(
+  raw: Record<string, unknown>,
+  key: keyof TaskLimits,
+  fallback: number | undefined,
+): number | undefined {
+  return readIntegerLimit(raw, key, fallback, 0);
+}
+
+function readIntegerLimit(
+  raw: Record<string, unknown>,
+  key: keyof TaskLimits,
+  fallback: number | undefined,
+  min: number,
+): number | undefined {
+  const value = raw[key];
+  if (value === undefined) return fallback;
+  if (typeof value !== "number" || !Number.isInteger(value) || value < min) {
+    throw new Error(`TaskLimits.${key} must be an integer >= ${min}`);
+  }
+  return value;
 }

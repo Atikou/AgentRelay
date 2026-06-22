@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import type { DatabaseSync, SQLInputValue } from "node:sqlite";
 
 import type { PermissionConfirmationRequest } from "./PermissionGuard.js";
 import {
@@ -28,13 +29,46 @@ export class PermissionRequestStore {
   private readonly requests = new Map<string, PermissionRequestPayload>();
   private readonly byRunId = new Map<string, string>();
 
+  constructor(private readonly db?: DatabaseSync) {}
+
   create(input: CreatePermissionRequestInput): PermissionRequestPayload {
+    if (this.db) {
+      const existing = this.getPendingByRunId(input.runId);
+      if (existing) return existing;
+
+      const payload = this.buildPayload(input);
+      this.db
+        .prepare(
+          `INSERT INTO permission_requests
+           (id, run_id, session_id, status, payload_json, created_at, updated_at, responded_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .run(
+          payload.id,
+          payload.runId,
+          payload.sessionId ?? null,
+          payload.status,
+          JSON.stringify(payload),
+          payload.createdAt,
+          payload.createdAt,
+          null,
+        );
+      return payload;
+    }
+
     const existingId = this.byRunId.get(input.runId);
     if (existingId) {
       const existing = this.requests.get(existingId);
       if (existing?.status === "pending") return existing;
     }
 
+    const payload = this.buildPayload(input);
+    this.requests.set(payload.id, payload);
+    this.byRunId.set(input.runId, payload.id);
+    return payload;
+  }
+
+  private buildPayload(input: CreatePermissionRequestInput): PermissionRequestPayload {
     const payload: PermissionRequestPayload = {
       schemaVersion: PERMISSION_REQUEST_SCHEMA_VERSION,
       id: randomUUID(),
@@ -51,16 +85,32 @@ export class PermissionRequestStore {
       blockedTool: input.blockedTool,
       createdAt: new Date().toISOString(),
     };
-    this.requests.set(payload.id, payload);
-    this.byRunId.set(input.runId, payload.id);
     return payload;
   }
 
   get(id: string): PermissionRequestPayload | null {
+    if (this.db) {
+      const row = this.db
+        .prepare(`SELECT payload_json FROM permission_requests WHERE id=?`)
+        .get(id) as { payload_json: string } | undefined;
+      return this.parsePayload(row);
+    }
     return this.requests.get(id) ?? null;
   }
 
   getPendingByRunId(runId: string): PermissionRequestPayload | null {
+    if (this.db) {
+      const row = this.db
+        .prepare(
+          `SELECT payload_json FROM permission_requests
+           WHERE run_id=? AND status='pending'
+           ORDER BY updated_at DESC
+           LIMIT 1`,
+        )
+        .get(runId) as { payload_json: string } | undefined;
+      return this.parsePayload(row);
+    }
+
     const id = this.byRunId.get(runId);
     if (!id) return null;
     const request = this.requests.get(id);
@@ -69,6 +119,29 @@ export class PermissionRequestStore {
   }
 
   listPending(opts?: { sessionId?: string; runId?: string }): PermissionRequestPayload[] {
+    if (this.db) {
+      const where: string[] = ["status='pending'"];
+      const args: SQLInputValue[] = [];
+      if (opts?.runId) {
+        where.push("run_id=?");
+        args.push(opts.runId);
+      }
+      if (opts?.sessionId) {
+        where.push("session_id=?");
+        args.push(opts.sessionId);
+      }
+      const rows = this.db
+        .prepare(
+          `SELECT payload_json FROM permission_requests
+           WHERE ${where.join(" AND ")}
+           ORDER BY updated_at DESC`,
+        )
+        .all(...args) as Array<{ payload_json: string }>;
+      return rows
+        .map((row) => this.parsePayload(row))
+        .filter((item): item is PermissionRequestPayload => Boolean(item));
+    }
+
     const all = [...this.requests.values()].filter((item) => item.status === "pending");
     if (opts?.runId) return all.filter((item) => item.runId === opts.runId);
     if (opts?.sessionId) return all.filter((item) => item.sessionId === opts.sessionId);
@@ -76,7 +149,7 @@ export class PermissionRequestStore {
   }
 
   respond(id: string, input: PermissionRequestRespondInput): PermissionRequestPayload | null {
-    const existing = this.requests.get(id);
+    const existing = this.get(id);
     if (!existing || existing.status !== "pending") return null;
 
     const respondedAt = new Date().toISOString();
@@ -87,7 +160,7 @@ export class PermissionRequestStore {
         respondedAt,
         decision: input.decision,
       };
-      this.requests.set(id, denied);
+      this.persistResponse(denied, respondedAt);
       return denied;
     }
 
@@ -102,8 +175,33 @@ export class PermissionRequestStore {
       decision: input.decision,
       approvedPermissions: toScopedApprovedPermissions(approvedItems),
     };
-    this.requests.set(id, approved);
+    this.persistResponse(approved, respondedAt);
     return approved;
+  }
+
+  private persistResponse(payload: PermissionRequestPayload, respondedAt: string): void {
+    if (!this.db) {
+      this.requests.set(payload.id, payload);
+      return;
+    }
+    this.db
+      .prepare(
+        `UPDATE permission_requests
+         SET status=?, payload_json=?, updated_at=?, responded_at=?
+         WHERE id=?`,
+      )
+      .run(payload.status, JSON.stringify(payload), respondedAt, respondedAt, payload.id);
+  }
+
+  private parsePayload(row: { payload_json: string } | undefined): PermissionRequestPayload | null {
+    if (!row) return null;
+    try {
+      const parsed = JSON.parse(row.payload_json) as PermissionRequestPayload;
+      if (!parsed || typeof parsed !== "object" || typeof parsed.id !== "string") return null;
+      return parsed;
+    } catch {
+      return null;
+    }
   }
 }
 

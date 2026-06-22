@@ -25,7 +25,7 @@ export interface ActivityRunMetadata {
   projectRoot?: string;
   model?: string;
   mode?: string;
-  maxIterations?: number;
+  maxModelTurns?: number;
   tags?: string[];
 }
 

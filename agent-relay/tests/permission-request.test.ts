@@ -3,8 +3,12 @@
  * 运行：npm run test:permission-request
  */
 import assert from "node:assert/strict";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 
 import { detectPlanExecutionVariant } from "../src/agent/planExecutionVariant.js";
+import { ContextManager } from "../src/context/ContextManager.js";
 import { PermissionRequestStore } from "../src/policy/PermissionRequestStore.js";
 import { SessionPermissionGrants } from "../src/policy/SessionPermissionGrants.js";
 import { isToolCallGranted } from "../src/policy/scopedPermissionCheck.js";
@@ -14,6 +18,14 @@ import { PausedRunStore } from "../src/agent/PausedRunStore.js";
 const tests: Array<{ name: string; fn: () => void }> = [];
 function test(name: string, fn: () => void) {
   tests.push({ name, fn });
+}
+
+function tempDataDir(): string {
+  return mkdtempSync(path.join(tmpdir(), "ar-permission-"));
+}
+
+function removeTempDir(dir: string): void {
+  rmSync(dir, { recursive: true, force: true });
 }
 
 test("detectPlanExecutionVariant 识别 plan_then_execute", () => {
@@ -39,6 +51,36 @@ test("PermissionRequestStore respond allow_session", () => {
   const responded = store.respond(created.id, { decision: "allow_session" });
   assert.equal(responded?.status, "approved");
   assert.deepEqual(responded?.approvedPermissions?.write_file, ["README.md"]);
+});
+
+test("PermissionRequestStore 持久化后可跨实例读取和流转状态", () => {
+  const dataDir = tempDataDir();
+  let ctx: ContextManager | undefined;
+  try {
+    ctx = new ContextManager({ dataDir, useLanceDb: false });
+    const store = new PermissionRequestStore(ctx.db.connection);
+    const created = store.create({
+      runId: "run-db",
+      sessionId: "sess-db",
+      title: "写入确认",
+      summary: "需要写 README",
+      requiredPermissions: [{ type: "write_file", target: "README.md", reason: "更新说明" }],
+    });
+
+    const reloaded = new PermissionRequestStore(ctx.db.connection);
+    assert.equal(reloaded.get(created.id)?.status, "pending");
+    assert.equal(reloaded.getPendingByRunId("run-db")?.id, created.id);
+
+    const approved = reloaded.respond(created.id, { decision: "allow_once" });
+    assert.equal(approved?.status, "approved");
+
+    const afterApprove = new PermissionRequestStore(ctx.db.connection);
+    assert.equal(afterApprove.get(created.id)?.status, "approved");
+    assert.equal(afterApprove.getPendingByRunId("run-db"), null);
+  } finally {
+    ctx?.close();
+    removeTempDir(dataDir);
+  }
 });
 
 test("scoped grants 允许已批准写文件", () => {
@@ -107,6 +149,35 @@ test("PausedRunStore take 取出后即失效（避免对同一快照重复续跑
   assert.equal(taken?.pendingAction?.tool, "write_file");
   assert.equal(taken?.messages.length, 3);
   assert.equal(store.take("run-paused"), null);
+});
+
+test("PausedRunStore 持久化后可跨实例 take 且只消费一次", () => {
+  const dataDir = tempDataDir();
+  let ctx: ContextManager | undefined;
+  try {
+    ctx = new ContextManager({ dataDir, useLanceDb: false });
+    const store = new PausedRunStore(ctx.db.connection);
+    store.save({
+      runId: "run-paused-db",
+      sessionId: "sess-paused-db",
+      goal: "修改 README",
+      messages: [{ role: "user", content: "修改 README" }],
+      steps: [],
+      modelTurns: 1,
+      pendingAction: { tool: "write_file", input: { path: "README.md" } },
+      mode: "implement",
+      permissionPolicy: "confirmBeforeEdit",
+      createdAt: new Date().toISOString(),
+    });
+
+    const reloaded = new PausedRunStore(ctx.db.connection);
+    assert.equal(reloaded.get("run-paused-db")?.pendingAction?.tool, "write_file");
+    assert.equal(reloaded.take("run-paused-db")?.runId, "run-paused-db");
+    assert.equal(new PausedRunStore(ctx.db.connection).get("run-paused-db"), null);
+  } finally {
+    ctx?.close();
+    removeTempDir(dataDir);
+  }
 });
 
 test("PausedRunStore 计划→执行交接快照无 pendingAction 且 resumeMode=implement", () => {

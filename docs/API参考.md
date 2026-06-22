@@ -275,7 +275,7 @@ Content-Type: application/json
 
 复合计划意图：`plan_then_execute`（如「先制定计划，然后执行」）会在只读 plan 阶段结束后生成 `requiredPermissions` 并等待批准，而不是直接获得写权限。
 
-批准后续跑语义：`POST /api/runs/:runId/resume-permission` 会取出 `PausedRunStore` 中冻结的同一段对话快照继续执行；快照包含 `messages`、已完成工具步骤、被阻塞的 `pendingAction`，以及 `workflowProposals` / `workflowDebugAnalyses` / `workflowRefactorPlans` / `workflowInternalPlans` 等工作流阶段产物。计划→执行交接时这些产物会被恢复到新的 `AgentLoop`；如果计划阶段没有产生 edit/generate-file proposal，恢复时会根据已批准 handoff 补一个最小 proposal artifact。因此 `WorkflowWriteGate` 会把已批准计划视为已完成 proposal/analysis 阶段，不会在首次 `write_file` / `apply_patch` 时误报“缺少 proposal phase”。`parseAction` 会先按完整动作对象解析，再处理字符串化动作与平衡 JSON 候选；`final.answer` 内允许包含 Markdown/JSON 代码块，不会再优先抽取第一个 ```json fence 当作动作对象。真正无法解析时仍会产生 `parse_error` 并要求模型只输出动作对象。
+批准后续跑语义：`POST /api/runs/:runId/resume-permission` 会取出 `PausedRunStore` 中冻结的同一段对话快照继续执行；`PermissionRequestStore` 与 `PausedRunStore` 在服务实例中持久化到 `memory.db`，因此刷新页面或服务重启后仍可查询 pending request 并恢复同一 Run。快照包含 `messages`、已完成工具步骤、被阻塞的 `pendingAction`，以及 `workflowProposals` / `workflowDebugAnalyses` / `workflowRefactorPlans` / `workflowInternalPlans` 等工作流阶段产物。计划→执行交接时这些产物会被恢复到新的 `AgentLoop`；如果计划阶段没有产生 edit/generate-file proposal，恢复时会根据已批准 handoff 补一个最小 proposal artifact。因此 `WorkflowWriteGate` 会把已批准计划视为已完成 proposal/analysis 阶段，不会在首次 `write_file` / `apply_patch` 时误报“缺少 proposal phase”。`parseAction` 会先按完整动作对象解析，再处理字符串化动作与平衡 JSON 候选；`final.answer` 内允许包含 Markdown/JSON 代码块，不会再优先抽取第一个 ```json fence 当作动作对象。真正无法解析时仍会产生 `parse_error` 并要求模型只输出动作对象。
 
 
 
@@ -377,6 +377,8 @@ DELETE /api/runs/{runId}
 | 数据生命周期 | `/api/storage/usage`、`/api/storage/cleanup/preview`、`/api/storage/cleanup/apply`、`/api/trace/rotate`、`POST /api/context/sessions/:id/purge` | 存储用量、清理预览/apply、trace 轮转、会话隐私清除 |
 
 | 文档 | `/api/docs`、`/api/docs/content` | Markdown 文档元数据（供 `/docs` 使用） |
+
+`/api/subagent/run` 会创建 `kind=subagent` Run，`/api/subagent/batch` 会创建 `kind=subagent_batch` Run。`DelegatedTask.limits` 只接受分项预算：`maxModelTurns`、`maxToolCalls`、`maxReadCalls`、`maxWriteCalls`、`maxShellCalls`、`maxRuntimeMs`；旧的 `maxIterations` / `maxFiles` / `maxTokens` 会被拒绝。
 
 
 `/api/context/sessions/:id/restore` 返回的 `renderedPrompt.finalMessages` 是 AgentRelay 内部模型输入调试快照。历史 `role=tool` 消息会在内部保持 `tool` 角色，真实持久化记录也保留在 `contextPackage.messages`，供摘要、审计和文件片段提取使用；OpenAI/DeepSeek/Anthropic/Ollama 的兼容转换只发生在 `ModelClient` 发送前的 `messageBoundary` 传输层，内部工具结果会渲染为带 `Source: tool` 标记的 `system` 文本，不会作为用户消息发送。

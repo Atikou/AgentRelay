@@ -46,6 +46,8 @@
 
 旧接口/旧思想已移除：不支持 `roles`、`role`、`task` 字符串，也不支持 `patch_worker` / `code_review` / `test_analyze` 等固定角色。收到这类参数时应视为错误并重新按 `tasks[]` 构造。
 
+`DelegatedTask.limits` 使用与主 Agent 对齐的分项预算：`maxModelTurns`、`maxToolCalls`、`maxReadCalls`、`maxWriteCalls`、`maxShellCalls`、`maxRuntimeMs`。旧字段 `maxIterations` / `maxFiles` / `maxTokens` 已从子任务预算中移除，HTTP 入口和 normalize 阶段会直接拒绝；文件数与 token 控制只属于具体工具（如 `context_pack`）的工具参数，不再冒充子 Agent 运行预算。
+
 ### 入参归一化与超时保护（P0）
 
 `dispatch_subagent` 在 Zod 校验前会经 `normalizeDispatchSubagentInput` 修复常见主模型误填：
@@ -88,6 +90,8 @@
 | `POST` | `/api/subagent/batch` | `tasks: DelegatedTask[]` |
 | `GET` | `/api/subagent/running` | 运行中列表 |
 | `POST` | `/api/subagent/cancel` | 取消 |
+
+`/api/subagent/run` 创建 `kind=subagent` 的 Run；`/api/subagent/batch` 创建 `kind=subagent_batch` 的 Run。二者不再伪装成普通 `agent` Run，便于 `/api/runs`、trace 与后续父子链路审计区分主 Agent 和独立子任务。
 
 ## 何时委派 vs 直接回答
 

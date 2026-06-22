@@ -44,13 +44,13 @@ import { createNetworkPolicy, type NetworkPolicy } from "../policy/NetworkPolicy
 import { resolveProjectAllowedPermissions, PERMISSION_SCOPE_ORDER } from "../policy/PermissionPolicy.js";
 import {
   defaultPermissionRequestStore,
-  type PermissionRequestStore,
+  PermissionRequestStore,
 } from "../policy/PermissionRequestStore.js";
 import {
   defaultSessionPermissionGrants,
-  type SessionPermissionGrants,
+  SessionPermissionGrants,
 } from "../policy/SessionPermissionGrants.js";
-import { defaultPausedRunStore } from "../agent/PausedRunStore.js";
+import { defaultPausedRunStore, PausedRunStore } from "../agent/PausedRunStore.js";
 import { ModelOrchestrator } from "../model-orchestrator/index.js";
 import {
   buildModelProfiles,
@@ -134,6 +134,7 @@ export class AppContext {
   readonly dataLifecycle: DataLifecycleService;
   readonly permissionRequestStore: PermissionRequestStore;
   readonly sessionPermissionGrants: SessionPermissionGrants;
+  readonly pausedRunStore: PausedRunStore;
   private readonly defaultAgentChat: LoopChatFn;
   readonly startupRecovery?: StartupRecoverySummary;
 
@@ -180,6 +181,7 @@ export class AppContext {
     dataLifecycle: DataLifecycleService;
     permissionRequestStore?: PermissionRequestStore;
     sessionPermissionGrants?: SessionPermissionGrants;
+    pausedRunStore?: PausedRunStore;
     startupRecovery?: StartupRecoverySummary;
   }) {
     this.profile = opts.profile;
@@ -225,6 +227,7 @@ export class AppContext {
     this.dataLifecycle = opts.dataLifecycle;
     this.permissionRequestStore = opts.permissionRequestStore ?? defaultPermissionRequestStore;
     this.sessionPermissionGrants = opts.sessionPermissionGrants ?? defaultSessionPermissionGrants;
+    this.pausedRunStore = opts.pausedRunStore ?? defaultPausedRunStore;
     this.startupRecovery = opts.startupRecovery;
   }
 
@@ -537,6 +540,9 @@ export function createAppContext(): AppContext {
   const contextManager = new ContextManager({ dataDir, useLanceDb: true });
   const runs = new RunStore(contextManager.db);
   const runStateStore = new RunStateStore(contextManager.db);
+  const permissionRequestStore = new PermissionRequestStore(contextManager.db.connection);
+  const sessionPermissionGrants = new SessionPermissionGrants();
+  const pausedRunStore = new PausedRunStore(contextManager.db.connection);
   const projectIndex = new ProjectIndex(contextManager.db);
   const projectSemanticIndexer = new ProjectSemanticIndexer(
     contextManager.embeddings,
@@ -688,9 +694,9 @@ export function createAppContext(): AppContext {
     projectAllowedPermissions,
     maxSubAgentDispatchDepth,
     agentRunRegistry,
-    permissionRequestStore: defaultPermissionRequestStore,
-    sessionPermissionGrants: defaultSessionPermissionGrants,
-    pausedRunStore: defaultPausedRunStore,
+    permissionRequestStore,
+    sessionPermissionGrants,
+    pausedRunStore,
   });
   orchestratorHolder.current = orchestrator;
 
@@ -711,7 +717,7 @@ export function createAppContext(): AppContext {
     }
   });
 
-  const startupRecovery = recoverOnStartup({ runs, notificationQueue, trace });
+  const startupRecovery = recoverOnStartup({ runs, notificationQueue, trace, pausedRunStore });
 
   const toolsDbPath = registry.getStorage()?.dbPath;
   const dataLifecycle = new DataLifecycleService({
@@ -768,11 +774,18 @@ export function createAppContext(): AppContext {
     shellPolicy,
     networkPolicy,
     dataLifecycle,
+    permissionRequestStore,
+    sessionPermissionGrants,
+    pausedRunStore,
     startupRecovery,
   });
-  if (startupRecovery.interruptedRuns > 0 || startupRecovery.pendingNotifications > 0) {
+  if (
+    startupRecovery.interruptedRuns > 0 ||
+    startupRecovery.preservedPausedRuns > 0 ||
+    startupRecovery.pendingNotifications > 0
+  ) {
     console.warn(
-      `[startupRecovery] interruptedRuns=${startupRecovery.interruptedRuns} pendingNotifications=${startupRecovery.pendingNotifications}`,
+      `[startupRecovery] interruptedRuns=${startupRecovery.interruptedRuns} preservedPausedRuns=${startupRecovery.preservedPausedRuns} pendingNotifications=${startupRecovery.pendingNotifications}`,
     );
   }
   scheduler.start();

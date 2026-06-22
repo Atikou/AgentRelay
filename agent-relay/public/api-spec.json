@@ -3015,10 +3015,11 @@
           "limits": {
             "type": "object",
             "properties": {
-              "maxIterations": { "type": "integer" },
+              "maxModelTurns": { "type": "integer" },
               "maxToolCalls": { "type": "integer" },
-              "maxFiles": { "type": "integer" },
-              "maxTokens": { "type": "integer" },
+              "maxReadCalls": { "type": "integer" },
+              "maxWriteCalls": { "type": "integer" },
+              "maxShellCalls": { "type": "integer" },
               "maxRuntimeMs": { "type": "integer" }
             }
           },

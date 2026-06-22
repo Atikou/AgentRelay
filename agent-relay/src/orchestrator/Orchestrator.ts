@@ -1266,7 +1266,7 @@ export class Orchestrator {
 
     const goalLabel = payload.task.goal.slice(0, 200);
     const run = this.deps.runs.create({
-      kind: "agent",
+      kind: "subagent",
       status: "running",
       goal: goalLabel,
       taskId: payload.parentTaskId,
@@ -1332,7 +1332,7 @@ export class Orchestrator {
     if (!coord) return { status: 503, body: { error: "子 Agent 未启用" } };
 
     const run = this.deps.runs.create({
-      kind: "agent",
+      kind: "subagent_batch",
       status: "running",
       goal: payload.tasks[0]!.goal.slice(0, 200),
       taskId: payload.parentTaskId,

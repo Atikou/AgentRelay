@@ -9,7 +9,7 @@
 | 优先级 | 主题 | 状态 |
 | --- | --- | --- |
 | P0 | 复合 plan 意图（plan_only / plan_wait_approval / plan_then_execute） | 已落地 |
-| P0 | 通用 PermissionRequest 固定 JSON + Store | 已落地 |
+| P0 | 通用 PermissionRequest 固定 JSON + SQLite Store | 已落地 |
 | P0 | Permission API（查询 / 响应）+ Run approve | 已落地 |
 | P0 | 测试台右侧权限弹窗（允许 / 拒绝 / 本次会话都允许） | 已落地 |
 | P1 | JIT（just-in-time）工具级权限：真要调用副作用工具时就地暂停 | 已落地 |
@@ -21,7 +21,7 @@
 
 **核心**：权限暂停不是「结束本轮 + 下次重新喊话」，而是「就地冻结同一段对话」。用户批准后用对话快照**忠实续跑**——执行那个被批准的工具或按计划进入执行阶段，全程复用同一条 `messages` 链。
 
-1. 模型在循环中真要调用副作用工具（write/shell/…）→ `PermissionGuard` 判定 needsConfirmation → `AgentLoop` **就地暂停**：把当前对话快照写入 `PausedRunStore`（含 messages、已完成步骤、工作流阶段产物、被阻塞的 `pendingAction`），返回**精确到该工具调用**（文件/命令）的 `permissionRequest` + 侧栏弹窗。
+1. 模型在循环中真要调用副作用工具（write/shell/…）→ `PermissionGuard` 判定 needsConfirmation → `AgentLoop` **就地暂停**：把当前对话快照写入 `PausedRunStore`（含 messages、已完成步骤、工作流阶段产物、被阻塞的 `pendingAction`），返回**精确到该工具调用**（文件/命令）的 `permissionRequest` + 侧栏弹窗。`PermissionRequestStore` 与 `PausedRunStore` 在服务实例中写入 `memory.db`，浏览器刷新或服务重启后仍可查询 pending request 并继续 `resume-permission`。
 2. 用户点 **允许 / 本次会话都允许** → `POST /api/permission-requests/:id/respond`。
 3. 测试台随即调用 `POST /api/runs/:runId/resume-permission` → `Orchestrator.resumeAfterPermission` 取出快照，构造带 `pausedRun` 的 `AgentLoop`：**先执行被批准的工具，再继续模型循环**，沿用原模式/策略 + 作用域授权。
 4. 若执行中再次遇到副作用工具 → 再次 JIT 暂停 → 再次弹窗（多轮 JIT），与主流 agent 一致。
@@ -45,6 +45,7 @@
 
 - [x] `PausedRunStore` + `PausedRunSnapshot`：对话快照按 runId 暂存
 - [x] `PausedRunSnapshot` 保存并恢复工作流阶段产物；计划批准但无 proposal 时会生成 handoff proposal，首次写入不会被 proposal 门禁误拦截
+- [x] `PermissionRequestStore` / `PausedRunStore` 落盘到 `memory.db`；启动恢复会把带暂停快照的 running Run 恢复为 `waiting_confirmation`
 - [x] `AgentLoop` JIT：副作用工具被阻塞时就地冻结对话并申请精确权限
 - [x] `AgentLoop` 忠实续跑：从快照执行被批准工具 / 按计划进入执行阶段，复用同一 messages 链
 - [x] `resumeAfterPermission` 基于快照续跑（去掉合成续跑消息与正则权限提取）
@@ -54,7 +55,6 @@
 ## P2
 
 - [ ] InternalTaskPlan DAG 逐步权限门控
-- [ ] `PausedRunStore` 落盘持久化（当前为内存态，服务重启丢失，与权限申请一致）
 
 ## 落地文件索引
 
