@@ -80,6 +80,8 @@ function setActiveSessionId(sessionId) {
   activeSessionId = sessionId || undefined;
   if (activeSessionId) localStorage.setItem(ACTIVE_SESSION_KEY, activeSessionId);
   else localStorage.removeItem(ACTIVE_SESSION_KEY);
+  void pollPendingPermissionRequests();
+  void pollPendingPlanHandoffs();
 }
 
 function getSelectedPermissionPolicy() {
@@ -239,6 +241,8 @@ async function loadHistorySessions() {
           </div>`;
       })
       .join("");
+    void pollPendingPermissionRequests();
+    void pollPendingPlanHandoffs();
   } catch (err) {
     list.innerHTML = `<div class="sidebar-history-empty is-error">${escapeHtml(String(err.message || err))}</div>`;
   }
@@ -727,7 +731,12 @@ function addSystemError(text) {
 async function api(path, options) {
   const res = await fetch(path, options);
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || `请求失败：${res.status}`);
+  if (!res.ok) {
+    const err = new Error(data.error || `请求失败：${res.status}`);
+    err.status = res.status;
+    err.data = data;
+    throw err;
+  }
   return data;
 }
 
@@ -2625,7 +2634,12 @@ async function handleUnifiedAgentStream(message) {
     } else if (evt.type === "done") {
       doneResult = data;
     } else if (evt.type === "error") {
-      throw new Error(data.error || "Agent 流式执行失败");
+      if (data.permissionRequest) maybeShowPermissionRequest(data);
+      if (data.planHandoff) maybeShowPlanHandoff(data);
+      const e = new Error(data.error || "Agent 流式执行失败");
+      e.status = data.status;
+      e.data = data;
+      throw e;
     }
   }, streamAbort.signal);
 
@@ -2640,11 +2654,14 @@ async function handleUnifiedAgentStream(message) {
   const metaEl = msgWrap.querySelector(".msg-meta");
   if (metaEl) metaEl.textContent = meta + sessionMeta();
   maybeShowPermissionRequest(doneResult);
+  maybeShowPlanHandoff(doneResult);
   } catch (err) {
     if (streamAbort.signal.aborted || String(err).includes("aborted")) {
       panel.setStatus("已取消");
       return;
     }
+    if (err?.data?.permissionRequest) maybeShowPermissionRequest(err.data);
+    if (err?.data?.planHandoff) maybeShowPlanHandoff(err.data);
     throw err;
   }
 }
@@ -2690,7 +2707,13 @@ async function handleUnifiedAgent(message) {
     attachWorkflowBadgeToLastUserMessage(data.executionMeta);
     renderAgentRun(data);
   } catch (err) {
-    addSystemError(String(err.message || err));
+    if (err?.status === 409 && (err?.data?.permissionRequest || err?.data?.planHandoff)) {
+      maybeShowPermissionRequest(err.data);
+      maybeShowPlanHandoff(err.data);
+      addMessage("system", String(err.message || err.data.error || "请先处理待办交接或权限"));
+    } else {
+      addSystemError(String(err.message || err));
+    }
   } finally {
     sendBtn.disabled = false;
     messageInput.focus();
@@ -2838,6 +2861,136 @@ async function handleTools() {
   addMessage("system", panel);
 }
 
+function ensurePlanHandoffPanel() {
+  let panel = document.getElementById("plan-handoff-panel");
+  if (panel) return panel;
+  panel = document.createElement("aside");
+  panel.id = "plan-handoff-panel";
+  panel.className = "permission-request-panel plan-handoff-panel";
+  panel.setAttribute("aria-live", "polite");
+  document.body.appendChild(panel);
+  return panel;
+}
+
+function hidePlanHandoffPanel() {
+  const panel = document.getElementById("plan-handoff-panel");
+  if (!panel) return;
+  panel.classList.remove("visible");
+  panel.innerHTML = "";
+}
+
+async function respondPlanHandoff(handoff, decision) {
+  const responded = await api(`/api/plan-handoffs/${encodeURIComponent(handoff.id)}/respond`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ decision }),
+  });
+  if (decision === "reject") {
+    hidePlanHandoffPanel();
+    addMessage("system", `已拒绝按计划执行：${escapeHtml(handoff.message || handoff.id)}`);
+    return responded;
+  }
+  hidePlanHandoffPanel();
+  addMessage("system", "已批准按计划执行，正在进入执行阶段…");
+  try {
+    const resume = await api(`/api/runs/${encodeURIComponent(handoff.runId)}/resume-plan-handoff`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        runId: handoff.runId,
+        planHandoffId: handoff.id,
+        permissionPolicy: getSelectedPermissionPolicy(),
+      }),
+    });
+    if (resume.sessionId) {
+      setActiveSessionId(resume.sessionId);
+      void loadHistorySessions();
+    }
+    renderAgentRun(resume);
+    return responded;
+  } catch (err) {
+    addMessage("system", `计划交接续跑失败：${escapeHtml(String(err))}`);
+    throw err;
+  }
+}
+
+function showPlanHandoffPanel(handoff) {
+  if (!handoff || handoff.status !== "pending") return;
+  const panel = ensurePlanHandoffPanel();
+  const preview = (handoff.planMarkdown || "").slice(0, 1200);
+  panel.innerHTML = `
+    <h3>计划交接</h3>
+    <div class="perm-summary">${escapeHtml(handoff.message || "计划已完成，是否按计划执行？")}</div>
+    ${
+      preview
+        ? `<div class="perm-group"><div class="perm-group-title">计划摘要</div><div class="perm-item"><div class="perm-item-reason">${escapeHtml(preview)}${handoff.planMarkdown.length > preview.length ? "…" : ""}</div></div></div>`
+        : ""
+    }
+    <div class="perm-actions">
+      <button type="button" class="btn-allow" data-decision="approve">按计划执行</button>
+      <button type="button" class="btn-deny" data-decision="reject">拒绝</button>
+    </div>`;
+  panel.classList.add("visible");
+  panel.querySelectorAll("[data-decision]").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const decision = btn.getAttribute("data-decision");
+      btn.disabled = true;
+      try {
+        await respondPlanHandoff(handoff, decision);
+      } catch (err) {
+        addSystemError(String(err.message || err));
+      } finally {
+        panel.querySelectorAll("button").forEach((b) => {
+          b.disabled = false;
+        });
+      }
+    });
+  });
+}
+
+async function pollPendingPlanHandoffs() {
+  if (!activeSessionId) return;
+  try {
+    const data = await api(
+      `/api/plan-handoffs/pending?sessionId=${encodeURIComponent(activeSessionId)}`,
+    );
+    const pending = data.planHandoffs || [];
+    if (pending.length > 0) {
+      showPlanHandoffPanel(pending[0]);
+    }
+  } catch {
+    // 忽略轮询失败
+  }
+}
+
+function maybeShowPlanHandoff(result) {
+  if (result?.planHandoff?.status === "pending") {
+    showPlanHandoffPanel(result.planHandoff);
+  }
+}
+
+function resolveWaitingOperationLabel(meta, result) {
+  if (
+    result?.awaitingPlanHandoff ||
+    result?.planHandoff?.status === "pending" ||
+    meta?.stopReason === "awaiting_plan_handoff"
+  ) {
+    return "等待计划批准";
+  }
+  if (
+    result?.awaitingPermission ||
+    result?.permissionRequest?.status === "pending" ||
+    meta?.stopReason === "awaiting_permission"
+  ) {
+    return "等待工具权限";
+  }
+  return "";
+}
+
+function formatPermissionPolicyLabel(policy) {
+  return PERMISSION_POLICY_LABELS[policy] || policy || "";
+}
+
 function ensurePermissionRequestPanel() {
   let panel = document.getElementById("permission-request-panel");
   if (panel) return panel;
@@ -2958,6 +3111,21 @@ function hidePermissionRequestPanel() {
   panel.innerHTML = "";
 }
 
+async function pollPendingPermissionRequests() {
+  if (!activeSessionId) return;
+  try {
+    const data = await api(
+      `/api/permission-requests/pending?sessionId=${encodeURIComponent(activeSessionId)}`,
+    );
+    const pending = data.permissionRequests || [];
+    if (pending.length > 0) {
+      showPermissionRequestPanel(pending[0]);
+    }
+  } catch {
+    // 忽略轮询失败
+  }
+}
+
 function maybeShowPermissionRequest(result) {
   if (result?.permissionRequest?.status === "pending") {
     showPermissionRequestPanel(result.permissionRequest);
@@ -2995,7 +3163,7 @@ function renderAgentRun(result) {
     const metaBox = document.createElement("div");
     metaBox.className = "plan-step-desc";
     metaBox.style.marginBottom = "8px";
-    const workflowStatus = renderWorkflowStatus(m);
+    const workflowStatus = renderWorkflowStatus(m, result);
     const locationInfo = m.location
       ? `\nlocation=${m.location.usedLocateSteps ?? 0} steps · found=${(m.location.locatedFiles || []).slice(0, 4).join(",") || "-"} · continue=${m.location.needsContinue ? "yes" : "no"}`
       : "";
@@ -3025,6 +3193,7 @@ function renderAgentRun(result) {
   const meta = `模型轮次 ${result.iterations} · 工具请求 ${result.steps ? result.steps.length : 0} 次${metaInfo ? ` · ${workflowLabel || metaInfo.mode}/${metaInfo.stopReason}` : ""}${result.reachedLimit ? " · 已达预算" : ""}${sessionMeta()}`;
   addMessage("assistant", card, meta);
   maybeShowPermissionRequest(result);
+  maybeShowPlanHandoff(result);
 }
 
 function renderConfirmationRequest(request) {
@@ -3048,6 +3217,7 @@ function renderConfirmationRequest(request) {
 }
 
 function getWorkflowStatusLabel(meta) {
+  if (meta.userFacingLabel) return meta.userFacingLabel;
   if (meta.workflowSwitch?.switched) {
     const from = meta.workflowSwitch.fromWorkflowType || meta.workflowSwitch.fromIntent;
     const to = meta.workflowSwitch.toWorkflowType || meta.workflowSwitch.toIntent;
@@ -3059,19 +3229,23 @@ function getWorkflowStatusLabel(meta) {
   return WORKFLOW_STATUS_LABELS[meta.workflowType] || meta.workflowType || meta.intent || meta.mode || "";
 }
 
-function renderWorkflowStatus(meta) {
+function renderWorkflowStatus(meta, result) {
   if (!meta) return "";
   const label = getWorkflowStatusLabel(meta);
   if (!label) return "";
+  const waitingOp = resolveWaitingOperationLabel(meta, result);
+  const policyLabel = formatPermissionPolicyLabel(meta.permissionPolicy);
   const details = [
     meta.workflowSwitch?.switched
       ? `工作流切换：${meta.workflowSwitch.fromWorkflowType} → ${meta.workflowSwitch.toWorkflowType}`
       : "",
+    meta.userFacingState ? `状态：${meta.userFacingState}` : "",
     meta.workflowTaskState ? `任务状态：${TASK_STATE_LABELS[meta.workflowTaskState] || meta.workflowTaskState}` : "",
     meta.intent ? `意图：${INTENT_STATUS_LABELS[meta.intent] || meta.intent}` : "",
     meta.executionStage ? `阶段：${EXECUTION_STAGE_LABELS[meta.executionStage] || meta.executionStage}` : "",
-    meta.permissionPolicy ? `权限：${meta.permissionPolicy}` : "",
-    meta.mode ? `模式：${meta.mode}` : "",
+    meta.mode ? `模式（调试）：${meta.mode}` : "",
+    policyLabel ? `权限策略：${policyLabel}` : "",
+    waitingOp ? `等待：${waitingOp}` : "等待：无",
     meta.modeSource ? `来源：${meta.modeSource === "explicit" ? "显式" : "自动"}` : "",
   ]
     .filter(Boolean)

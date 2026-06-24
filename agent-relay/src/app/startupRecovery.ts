@@ -16,6 +16,7 @@ export function recoverOnStartup(deps: {
   notificationQueue: NotificationQueue;
   trace?: TraceLogger;
   pausedRunStore?: PausedRunStore;
+  planHandoffStore?: import("../policy/PlanHandoffStore.js").PlanHandoffStore;
 }): StartupRecoverySummary {
   const interrupted = deps.runs.list({ status: "running", limit: 500 });
   let failedInterruptedRuns = 0;
@@ -24,14 +25,16 @@ export function recoverOnStartup(deps: {
   for (const run of interrupted) {
     const paused = deps.pausedRunStore?.get(run.id);
     if (paused) {
-      deps.runs.update(run.id, { status: "waiting_confirmation" });
+      const pendingHandoff = deps.planHandoffStore?.getPendingByRunId(run.id);
+      const recoveredStatus = pendingHandoff ? "waiting_plan_handoff" : "waiting_confirmation";
+      deps.runs.update(run.id, { status: recoveredStatus });
       preservedPausedRuns += 1;
       deps.trace?.write({
         type: "startup_recovery_run",
         runId: run.id,
         kind: run.kind,
         previousStatus: "running",
-        recoveredStatus: "waiting_confirmation",
+        recoveredStatus,
       });
       continue;
     }

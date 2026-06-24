@@ -617,65 +617,65 @@
       }
     },
     {
-      "id": "m1-agent-auto-plan-to-execute-followup",
-      "title": "plan 会话短句自动跃迁执行阶段",
-      "purpose": "确认默认自动推断下，同会话上一轮是 plan 时，短句“按计划开始执行”会自动切换到 editWorkflow（不需 forceMode）。",
-      "method": "POST",
-      "path": "/api/agent",
-      "input": {
-        "sessionId": "PASTE_SESSION_ID_FROM_PREV_PLAN_RUN",
-        "message": "按计划开始执行",
-        "persist": true,
-        "budget": {
-          "maxModelTurns": 1,
-          "maxToolCalls": 0,
-          "maxReadCalls": 0,
-          "maxWriteCalls": 0,
-          "maxShellCalls": 0,
-          "maxRuntimeMs": 60000
-        }
-      },
+      "id": "m1-agent-plan-no-shortphrase-bypass-doc",
+      "title": "文档：plan 短句不得绕过权限批准",
+      "purpose": "确认 Plan-Approval-Execute 文档约定：计划→执行必须走权限弹窗与 resume-permission，普通 /api/agent 短句不得替代续跑。",
+      "method": "GET",
+      "path": "/api/docs/content?slug=Plan-Approval-Execute-TodoList",
+      "input": null,
       "expect": {
         "status": 200,
-        "bodyPaths": {
-          "executionMeta.intent": "edit",
-          "executionMeta.workflowType": "editWorkflow",
-          "executionMeta.executionStage": "execute",
-          "executionMeta.modeSource": "inferred"
-        }
+        "bodyContains": ["planHandoff", "resume-plan-handoff", "不得", "短句"]
       }
     },
     {
-      "id": "m1-agent-auto-plan-to-verify-followup",
-      "title": "plan 会话测试短句自动跃迁验证阶段",
-      "purpose": "确认默认自动推断下，plan 会话内“继续并跑测试验证”会自动进入 verifyWorkflow，并在 executionMeta 暴露 executionStage=verify。",
-      "method": "POST",
-      "path": "/api/agent",
-      "input": {
-        "sessionId": "PASTE_SESSION_ID_FROM_PREV_PLAN_RUN",
-        "message": "继续并跑测试验证",
-        "persist": true,
-        "budget": {
-          "maxModelTurns": 1,
-          "maxToolCalls": 0,
-          "maxReadCalls": 0,
-          "maxWriteCalls": 0,
-          "maxShellCalls": 0,
-          "maxRuntimeMs": 60000
-        }
-      },
+      "id": "m1-agent-permission-pending-poll-doc",
+      "title": "文档：刷新后可查 pending 权限",
+      "purpose": "确认文档说明 PermissionRequestStore 落盘与 pending 查询，支持刷新后通过 GET /api/permission-requests/pending 恢复弹窗。",
+      "method": "GET",
+      "path": "/api/docs/content?slug=Plan-Approval-Execute-TodoList",
+      "input": null,
       "expect": {
         "status": 200,
-        "bodyPaths": {
-          "executionMeta.intent": "verify",
-          "executionMeta.workflowType": "verifyWorkflow",
-          "executionMeta.executionStage": "verify",
-          "executionMeta.modeSource": "inferred"
-        }
+        "bodyContains": ["permission-requests/pending", "PausedRunStore", "waiting_confirmation"]
       }
     },
     {
-      "id": "m1-permission-request-pending-list",
+      "id": "m1-plan-handoff-pending-list",
+      "title": "查询待处理计划交接列表",
+      "purpose": "确认 GET /api/plan-handoffs/pending 返回 planHandoffs 数组，供测试台计划交接面板轮询。",
+      "method": "GET",
+      "path": "/api/plan-handoffs/pending",
+      "input": {},
+      "expect": {
+        "status": 200,
+        "bodyHasKeys": ["planHandoffs", "count"]
+      }
+    },
+    {
+      "id": "m1-plan-handoff-respond-invalid",
+      "title": "非法 decision 拒绝计划交接响应",
+      "purpose": "确认 POST /api/plan-handoffs/:id/respond 对非法 decision 返回 400，边界校验。",
+      "method": "POST",
+      "path": "/api/plan-handoffs/nonexistent-id/respond",
+      "input": { "decision": "maybe" },
+      "expect": {
+        "status": 400,
+        "bodyContains": ["approve", "reject"]
+      }
+    },
+    {
+      "id": "m1-agent-plan-handoff-doc",
+      "title": "文档：planHandoff 与 permissionRequest 分离",
+      "purpose": "确认 Plan-Approval-Execute 文档约定 planHandoff 负责计划交接、permissionRequest 仅工具权限。",
+      "method": "GET",
+      "path": "/api/docs/content?slug=Plan-Approval-Execute-TodoList",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyContains": ["planHandoff", "resume-plan-handoff", "permissionRequest"]
+      }
+    },
       "title": "查询待处理权限申请列表",
       "purpose": "确认 GET /api/permission-requests/pending 返回固定 schemaVersion=1 的 permissionRequests 数组，供网页右侧弹窗轮询或初始化。",
       "method": "GET",

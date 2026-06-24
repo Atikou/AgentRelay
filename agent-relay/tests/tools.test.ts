@@ -9,7 +9,7 @@ import path from "node:path";
 
 import { createDefaultRegistry, createMockRegistry, createMockTool } from "../src/tools/index.js";
 import { checkCommandRisk } from "../src/tools/risk.js";
-import { resolveInsideWorkspace } from "../src/tools/pathSafe.js";
+import { resolveInsideWorkspace, sanitizeWorkspacePathsInError } from "../src/tools/pathSafe.js";
 import { ALL_PERMISSIONS } from "../src/core/permissions.js";
 import { createShellPolicy } from "../src/policy/ShellPolicy.js";
 import { ToolRegistry, classifyToolError } from "../src/tools/ToolRegistry.js";
@@ -623,6 +623,23 @@ test("路径越权被拦截", async () => {
 
 test("resolveInsideWorkspace 拒绝越界路径", async () => {
   assert.throws(() => resolveInsideWorkspace(sandbox, "../outside.txt"));
+});
+
+test("read_file 不存在时不泄露工作区绝对路径", async () => {
+  const r = reg();
+  const res = await r.run("read_file", { path: "testTS/vite.config.ts" }, await ctx());
+  assert.equal(res.ok, false);
+  const err = (res as { error: string }).error;
+  assert.match(err, /文件不存在：testTS\/vite\.config\.ts/);
+  assert.doesNotMatch(err, /ENOENT.*stat/i);
+  assert.doesNotMatch(err, new RegExp(sandbox.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+});
+
+test("sanitizeWorkspacePathsInError 剥离 workspaceRoot", async () => {
+  const msg = `Error: ENOENT: no such file or directory, stat '${path.join(sandbox, "missing.ts")}'`;
+  const cleaned = sanitizeWorkspacePathsInError(sandbox, msg);
+  assert.match(cleaned, /missing\.ts/);
+  assert.doesNotMatch(cleaned, new RegExp(sandbox.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
 });
 
 test("权限不在允许集时拒绝", async () => {

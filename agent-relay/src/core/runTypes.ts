@@ -14,6 +14,7 @@ export type RunStatus =
   | "running"
   | "blocked"
   | "waiting_confirmation"
+  | "waiting_plan_handoff"
   | "paused"
   | "completed"
   | "failed"

@@ -85,9 +85,10 @@ export function handlePermissionRequestRespond(
   );
 
   if (decision !== "deny") {
-    app.runs.update(responded.runId, { status: "running" });
+    app.runs.update(responded.runId, { status: "waiting_confirmation" });
   } else {
     app.runs.update(responded.runId, { status: "cancelled" });
+    app.pausedRunStore?.delete(responded.runId);
   }
 
   return {

@@ -1222,7 +1222,9 @@ body {
   padding: 14px 16px;
   display: none;
 }
-.permission-request-panel.visible {
+.permission-request-panel.plan-handoff-panel {
+  top: 72px;
+}
   display: block;
 }
 .permission-request-panel h3 {

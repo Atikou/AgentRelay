@@ -22,6 +22,8 @@ import {
   renderWorkflowSwitchContext,
   resolveWorkflowSwitch,
 } from "./WorkflowSessionSwitch.js";
+import { presentExecutionState } from "./presentation/ExecutionStatePresenter.js";
+import { defaultSessionTaskManager } from "./task/SessionTaskManager.js";
 import { buildWorkflowState } from "./WorkflowStateCenter.js";
 import { orchestrateWorkflowWrite } from "./workflowWriteOrchestrator.js";
 import { buildWorkflowFollowupContexts } from "./workflowFollowupContexts.js";
@@ -56,6 +58,15 @@ import type {
   PermissionRequestPayload,
   ScopedApprovedPermissions,
 } from "../policy/permissionRequestTypes.js";
+import {
+  defaultPlanHandoffStore,
+  type PlanHandoffStore,
+} from "../policy/PlanHandoffStore.js";
+import type { PlanHandoffPayload } from "../policy/planHandoffTypes.js";
+import {
+  planHandoffMessageForVariant,
+  planHandoffPanelTitle,
+} from "./planHandoffMessages.js";
 import type { AgentToolStep } from "./toolStep.js";
 import {
   defaultPausedRunStore,
@@ -112,8 +123,12 @@ export interface AgentRunResult {
   reachedLimit: boolean;
   /** 等待用户权限确认时为 true。 */
   awaitingPermission?: boolean;
-  /** 固定 JSON 权限申请（通用弹窗 / API）。 */
+  /** 等待计划交接批准时为 true。 */
+  awaitingPlanHandoff?: boolean;
+  /** 固定 JSON 权限申请（工具级 JIT）。 */
   permissionRequest?: PermissionRequestPayload;
+  /** 计划→执行交接（与 permissionRequest 分离）。 */
+  planHandoff?: PlanHandoffPayload;
   /** 本次运行实际生效的模式、预算、调用计数与停止原因。 */
   executionMeta: AgentExecutionMeta;
   /** 首轮模型调用的 Smart 路由摘要（默认 Smart 路径；显式 clientName 时省略）。 */
@@ -199,6 +214,8 @@ export interface AgentLoopOptions {
   pauseOnPermissionRequest?: boolean;
   /** 权限申请存储（HTTP 入口注入单例）。 */
   permissionRequestStore?: PermissionRequestStore;
+  /** 计划交接存储（HTTP 入口注入单例）。 */
+  planHandoffStore?: PlanHandoffStore;
   /** 会话级已批准作用域权限。 */
   sessionPermissionGrants?: SessionPermissionGrants;
   /** 本轮一次性已批准作用域权限。 */
@@ -232,6 +249,7 @@ export class AgentLoop {
   private readonly allowed: ToolPermission[];
   private readonly scopedGrants?: ScopedApprovedPermissions;
   private readonly permissionRequestStore: PermissionRequestStore;
+  private readonly planHandoffStore: PlanHandoffStore;
   private readonly pausedRunStore: PausedRunStore;
   private readonly sessionPermissionGrants: SessionPermissionGrants;
   private readonly pauseOnPermissionRequest: boolean;
@@ -274,6 +292,7 @@ export class AgentLoop {
     this.budgetManager = defaultRunPolicyManager.createBudgetManager(this.policy);
     this.scopedGrants = options.scopedGrants;
     this.permissionRequestStore = options.permissionRequestStore ?? defaultPermissionRequestStore;
+    this.planHandoffStore = options.planHandoffStore ?? defaultPlanHandoffStore;
     this.pausedRunStore = options.pausedRunStore ?? defaultPausedRunStore;
     this.sessionPermissionGrants = options.sessionPermissionGrants ?? defaultSessionPermissionGrants;
     this.pauseOnPermissionRequest =
@@ -606,21 +625,16 @@ export class AgentLoop {
           action: "final",
           answerLength: action.answer.length,
         });
-        // 计划→执行交接：计划已产出（只读阶段），冻结对话快照并申请执行批准。
-        // 批准后由 resumeAfterPermission 用该快照在 implement 模式下忠实续跑，无需正则猜权限或合成续跑消息。
-        if (!pausedRun && this.shouldHandoffAfterPlan() && action.answer.trim()) {
-          const permissionRequest = this.permissionRequestStore.create({
+        // 计划阶段完成：生成 planHandoff（与工具级 permissionRequest 分离），冻结快照等待用户选择是否执行。
+        if (!pausedRun && this.shouldCreatePlanHandoff() && action.answer.trim()) {
+          const planVariant = this.policy.planVariant ?? "plan_only";
+          const handoffMessage = planHandoffMessageForVariant(planVariant);
+          const planHandoff = this.planHandoffStore.create({
             runId: this.options.runId ?? "unknown-run",
             sessionId,
-            title: "AI 已完成计划，是否批准执行？",
-            summary: "批准后将进入执行阶段，按计划调用真实工具完成修改与验证。",
-            requiredPermissions: [
-              { type: "write_file", target: "计划涉及的文件", reason: "按已批准计划执行修改与验证" },
-            ],
             planMarkdown: action.answer,
-            intent: this.policy.intent,
-            executionStage: this.policy.executionStage,
-            planVariant: this.policy.planVariant,
+            planVariant,
+            message: handoffMessage,
           });
           this.snapshotPausedRun({
             sessionId,
@@ -632,16 +646,16 @@ export class AgentLoop {
             resumeMode: "implement",
           });
           return await this.finishRun({
-            answer: `${action.answer}\n\n---\n\n**等待执行批准**：在侧栏权限弹窗选择「允许」「拒绝」或「本次会话都允许」，批准后将自动按计划执行。`,
+            answer: `${action.answer}\n\n---\n\n**${planHandoffPanelTitle()}** ${handoffMessage}`,
             steps,
             iterations: iteration,
             reachedLimit: false,
             consumedNotifications,
             sessionId,
             userMessage: effectiveGoal,
-            stopReason: "awaiting_permission",
-            permissionRequest,
-            awaitingPermission: true,
+            stopReason: "awaiting_plan_handoff",
+            planHandoff,
+            awaitingPlanHandoff: true,
           });
         }
         return await this.finishRun({
@@ -727,6 +741,12 @@ export class AgentLoop {
         goal: effectiveGoal,
         sessionId,
       });
+      if (step.workflowPhaseBlocked && step.error) {
+        messages.push({
+          role: "system",
+          content: `（系统）工作流写入门禁未满足，工具「${step.tool}」被阻塞：${step.error}。请先完成必需的只读预定位/方案/分析阶段，再调用写入类工具；勿重复无效写入尝试。`,
+        });
+      }
       const autoVerificationStep = await this.runEditAutoVerification(step, steps, iteration, effectiveGoal);
       if (autoVerificationStep) {
         steps.push(autoVerificationStep);
@@ -802,7 +822,9 @@ export class AgentLoop {
     userMessage: string;
     stopReason?: AgentStopReason;
     permissionRequest?: PermissionRequestPayload;
+    planHandoff?: PlanHandoffPayload;
     awaitingPermission?: boolean;
+    awaitingPlanHandoff?: boolean;
   }): Promise<AgentRunResult> {
     const isResume = Boolean(this.options.resumeState);
     this.writeAgentStepPlanTrace(input.steps);
@@ -822,9 +844,11 @@ export class AgentLoop {
     executionMeta.planVariant = this.policy.planVariant;
     this.writeRunUsageSummary(input.steps, executionMeta);
 
-    // 计划→执行的权限申请已在 run() 的 final 分支按对话快照就地处理（不再用正则从计划文本猜权限）。
+    // 工具级 JIT 权限在 run() 的 tool 分支处理；计划交接在 final 分支生成 planHandoff。
     const permissionRequest = input.permissionRequest;
+    const planHandoff = input.planHandoff;
     const awaitingPermission = input.awaitingPermission === true;
+    const awaitingPlanHandoff = input.awaitingPlanHandoff === true;
     const answer = input.answer;
 
     if (
@@ -840,6 +864,22 @@ export class AgentLoop {
         workflowTaskState: executionMeta.workflowTaskState,
         runId: this.options.runId,
         updatedAt: new Date().toISOString(),
+      });
+      defaultSessionTaskManager.updateFromRun({
+        sessionId: input.sessionId,
+        taskId: this.options.taskId,
+        goal: input.userMessage,
+        intent: this.policy.intent,
+        workflowType: this.policy.workflowType,
+        runId: this.options.runId,
+        stopReason: input.stopReason ?? (input.reachedLimit ? "budget_exhausted" : "completed"),
+        workflowTaskState: executionMeta.workflowTaskState,
+        failed:
+          input.stopReason === "error" ||
+          executionMeta.workflowTaskState === "failed" ||
+          input.steps.some((step) => step.ok === false && !step.blocked),
+        failureSummary: input.steps.find((step) => step.ok === false && step.error)?.error,
+        relatedFiles: executionMeta.location?.locatedFiles,
       });
     }
 
@@ -875,7 +915,9 @@ export class AgentLoop {
       iterations: input.iterations,
       reachedLimit: input.reachedLimit,
       awaitingPermission,
+      awaitingPlanHandoff,
       permissionRequest,
+      planHandoff,
       executionMeta,
       routerDecision: this.runRoutingMeta?.routerDecision,
       promptStrategy: this.runRoutingMeta?.promptStrategy,
@@ -1459,6 +1501,10 @@ export class AgentLoop {
       workflowType: this.policy.workflowType,
       permissionPolicy: this.policy.permissionPolicy,
       permissionPolicySource: this.policy.permissionPolicySource,
+      intentDecisionSource: this.policy.intentDecisionSource,
+      isContinuation: this.policy.isContinuation,
+      intentDecisionReason: this.policy.intentDecisionReason,
+      intentDecisionConfidence: this.policy.intentDecisionConfidence,
       workflowProposals: this.workflowProposals.length ? this.workflowProposals : undefined,
       workflowDebugAnalyses: this.workflowDebugAnalyses.length ? this.workflowDebugAnalyses : undefined,
       workflowRefactorPlans: this.workflowRefactorPlans.length ? this.workflowRefactorPlans : undefined,
@@ -1487,6 +1533,9 @@ export class AgentLoop {
         ? this.budgetManager.buildSuggestedBudget(input.budgetExhausted)
         : undefined,
     };
+    const presentation = presentExecutionState(base);
+    base.userFacingState = presentation.userFacingState;
+    base.userFacingLabel = presentation.userFacingLabel;
     if (!needsMoreBudget || !input.budgetExhausted) return base;
     return this.finalizer.enrichExecutionMeta(base, {
       steps: input.steps,
@@ -1532,16 +1581,12 @@ export class AgentLoop {
     });
   }
 
-  /** 计划阶段是否需要在产出计划后申请执行批准（plan_wait_approval / plan_then_execute）。 */
-  private shouldHandoffAfterPlan(): boolean {
-    return (
-      this.policy.intent === "plan" &&
-      (this.policy.afterPlan === "request_permission" ||
-        this.policy.afterPlan === "request_permission_then_execute")
-    );
+  /** 计划阶段产出 final 后是否生成交接（凡 plan 意图均生成交接面板）。 */
+  private shouldCreatePlanHandoff(): boolean {
+    return this.policy.mode === "plan" && this.policy.intent === "plan";
   }
 
-  /** 冻结当前对话快照，供权限批准后忠实续跑。 */
+  /** 冻结当前对话快照，供计划交接或权限批准后忠实续跑。 */
   private snapshotPausedRun(input: {
     sessionId?: string;
     goal: string;

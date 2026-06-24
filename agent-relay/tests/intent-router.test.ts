@@ -97,6 +97,18 @@ test("general subagent collaboration request stays in answer workflow", () => {
   assert.equal(route.workflowPlan, null);
 });
 
+test("pasted agent step failure infers debug instead of answer/chat", () => {
+  const pasted = [
+    "#2 read_file",
+    '入参 {"path":"testTS/vite.config.ts"}',
+    "[error] Error: ENOENT: no such file or directory",
+  ].join("\n");
+  const route = defaultIntentRouter.route({ message: pasted });
+  assert.equal(route.intent, "debug");
+  assert.equal(route.mode, "debug");
+  assert.equal(route.workflowType, "debugWorkflow");
+});
+
 let passed = 0;
 let failed = 0;
 for (const { name, fn } of tests) {

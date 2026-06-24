@@ -118,6 +118,24 @@ export class PermissionRequestStore {
     return request;
   }
 
+  getApprovedByRunId(runId: string): PermissionRequestPayload | null {
+    if (this.db) {
+      const row = this.db
+        .prepare(
+          `SELECT payload_json FROM permission_requests
+           WHERE run_id=? AND status='approved'
+           ORDER BY updated_at DESC
+           LIMIT 1`,
+        )
+        .get(runId) as { payload_json: string } | undefined;
+      return this.parsePayload(row);
+    }
+    for (const request of this.requests.values()) {
+      if (request.runId === runId && request.status === "approved") return request;
+    }
+    return null;
+  }
+
   listPending(opts?: { sessionId?: string; runId?: string }): PermissionRequestPayload[] {
     if (this.db) {
       const where: string[] = ["status='pending'"];

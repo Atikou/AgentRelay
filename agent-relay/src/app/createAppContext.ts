@@ -50,6 +50,12 @@ import {
   defaultSessionPermissionGrants,
   SessionPermissionGrants,
 } from "../policy/SessionPermissionGrants.js";
+import {
+  defaultPlanHandoffStore,
+  PlanHandoffStore,
+} from "../policy/PlanHandoffStore.js";
+import { wireSessionTaskManager } from "../agent/task/SessionTaskManager.js";
+import { wireEntryIntentRouter } from "../agent/routing/EntryIntentRouter.js";
 import { defaultPausedRunStore, PausedRunStore } from "../agent/PausedRunStore.js";
 import { ModelOrchestrator } from "../model-orchestrator/index.js";
 import {
@@ -133,6 +139,7 @@ export class AppContext {
   readonly networkPolicy: NetworkPolicy;
   readonly dataLifecycle: DataLifecycleService;
   readonly permissionRequestStore: PermissionRequestStore;
+  readonly planHandoffStore: PlanHandoffStore;
   readonly sessionPermissionGrants: SessionPermissionGrants;
   readonly pausedRunStore: PausedRunStore;
   private readonly defaultAgentChat: LoopChatFn;
@@ -180,6 +187,7 @@ export class AppContext {
     networkPolicy: NetworkPolicy;
     dataLifecycle: DataLifecycleService;
     permissionRequestStore?: PermissionRequestStore;
+    planHandoffStore?: PlanHandoffStore;
     sessionPermissionGrants?: SessionPermissionGrants;
     pausedRunStore?: PausedRunStore;
     startupRecovery?: StartupRecoverySummary;
@@ -226,6 +234,7 @@ export class AppContext {
     this.networkPolicy = opts.networkPolicy;
     this.dataLifecycle = opts.dataLifecycle;
     this.permissionRequestStore = opts.permissionRequestStore ?? defaultPermissionRequestStore;
+    this.planHandoffStore = opts.planHandoffStore ?? defaultPlanHandoffStore;
     this.sessionPermissionGrants = opts.sessionPermissionGrants ?? defaultSessionPermissionGrants;
     this.pausedRunStore = opts.pausedRunStore ?? defaultPausedRunStore;
     this.startupRecovery = opts.startupRecovery;
@@ -541,8 +550,11 @@ export function createAppContext(): AppContext {
   const runs = new RunStore(contextManager.db);
   const runStateStore = new RunStateStore(contextManager.db);
   const permissionRequestStore = new PermissionRequestStore(contextManager.db.connection);
-  const sessionPermissionGrants = new SessionPermissionGrants();
+  const planHandoffStore = new PlanHandoffStore(contextManager.db.connection);
+  const sessionPermissionGrants = new SessionPermissionGrants(contextManager.db.connection);
   const pausedRunStore = new PausedRunStore(contextManager.db.connection);
+  const sessionTaskManager = wireSessionTaskManager(contextManager.db.connection);
+  wireEntryIntentRouter(sessionTaskManager);
   const projectIndex = new ProjectIndex(contextManager.db);
   const projectSemanticIndexer = new ProjectSemanticIndexer(
     contextManager.embeddings,
@@ -695,6 +707,7 @@ export function createAppContext(): AppContext {
     maxSubAgentDispatchDepth,
     agentRunRegistry,
     permissionRequestStore,
+    planHandoffStore,
     sessionPermissionGrants,
     pausedRunStore,
   });
@@ -717,7 +730,13 @@ export function createAppContext(): AppContext {
     }
   });
 
-  const startupRecovery = recoverOnStartup({ runs, notificationQueue, trace, pausedRunStore });
+  const startupRecovery = recoverOnStartup({
+    runs,
+    notificationQueue,
+    trace,
+    pausedRunStore,
+    planHandoffStore,
+  });
 
   const toolsDbPath = registry.getStorage()?.dbPath;
   const dataLifecycle = new DataLifecycleService({
@@ -775,6 +794,7 @@ export function createAppContext(): AppContext {
     networkPolicy,
     dataLifecycle,
     permissionRequestStore,
+    planHandoffStore,
     sessionPermissionGrants,
     pausedRunStore,
     startupRecovery,

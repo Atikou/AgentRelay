@@ -4,7 +4,7 @@ import { ensureRoutingTables } from "../model-router/route-stores.js";
 import { ensureEvalTables } from "../model-router/eval-set-store.js";
 import { addColumnIfMissing, hashRowId, type SqliteMigration } from "../storage/sqliteMigration.js";
 
-export const MEMORY_DB_SCHEMA_VERSION = 14;
+export const MEMORY_DB_SCHEMA_VERSION = 17;
 
 function ensureFts(
   db: DatabaseSync,
@@ -486,6 +486,65 @@ export const MEMORY_DB_MIGRATIONS: readonly SqliteMigration[] = [
         );
         CREATE INDEX IF NOT EXISTS idx_paused_run_snapshots_session_status
           ON paused_run_snapshots(session_id, status, updated_at DESC);
+      `);
+    },
+  },
+  {
+    version: 15,
+    name: "session_permission_grants",
+    up(db) {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS session_permission_grants (
+          session_id TEXT PRIMARY KEY,
+          grants_json TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );
+      `);
+    },
+  },
+  {
+    version: 16,
+    name: "plan_handoffs",
+    up(db) {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS plan_handoffs (
+          id TEXT PRIMARY KEY,
+          plan_id TEXT NOT NULL,
+          run_id TEXT NOT NULL,
+          session_id TEXT,
+          status TEXT NOT NULL,
+          payload_json TEXT NOT NULL,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          responded_at TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_plan_handoffs_session_status
+          ON plan_handoffs(session_id, status, updated_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_plan_handoffs_run_status
+          ON plan_handoffs(run_id, status, updated_at DESC);
+      `);
+    },
+  },
+  {
+    version: 17,
+    name: "session_task_contexts",
+    up(db) {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS session_task_contexts (
+          session_id TEXT PRIMARY KEY,
+          task_id TEXT,
+          goal TEXT,
+          current_phase TEXT NOT NULL,
+          intent TEXT NOT NULL,
+          workflow_type TEXT NOT NULL,
+          last_run_id TEXT,
+          last_failure TEXT,
+          related_files_json TEXT,
+          is_active INTEGER NOT NULL DEFAULT 1,
+          updated_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_session_task_contexts_active
+          ON session_task_contexts(is_active, updated_at DESC);
       `);
     },
   },

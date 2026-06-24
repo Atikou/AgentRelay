@@ -163,8 +163,8 @@ test("短句续写会沿用同会话上轮工作流", () => {
   defaultWorkflowSessionStore.clear(sessionId);
 });
 
-test("plan 会话收到执行短句时自动跃迁到 edit", () => {
-  const sessionId = "session-plan-to-execute";
+test("plan 会话收到执行短句时不跃迁绕过权限批准", () => {
+  const sessionId = "session-plan-no-bypass";
   defaultWorkflowSessionStore.set({
     sessionId,
     intent: "plan",
@@ -175,29 +175,36 @@ test("plan 会话收到执行短句时自动跃迁到 edit", () => {
     sessionId,
     message: "继续，按计划开始执行",
   });
-  assert.equal(policy.intent, "edit");
-  assert.equal(policy.workflowType, "editWorkflow");
-  assert.equal(policy.mode, "implement");
-  assert.equal(policy.executionStage, "execute");
+  assert.notEqual(policy.intent, "edit");
+  assert.notEqual(policy.mode, "implement");
+  assert.notEqual(policy.workflowType, "editWorkflow");
   defaultWorkflowSessionStore.clear(sessionId);
 });
 
-test("plan 会话收到测试短句时自动跃迁到 verify", () => {
-  const sessionId = "session-plan-to-verify";
+test("粘贴工具失败步骤输出沿用同会话上轮 implement 工作流", () => {
+  const sessionId = "session-failure-feedback";
   defaultWorkflowSessionStore.set({
     sessionId,
-    intent: "plan",
-    workflowType: "planWorkflow",
+    intent: "edit",
+    workflowType: "editWorkflow",
     updatedAt: new Date().toISOString(),
   });
+  const pasted = [
+    "#2 read_file",
+    "163ms",
+    "想法：检查是否有 vite.config.ts 配置文件",
+    '入参 {"path":"testTS/vite.config.ts"}',
+    "[error] Error: ENOENT: no such file or directory",
+  ].join("\n");
   const policy = defaultRunPolicyManager.resolve({
     sessionId,
-    message: "继续执行并跑测试验证",
+    message: pasted,
   });
-  assert.equal(policy.intent, "verify");
-  assert.equal(policy.workflowType, "verifyWorkflow");
-  assert.equal(policy.mode, "debug");
-  assert.equal(policy.executionStage, "verify");
+  assert.equal(policy.intent, "edit");
+  assert.equal(policy.workflowType, "editWorkflow");
+  assert.equal(policy.mode, "implement");
+  assert.notEqual(policy.intent, "answer");
+  assert.equal(policy.intentDecisionSource, "session_continuation");
   defaultWorkflowSessionStore.clear(sessionId);
 });
 

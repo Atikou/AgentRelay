@@ -1,160 +1,115 @@
 # AGENTS.md
 
-供任意 AI agent 快速理解本项目的入口文档。先读本文件，**并浏览 `docs/自审核记录.md`**（了解项目演进与已知缺口），再动手。
+供任意 AI agent 快速理解本项目的入口。**动手前先读本文，并浏览 `docs/自审核记录.md` 最新条目**（了解演进与已知缺口）。
 
 ## 这是什么
 
-**AgentRelay** — 本地优先的 **Agent 编排后端**：模型路由、工具系统、计划/任务与自主对话循环；后续可接入桌面端、STT/TTS。当前处于早期实现阶段。
+**AgentRelay** — 本地优先的 Agent 编排后端：
 
-- 设计目标与全量能力清单：`agent-todolist.md`（实现进度，**非验收依据**）
-- **人类验收唯一清单**：`docs/项目验收清单.md`（大模块 / Agent 模式 / 计划模式等，**仅你可勾选**）
-- 落地路线（技术选型 + 8 个里程碑 + 代码骨架）：`Agent_TS_实现指南_修订版.md`
-- **模型路由升级待办**（V1→V9 扫描 + 下一阶段 P0/P1）：`docs/模型路由升级TodoList.md`（改 `model-router` / `model-orchestrator` 前必读）
-- 可运行代码：`agent-relay/`（npm 包名 `agent-relay`，TypeScript / Node.js）
+- **单一 Agent 入口**：用户表达任务即可；系统通过会话上下文 + 意图路由选择内部工作流
+- **模型双轨**：`SmartModelRouter` 选模型；`ModelOrchestrator` 执行单模型或草拟+审查
+- **工具与护栏**：17 个内置工具 + `PermissionGuard` / `WorkflowWriteGate` 硬边界
+- **计划与执行**：结构化计划 API + 循环内 plan 模式 + `planHandoff` / JIT `permissionRequest`
+- **可观测**：Run / Trace / Activity Timeline / `executionMeta`
 
-> 改动前请对照设计文档，保持方向一致；**模块是否可验收以 `docs/项目验收清单.md` 为准**（仅人类勾选），不得用本文件「当前进度」或 `agent-todolist.md` 的 `[x]` 代替验收。
+权威设计说明见：
 
-## 仓库结构
-
-```text
-AgentRelay/
-├─ AGENTS.md                      # 本文件
-├─ agent-todolist.md              # 全量能力清单（19 节）
-├─ Agent_TS_实现指南_修订版.md   # 实现指南（权威落地路线）
-├─ docs/                          # 使用/操作说明文档（「项目整体架构」「接入本地模型」），由 /docs 自动渲染
-│  ├─ completed/                  # **已全部完成** 的 TodoList 归档（便于整条链路复查）
-│  └─ *-TodoList.md               # 进行中的查漏补缺清单（完成后按规范归档）
-└─ agent-relay/                     # 实际项目（在此目录运行命令）
-   ├─ config/                     # 多 profile 配置：default / local-only / cloud
-   ├─ public/                     # 测试台网页（纯静态）
-   └─ src/
-      ├─ app/                     # AppContext DI 容器
-      ├─ core/                    # RunKind、CorrelationContext
-      ├─ orchestrator/            # Orchestrator + RunStore（统一 Run）
-      ├─ policy/                  # Workspace / Shell / Permission 策略
-      ├─ cli/
-      ├─ config/
-      ├─ model-router/          # SmartModelRouter / 规则路由 / 路由日志
-      ├─ model-orchestrator/    # 单模型与草拟+审查流水线
-      ├─ model/                  # ModelClient / provider clients / messageBoundary
-      ├─ agent/
-      │   └─ timeline/              # Agent Activity Timeline（公开执行摘要，非 CoT）
-      ├─ plan/                    # AgentStepPlan / UserVisiblePlan / InternalTaskPlan / PlanStore / 编译、预览与审批
-      ├─ background/
-      ├─ scheduler/
-      ├─ subagent/
-      ├─ context/
-      ├─ tools/
-      ├─ trace/
-      ├─ lifecycle/   # 数据生命周期：用量统计、清理 preview/apply、retention policy
-      ├─ server/                  # createHttpServer + handlers/*（server.ts 仅入口）
-      ├─ util/
-      └─ types/
-```
+- [docs/架构设计.md](docs/架构设计.md)
+- [docs/执行流程.md](docs/执行流程.md)
+- [docs/TodoList.md](docs/TodoList.md)
 
 ## 环境与命令
 
-- Node.js >= 20（已在 v22 验证），包管理用 **npm**（未使用 pnpm）。
-- 所有命令在 `agent-relay/` 目录下执行：
+所有命令在 `agent-relay/` 目录执行：
 
 ```bash
 npm install
 npm run typecheck      # 类型检查（提交前必跑）
-npm run dev            # 框架自检：加载配置 + 列出模型客户端
-npm run models:check   # 探测各模型可用性（加 -- --chat 发一条测试消息）
-npm run serve          # 启动后端与测试台 http://localhost:18787
+npm run dev            # 加载配置 + 列出模型客户端
+npm run models:check   # 探测模型（加 -- --chat 发测试消息）
+npm run serve          # 启动后端与测试台 :18787
+npm test               # 全量测试
 ```
 
-## 当前进度
+## 源码目录（`agent-relay/src/`）
 
-**已实现**（todolist 第 1 节大部分）：
-- 统一 `ModelClient` 接口，屏蔽厂商差异。
-- 本地接入：Ollama（原生 `/api/chat`）、LM Studio / vLLM（OpenAI 兼容端点）。
-- 远程接入：OpenAI、DeepSeek 及任意 OpenAI-compatible 服务；Anthropic（Claude）原生 `/v1/messages` 协议。
-- 模型路由（自主选择）：`model/ModelRouter` 客户端级 fallback；**规则路由** `SmartModelRouter`（`RuleRouter` → `DecisionEngine` → `ModelRegistry` 手动 `routerProfile`）+ **`ModelOrchestrator`**（`single_model` / `local_draft_remote_review`）；`POST /api/chat` 自动路由；**`Planner` 默认经 SmartModelRouter 选模型**（`createPlannerChatFn`）；路由/调用/协作/fallback 日志表；`GET /api/models/catalog`；`GET /api/routing/logs`；测试台「模型路由日志」面板。
-- 调用指标：`MetricsRegistry`（延迟/token/失败率/成本）+ `TraceLogger`（`data/traces/trace.jsonl`）。
-- Agent 模式（todolist 第 2 节）：`Planner` 计划模式（只读生成结构化计划）+ `PlanService`/`PlanStore`（AgentStepPlan / UserVisiblePlan / InternalTaskPlan 三类计划分离，`PlanReportWorkflow` + `/api/plans/analyze` 生成用户计划文档，`PlanCompileWorkflow` + `/api/plans/:id/compile` 编译待审批内部计划，审批后执行）+ `TaskExecutionWorkflow`（已审批计划执行与 resume 的工作流层入口）+ `TaskRunner` 任务模式状态机（确认/中断/重试/`rollbackOnFailure` 回滚/`fallbackToPlanOnUncertainty` 修订计划/权限边界），步骤执行器可插拔。
-- 工具系统（todolist 第 3/10 节）：`ToolRegistry` + **17 个内置工具**（含 `dispatch_subagent` 主 Agent 派生子 Agent；以及 `read_file`/`list_files`/`search_text`/`write_file`/`apply_patch`/`diff_file`/`backup_file`/`rollback_change`/`shell_run`/`git_status`/`git_diff`/`project_scan`/`project_index_update`/`locate_relevant_files`/`symbol_search`/`context_pack`）；`ToolStorage`（备份、changeId、tool_logs）；路径沙箱 + 命令风险拦截 + 确认门；相关文件定位统计进入 `executionMeta.location`（含 `exploration` 与 `suggestedAction: continue_locating`）；`ExplorationProgressTracker` 去重与信息增益；测试辅助 `createMockTool` / `createMockRegistry` 支持 mock 工具。
-- M1 主对话循环（todolist 第 11/19 节）：`AgentLoop` 用可移植的 ReAct JSON 协议让模型自主决定工具调用，迭代到最终答案；含 **`RunPolicyManager`**、**`IntentRouter`**（内部 `intent` 识别 + 模式推断，含真实 UTF-8 中文规则兜底）、**`WorkflowRouter`**（`intent` → `workflowType` / 执行器标识 / 副作用类别；answer/summarize/search 强制工具层只读）、用户侧 `permissionPolicy` 策略（工具权限由 `permissionPolicy` 推导而非由 `mode` 直接决定）、**`PermissionGuard`**（工具调用前输出 `allow` / `needsConfirmation` / `deny`，阻塞时生成结构化 `confirmationRequest`；自动策略下仍强制确认删除/清空、提交/推送、未知远程脚本、系统环境、全局依赖、密钥读写等高风险行为）、**`WorkflowPlanner`** + **`WorkflowExecutor`**（预模型确定性工作流统一调度；`editWorkflow` / `generateFileWorkflow` 首轮前只读 `locate_relevant_files` + `context_pack` 预定位，并由 `EditProposalWorkflow` 注入写入前方案约束与 `executionMeta.workflowProposals` 可审计记录，含 `PermissionGuard` 写入前预检结果；`debugWorkflow` 首轮前只读 `debug_locate`，并由 `DebugAnalysisWorkflow` 注入错误摘要/疑似文件/根因假设/最小修复/验证计划/风险回滚约束，记录到 `executionMeta.workflowDebugAnalyses`；写工具成功后 `executionMeta.workflowDiffs` 汇总 `path` / `changeId` / hash / diff 审计摘要，并由 `EditExecutionWorkflow` 注入 execution phase 上下文要求最小验证或最终总结；`EditAutoVerificationWorkflow` 会在可定位路径时规划只读 `read_file` 自动读回验证；写入后的验证工具结果由 `EditVerificationWorkflow` 注入 verification phase，并汇总到 `executionMeta.workflowVerifications`；验证失败时 `WorkflowCorrectionWorkflow` 注入 correction/termination phase，并汇总到 `executionMeta.workflowCorrections`（默认每路径最多 2 轮）；`refactorWorkflow` 由 `RefactorPlanWorkflow` 强制分阶段 plan phase，记录到 `executionMeta.workflowRefactorPlans`；复杂副作用任务由 `ImplicitPlanWorkflow` 生成内部轻量计划（`userVisiblePlanMode: false`），并写入 `executionMeta.workflowTaskState`；同一会话内 `WorkflowSessionSwitch` 会在意图变化时自动切换工作流并写入 `executionMeta.workflowSwitch`）+ **`PlanWorkflow`** 只读预扫描、**`RunVerifyWorkflow`**（`runWorkflow`/`verifyWorkflow` 白名单安全命令执行与静态降级）、**`BudgetManager`** 分项硬限制与建议预算、**`Finalizer`** 预算耗尽部分收尾与复杂度估算、权限/确认、预算耗尽 `executionMeta`；**`RunStateStore`** 续跑（定位状态不重复 scan）；**`ToolResultLayers`** 三层 trace。**默认模型选型经 `createAgentChatFn` → SmartModelRouter**（显式 `clientName` 仍走 ModelRouter）。接口 `POST /api/agent`、`POST /api/agent/resume` 与 SSE `POST /api/agent/stream`（`model_turn` 思考过程 + **`activity_event` 公开执行过程** + 可选 `streamTokens` + `POST /api/runs/cancel` 显式取消），`GET /api/agent/runs/:id` / `events` 快照与 SSE 重放；`POST /api/chat/stream` 单次对话 token 流式（Ollama / OpenAI 兼容 / Anthropic）；**`AgentTimelineService`** 落盘 `.agent/runs/{id}/`；测试台「智能体」模式展示「执行过程」Timeline（主）与「思考过程」（并存）。
-- M1 阶段补强（2026-06-17）：`RunPolicy` / `executionMeta` 新增 `executionStage`（`analyze`/`plan`/`execute`/`verify`），用于弱化 mode 中心语义并强化执行阶段可观测；同会话短句续写在上一轮为 `plan` 时支持 `plan → execute/verify` 自动跃迁（如“按计划开始执行”“继续并跑测试验证”）。
-- **Plan → Approval → Execute（2026-06-18 第一性原则重写）**：通用 `permissionRequest`（schemaVersion=1）+ `PermissionRequestStore`（服务实例落盘 `memory.db.permission_requests`）；`plan_only` / `plan_wait_approval` / `plan_then_execute` 复合意图；**JIT（just-in-time）工具级权限**——模型在循环中真要调用副作用工具时由 `AgentLoop` **就地暂停**（`pauseForToolPermission`），把对话快照写入 **`PausedRunStore`**（含 messages / 已完成步骤 / 工作流阶段产物 / 被阻塞的 `pendingAction`；服务实例落盘 `memory.db.paused_run_snapshots`），返回**精确到该工具调用**的弹窗；用户批准后 `resumeAfterPermission` 取出快照**忠实续跑同一段对话**（`resumePendingAction` 先执行被批准工具再继续循环；计划→执行交接切到 implement、同步系统提示并恢复 `workflowProposals` 等阶段产物；计划阶段无 proposal 时生成最小 handoff proposal），**不再用正则从计划文本猜权限、也不再合成「假用户消息」重新喊话**（已删除 `planPermissionExtractor` / `permissionResumeMessage`）；多轮 JIT 弹窗与主流 agent 一致；启动恢复会把带暂停快照的 running Run 恢复为 `waiting_confirmation`；`parseAction` 会先解析完整外层动作对象，再兼容字符串化动作与平衡 JSON 候选，并保持 `final.answer` Markdown/代码块不参与动作猜测，避免回答里的 ```json 示例触发无效 `parse_error`；`GET/POST /api/permission-requests/*`、`POST /api/runs/:id/approve`、`POST /api/runs/:id/resume-permission`；测试台右侧权限弹窗（允许 / 拒绝 / 本次会话都允许）；详见 `docs/Plan-Approval-Execute-TodoList.md`。
-- **权限续跑协议补强（2026-06-18）**：计划→执行 handoff 只作为首条 `system` 运行态上下文注入，禁止合成 `role=user` 继续执行消息；handoff 后模型输出的非 JSON 文本只触发 `parse_error` 与本轮内存纠偏，不写入持久化 assistant 历史；`write_file` 新建嵌套文件遇到可恢复 `ENOENT` 时会补建父目录重试一次。
-- **消息角色边界补强（2026-06-18）**：内部严格区分 `user` / `system` / `assistant` / `tool`；用户消息只来自真实用户，通知、续跑、工作流上下文和解析纠偏均为 `system`，工具结果持久化为 `tool`。Provider 兼容集中在 `src/model/messageBoundary.ts` 与各 `ModelClient`，发送前把内部 `tool` 渲染为带 `Source: tool` 的 `system` 文本，禁止再把工具或系统上下文伪装成 `user`。
-- 自动工作流控制流补强：`WorkflowStateCenter` 从 plan/write/verify/correction 事件派生 `executionMeta.workflowState`，`WorkflowWriteGate` 基于状态中心统一约束 edit/generate-file/debug/refactor 写入，阻止未验证前连续写入与达到修正上限后的继续写入；架构测试只禁止 value import 控制流循环，允许纯类型/数据层循环。
-- 文档站：`/docs` 自动渲染 `docs/*.md`（Mermaid + 截图，ChatGPT 配色 + 深色模式）；**API 参考**：`/api-docs`（本地 Scalar + `public/api-spec.json`），说明总览见 `docs/API参考.md`。
-- 多 profile 配置、测试台网页（配置 / 可用性 / 调用统计 / 敏感开关 / **统一自动工作流入口** / 权限策略 / **测试用例** / 工具系统）。
-- M4 后台任务与通知队列：`BackgroundTaskManager`（spawn/查询/取消/`outputRules`/`triggerOnMatch`）+ `NotificationQueue`（JSONL 持久化）；`AgentLoop` 在安全点消费通知；`/api/background/*`、`/api/notifications/*`；测试台「后台任务」「通知队列」面板。
-- M5 子 Agent：**仅** `DelegatedTask` + `ExecutionRouter`；`dispatch_subagent` 只接受 `tasks[]`；无角色/预设兼容层；通用只读子任务不默认绑定代码模型能力；HTTP Run 记录使用 `kind=subagent` / `subagent_batch`，`TaskLimits` 仅接受 `maxModelTurns` / `maxToolCalls` / `maxReadCalls` / `maxWriteCalls` / `maxShellCalls` / `maxRuntimeMs`。
-- M6 上下文压缩与持久化：`ContextManager`（SQLite + FTS5 + LanceDB）；**`ProjectIndex`**（`project_files`/`project_symbols`/`project_imports`/`project_exports`，`expandGraphNeighbors` 提供模块依赖扩展）+ **`ProjectSemanticIndexer`** + **`HistoryFileRecaller`** 语义/历史记忆文件召回；**`RunState.location`** 续跑定位上下文；`ContextRestorer` → `ContextPackage`；`SystemSectionBuilder` + `PromptBuilder` 动态注入；`MemoryRetriever` / `SemanticRetriever` 多路检索；`AgentLoop` 默认持久化；`/api/context/*`；测试台「上下文与记忆」面板。
-- M7 安全与审计（第一版）：`util/redact` 日志脱敏 + 敏感信息检测；远程模型调用前提示脱敏；`sensitive` / `privacy-first` 本地优先隐私模式；`ToolStorage.tool_logs` 落盘前脱敏；HTTP 工具入口 `highRiskConfirmation` 确认门；`agent_decision` / `agent_model_turn` / `run_usage_summary` / `task_status_change` / `tool_audit` trace；`toolCallId` 串联 `agent_tool` / `task_step` / `tool_audit`；工具失败 `category` 分类；`ShellPolicy` 命令风险 + `security.shell.denyCommands/allowCommands`；`GET /api/trace/recent|export|replay`；测试台「安全与审计」面板。
-- M8 定时与事件触发：`Scheduler`（once/interval/cron/event 含 file_changed、git_changed）；无人值守白名单、`daily_summary` cron；待办队列 UI；`/api/scheduler/*`。
-- M7 补强：写文件 `patchPreview`、prompt injection 围栏、`GET /api/trace/replay` 审计回放（含 runId/toolCallId/category 过滤、`summary`/`timeline` 导出）。
-- **数据生命周期（Phase 1–6）**：`src/lifecycle/` + `src/trace/` 分段 trace；`GET /api/storage/*`、`POST /api/trace/rotate`、`POST /api/context/sessions/:id/purge`；测试台「本地存储」面板；CLI `storage:status` / `storage:cleanup`；路线图 `docs/DataLifecycleRetention-TodoList.md`。
-- 集成测试：`tests/integration.test.ts`（任务链路、后台通知注入、子 Agent 并行）。
-- 架构重构：`AppContext` + `Orchestrator`（统一 Run/Task）+ `policy/` + `server/handlers/*` 拆分；`GET /api/runs`；`GET /api/runs/:id/report` 运行报告导出。
-- **架构审阅修复（P0–P3，2026-06-13）**：Windows 路径沙箱 / ToolStorage 竞态；全链路 Smart 路由对齐；V3 启发式；启动恢复；费用预算。归档见 `docs/completed/修复TodoList.md`。
-- **SQLite 迁移（2026-06-13）**：`schema_migrations` + `PRAGMA user_version`；`memory.db` v14、`tools.db` v1；`GET /api/config.schemaVersions`。
-- 自检：`npm test`（全量，含 `tests/regression-cancel-retry-resume.test.ts` 取消/重试/恢复回归）。
+```text
+app/              AppContext DI、启动恢复
+orchestrator/     Orchestrator、RunStore、RunStateStore、统一 Run
+agent/            AgentLoop、RunPolicy、工作流、入口路由、Timeline
+  routing/        EntryIntentRouter、ContinuationDetector、LegacyIntentFallback
+  task/           SessionTaskManager、TaskContext
+  presentation/   ExecutionStatePresenter（userFacingLabel）
+model/            ModelClient、messageBoundary、ModelRouter（显式客户端）
+model-router/     SmartModelRouter、规则、DecisionEngine、Fallback
+model-orchestrator/  单模型 / 草拟+审查流水线
+plan/             三类计划、PlanService、编译/审批/执行
+policy/           PermissionGuard、PlanHandoff、PermissionRequest、Shell/Network
+tools/            ToolRegistry、沙箱、ToolStorage
+context/          ContextManager、ProjectIndex、记忆与向量检索
+server/handlers/  HTTP 路由（扁平表，无 Express）
+trace/            JSONL 审计
+lifecycle/        存储用量、清理 preview/apply
+background/       后台任务、通知队列
+scheduler/        定时与文件/git 事件
+subagent/         dispatch_subagent 后端
+```
 
-**未实现**（按里程碑推进）：并行投票、多模态附件/OCR、V9 拖拽编排；trace 段 gzip 压缩、scheduler journal 关联 purge、policy 在线编辑 UI。
+## 核心原则（必须遵守）
 
-**路由覆盖面（2026-06-13）**：`/api/chat`、`Planner`、`/api/agent`、子 Agent（`createDelegatedTaskChatFn` + `DelegatedTask`）默认经 `SmartModelRouter`；显式 `clientName` 仍走 `ModelRouter`。
+### 1. 架构方向
 
-**V3 已落地**：`RouterModelEvaluator` 启发式接入 `DecisionEngine`（`source=evaluator`，高风险不覆盖）；**V4 已落地**：`AnswerEvaluator` 接入 `ModelOrchestrator` 答案质量 fallback；**V5 已落地**：`model-capabilities.ts` 任务能力矩阵 + `GET /api/routing/profiles`；**V6 已落地**：`RuntimeStatsCollector` + `GET /api/routing/stats`；**V7 已落地**：`EvalSetRunner` + `POST /api/routing/eval/run` 离线评测；**V8 P0 已落地**：`ContextAnalyzer` 多信号接入 `DecisionEngine`；**V8 P1 已落地**：`PromptStrategyBuilder` + `estimateRouterContextTokens` 接入 `/api/chat` Smart 路径与 Agent/Planner 路由输入；**V8 P2 已落地**：`RuntimeStatsFeedback` 只读运行指标降权候选（`source=runtime_stats`）；**V8 P3 已落地**：`/api/agent` 响应暴露首轮 `routerDecision` + `promptStrategy` 并应用提示策略；**V8 P4 已落地**：`CostBudgetManager` 成本友好候选排序（`source=cost_budget`）；**V8 P5 已落地**：`ModelProfileStore` 统一 profile 快照 + `reloadFromClients` 热更新（`modelProfileStoreV8`）；**V8 P6 已落地**：`ModelAvailabilityRegistry` 将 `/api/models/check` 与调用前预检接入 Smart 路由候选硬过滤（`modelAvailabilityRouting`）。
+```text
+会话状态 → 意图判断 → 内部工作流 → 权限硬护栏 → AgentLoop → UI 自然状态
+```
 
-**V2 已落地**：`FallbackManager` + `fallback_logs` + `strong_model_direct` 升级路径；`POST /api/chat` 可回传 `fallbackCount` / `fallbackLogIds`。
+- **AI 理解意图**；**规则控制安全**（写/删/跑命令不由模型授权）
+- `mode`（chat/plan/implement/…）为 **内部/调试字段**；用户侧展示 `userFacingLabel`
+- `IntentRouter` 已降级为 `LegacyIntentFallback`，主路径是 `EntryIntentRouter`
 
-## 关键约定（务必遵守）
+### 2. 分层边界
 
-- **语言/模块**：TypeScript ESM，导入路径带 `.js` 后缀（NodeNext 风格），严格模式（`strict` + `noUncheckedIndexedAccess`）。
-- **分层边界**：`model/` 只负责与模型对话，不掺杂路由、任务、工具执行逻辑。新增能力按 `src/` 现有目录分层。
-- **配置**：新增模型走 `config/*.json`，用 zod schema（`src/config/types.ts`）校验。远程 API Key 一律走环境变量（`apiKeyEnv`），**严禁写入配置文件或提交仓库**。
-- **密钥安全**：不在代码、日志、提交中出现明文 key。`.env` 已被 gitignore。
-- **MVP 纪律**：先保证最小闭环稳定，再扩展；M6 已引入 LanceDB 向量检索（本地优先）；勿提前堆叠多模态知识库、复杂调度（理由见实现指南第 2 节）。
-- **安全默认**：高风险操作（删除文件、覆盖配置、安装依赖、`git push`、部署、联网执行脚本）默认需要确认，不可自动执行。
-- **SQLite 迁移**：`memory.db` / `tools.db` 须经 `src/storage/sqliteMigration.ts` 递增迁移；新增表/列时 bump version 并追加 `memoryDbMigrations.ts` 或 `toolsDbMigrations.ts` 条目，禁止散落 `CREATE TABLE` 而无版本记录。
-- **测试用例（强制，双轨）**：每实现一块功能，除 `tests/*.test.ts` 外，必须在对应**功能页 JSON**中 **新增不少于 2 条**网页用例（见 `agent-relay/public/test-cases/`）：
-  - **一功能一页**：`index.json` 按里程碑顺序登记；文件如 `m1-tools.json`，**禁止**全部塞进单文件。
-  - 每条必填：`id`、`title`、**`purpose`（测试目的）**、`method`、`path`、`input`、`expect`；格式见 `test-cases/SCHEMA.md`。
-  - 测试台：侧栏按 M0→M4 进入各功能页；每页底部 **手动输入验证**（自选/自定义 API、运行看结果）；可 **复制单条/复制本页**。
-  - 优先覆盖正常路径 + 边界/4xx/安全拦截；详 `docs/测试用例.md`。
-- **文档同步（强制）**：**每次变更都必须同步更新对应文档**，与代码在同一次改动内完成，不得拖延。对照清单：
-  - 改架构 / 新增模块 / 调整分层或调用链路 → 更新 `docs/项目整体架构.md`（含其中的图与目录树）。
-  - 改使用方式 / 配置 / 接入流程 → 更新 `docs/` 下对应专题文档（如「接入本地模型」），新增专题时在 `docs/README.md` 文档列表登记。
-  - 改能力进度 → 勾选 `agent-todolist.md`，并更新本文件「当前进度 / 仓库结构」。
-  - 设计方向变化 → 先改 `Agent_TS_实现指南_修订版.md` 再改代码。
-  - 自检：文档站 `npm run serve` 后访问 `/docs` 确认新增/修改的页面正常渲染。
-- **TodoList 归档（强制，清单全部完成后）**：`docs/*-TodoList.md` 一类**任务型查漏补缺清单**，在全部可勾选项落地后必须归档，便于后续按整条链路复查；**不适用**于长期演进文档（`agent-todolist.md`、`Agent_TS_实现指南_修订版.md`、进行中的 `模型路由升级TodoList.md` 等路线图）。
-  - **完成判定**：清单内 P0/P1/… 可执行项均已 `[x]`，或用户明确要求「整单结案」；路线图类文档仅当**整份清单宣告结束**时归档，阶段进行中不得提前移动。
-  - **归档目录**：`docs/completed/`（禁止把已完成全文留在原路径占侧栏）。
-  - **归档正文**（写入 `docs/completed/{原名}.md`）须含：
-    - 文首 **✅ 已完成** 标记 + **完成时间**（`YYYY-MM-DD`）+ 一句话来源/目标；
-    - 全部条目保持 `[x]` 勾选状态；
-    - **落地文件索引**表（能力 → 主要源码路径）；
-    - 自检结论（typecheck / 测试 / 网页用例）。
-  - **原路径 stub**：`docs/{原名}.md` 仅保留简短跳转，指向 `completed/{原名}.md`（参考现有 `docs/修复TodoList.md`）。
-  - **索引同步**（同一次改动内）：更新 `docs/completed/README.md` 登记一行；`docs/README.md` 文档列表改为「已完成归档」链接；若属外部规范扫描清单则更新 `docs/外部规范-TodoList索引.md` 状态列。
-  - **自审核**：归档动作写入 `docs/自审核记录.md`，注明归档路径与复查入口。
-- **提交与工作区清理（强制）**：实现一个完整功能模块、完成一份任务型 TodoList 归档、或执行清理/归档类任务后，必须在验证通过后 **提交一次 git commit**，并在最终回复给出 commit hash、提交说明、验证结果与 `git status` 状态；保持工作区干净作为 Definition of Done 的一部分。
-  - **提交前检查**：至少运行 `npm run typecheck`；涉及代码行为时运行相关专项测试，跨模块或归档整单时运行 `npm test`。
-  - **提交范围**：只提交本轮确认完成且相关的源码、测试、文档、测试用例与锁文件；不得把无关用户改动混入提交。若工作区已有无关改动，先说明并与用户确认处理方式。
-  - **清理任务同理**：移动/归档/删除/整理文件后，也必须验证、提交，并确认 `git status --short` 干净；禁止用 `git reset --hard`、`git clean -fd` 等破坏性命令替代人工判断。
-  - **最终回复**：若已提交，列出提交哈希与摘要；若因测试失败或存在无关改动无法提交，明确说明阻塞原因和当前未提交文件。
-- **自审核（强制）**：**每次结束任务前**，对照「是否符合当前框架 / 是否达到预定效果 / 是否缺失某个功能模块」做一次自审核，并写入 `docs/自审核记录.md`（细则以 `docs/自审核记录.md` 的 **「写入规范」** 为准，以下为摘要）：
-  - 标题格式：`### 北京时间_目标_Agent名称_本次任务概括`（`YYYY-MM-DD HH:mm`）。
-  - **时间（强制）**：必须是 **写入本条之前、shell 刚查到的当前北京时间**（`Asia/Shanghai`）。**禁止**用 git 时间、会话时间戳、估算或占位；落笔前执行（PowerShell）：
-    `[System.TimeZoneInfo]::ConvertTimeBySystemTimeZoneId((Get-Date).ToUniversalTime(), 'China Standard Time').ToString('yyyy-MM-dd HH:mm')`
-  - **Agent 名称（强制）**：必须用 **当前 Agent 自己的名称**（如 `Auto`），禁止套其他模型名或泛称。
-  - **写在文件头**（紧跟 `## 写入规范`、置于旧记录之前），保持最新在上。
-  - 正文至少覆盖：改动清单、是否合规、是否达预期、缺失/缺口与后续待办、自检结果。
-  - 首次预览项目时必须先浏览该文件。
+- `model/` 只做厂商对话，不含任务/工具编排
+- 导入路径带 `.js` 后缀（NodeNext ESM），`strict` + `noUncheckedIndexedAccess`
+- 远程 API Key 仅环境变量 `apiKeyEnv`，**禁止**写入配置或提交仓库
+
+### 3. 安全默认
+
+高风险操作默认需确认：删文件、git push、装全局依赖、未知远程脚本等。`PermissionGuard` 在自动策略下仍强制拦截。
+
+### 4. SQLite 迁移
+
+`memory.db` / `tools.db` 变更必须走 `src/storage/sqliteMigration.ts` 递增版本（当前 memory v17）。禁止无版本记录的散落 `CREATE TABLE`。
+
+### 5. 测试双轨
+
+每块功能除 `tests/*.test.ts` 外，在 `public/test-cases/` 对应页 **新增 ≥2 条**用例：
+
+- 一功能一页 JSON（见 `public/test-cases/index.json`）
+- 必填：`id`、`title`、`purpose`、`method`、`path`、`input`、`expect`
+
+### 6. 文档纪律
+
+- 架构/流程/待办变更 → 同步更新 `docs/架构设计.md`、`docs/执行流程.md` 或 `docs/TodoList.md`
+- 结束任务前写 `docs/自审核记录.md`（北京时间标题 + Agent 自称，见该文件「写入规范」）
+- **仅当用户明确要求时才 git commit**
+
+## 关键 API（Agent 路径）
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| POST | `/api/agent` | 统一 Agent 入口 |
+| POST | `/api/agent/stream` | SSE：activity + 可选 token |
+| POST | `/api/runs/:id/resume-permission` | JIT 工具权限批准后续跑 |
+| POST | `/api/runs/:id/resume-plan-handoff` | 计划批准后执行 |
+| GET | `/api/plan-handoffs/pending` | 待批准计划交接 |
+| GET | `/api/permission-requests/pending` | 待批准工具权限 |
+
+完整列表见测试台 `/api-docs` 或 `public/api-spec.json`。
 
 ## 给 agent 的提示
 
-- 不确定时，以 `Agent_TS_实现指南_修订版.md` 为准。
-- **改模型路由/协作**时：先读 `docs/模型路由与协作.md`（**双轨路由边界**章节）与 `docs/模型路由升级TodoList.md`（下一阶段）；按 TodoList **P0 单轮推进**，不要一次性实现 V8 完整自动路由；完成后勾选 TodoList 并更新该文档。
-- **TodoList 全部完成后**：按「关键约定 · TodoList 归档」移入 `docs/completed/` 并在原路径留 stub；登记 `docs/completed/README.md`。
-- **任何改动都要同步对应文档**（见「关键约定 · 文档同步」），把它当作 Definition of Done 的一部分。
-- **结束任务前必做自审核**并追加到 `docs/自审核记录.md`：落笔前 shell 查当前北京时间 + 标题用本 Agent 自称（见 `docs/自审核记录.md`「写入规范」）。
-- 添加新功能时，同步更新 `agent-todolist.md`、`public/test-cases/` 对应功能页（≥2 条，含 `purpose`）与 `index.json`（新功能页时），并更新本文件「当前进度」。
-- 测试台网页的「规划中」按钮是占位，随对应里程碑落地再点亮。
+- 改 **模型路由** 前：读 `docs/架构设计.md` 双轨路由章节与 `docs/TodoList.md` 路由待办
+- 改 **入口意图** 时：优先 `EntryIntentRouter` / `SessionTaskManager`，不要往 `IntentRouter` 堆关键词
+- 计划审批 vs 工具权限：**planHandoff** 与 **permissionRequest** 分离，勿混用语义
+- 不确定时以代码与 `docs/架构设计.md` 为准，勿恢复已删除的旧 TodoList 文档

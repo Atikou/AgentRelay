@@ -14,6 +14,7 @@ import { SessionPermissionGrants } from "../src/policy/SessionPermissionGrants.j
 import { isToolCallGranted } from "../src/policy/scopedPermissionCheck.js";
 import { evaluatePermissionGuard } from "../src/policy/PermissionGuard.js";
 import { PausedRunStore } from "../src/agent/PausedRunStore.js";
+import { findBlockingAgentPause } from "../src/policy/permissionPauseGate.js";
 
 const tests: Array<{ name: string; fn: () => void }> = [];
 function test(name: string, fn: () => void) {
@@ -228,6 +229,72 @@ test("PausedRunStore 计划→执行交接快照无 pendingAction 且 resumeMode
   assert.equal(snapshot?.resumeMode, "implement");
   assert.equal(snapshot?.workflowProposals?.length, 1);
   assert.equal(snapshot?.workflowProposals?.[0]?.workflowType, "generateFileWorkflow");
+});
+
+test("findBlockingPermissionPause 有待批准申请时阻止新 agent", () => {
+  const store = new PermissionRequestStore();
+  store.create({
+    runId: "run-block",
+    sessionId: "sess-block",
+    title: "待批准",
+    summary: "s",
+    requiredPermissions: [{ type: "write_file", target: "a.ts", reason: "r" }],
+  });
+  const gate = findBlockingAgentPause({
+    sessionId: "sess-block",
+    permissionRequestStore: store,
+  });
+  assert.equal(gate?.code, "PERMISSION_PAUSE_PENDING");
+  assert.equal(gate?.runId, "run-block");
+});
+
+test("findBlockingPermissionPause 有暂停快照时阻止新 agent", () => {
+  const paused = new PausedRunStore();
+  paused.save({
+    runId: "run-snap",
+    sessionId: "sess-snap",
+    goal: "g",
+    messages: [],
+    steps: [],
+    modelTurns: 0,
+    mode: "plan",
+    permissionPolicy: "readOnly",
+    resumeMode: "implement",
+    createdAt: new Date().toISOString(),
+  });
+  const perm = new PermissionRequestStore();
+  const created = perm.create({
+    runId: "run-snap",
+    sessionId: "sess-snap",
+    title: "t",
+    summary: "s",
+    requiredPermissions: [{ type: "write_file", target: "a.ts", reason: "r" }],
+  });
+  perm.respond(created.id, { decision: "allow_once" });
+  const gate = findBlockingAgentPause({
+    sessionId: "sess-snap",
+    permissionRequestStore: perm,
+    pausedRunStore: paused,
+  });
+  assert.equal(gate?.code, "PERMISSION_RESUME_REQUIRED");
+  assert.equal(gate?.runId, "run-snap");
+});
+
+test("PausedRunStore hasPausedForSession 检测会话级暂停", () => {
+  const store = new PausedRunStore();
+  assert.equal(store.hasPausedForSession("sess-x"), false);
+  store.save({
+    runId: "run-x",
+    sessionId: "sess-x",
+    goal: "g",
+    messages: [],
+    steps: [],
+    modelTurns: 0,
+    mode: "implement",
+    permissionPolicy: "confirmBeforeEdit",
+    createdAt: new Date().toISOString(),
+  });
+  assert.equal(store.hasPausedForSession("sess-x"), true);
 });
 
 let passed = 0;

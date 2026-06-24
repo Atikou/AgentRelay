@@ -11,6 +11,7 @@ import {
   normalizeIntentText,
   runModeForIntent,
 } from "./intentPatterns.js";
+import { isAgentStepFailureFeedback } from "./agentFailureFeedback.js";
 
 export type { AgentIntentType, AgentWorkflowType } from "./IntentTypes.js";
 
@@ -54,7 +55,8 @@ export class IntentRouter {
   }
 
   inferIntent(input: IntentRouteInput): AgentIntentType {
-    const text = normalizeIntentText(input.message ?? "");
+    const raw = (input.message ?? "").trim();
+    const text = normalizeIntentText(raw);
     if (!text && input.taskType === "codegen") return "edit";
     if (isGeneralSubagentCollaborationRequest(text)) return "answer";
     const unicodeIntent = matchUnicodeIntent(text);
@@ -62,6 +64,9 @@ export class IntentRouter {
 
     const fallbackIntent = matchFallbackIntent(text);
     if (fallbackIntent) return fallbackIntent;
+
+    // 粘贴的步骤失败输出：至少走 debug，避免落回 answer→chat 只读问答。
+    if (isAgentStepFailureFeedback(raw)) return "debug";
 
     if (input.taskType === "codegen") return "edit";
     return "answer";

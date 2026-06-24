@@ -8,6 +8,7 @@ import { redactPreview, redactString, redactValue } from "../util/redact.js";
 import type { ToolPermission } from "../core/permissions.js";
 import { CONFIRMATION_REQUIRED } from "../core/permissions.js";
 import type { ToolStorage } from "./storage/ToolStorage.js";
+import { sanitizeWorkspacePathsInError } from "./pathSafe.js";
 import type { Tool, ToolContext, ToolErrorCategory, ToolErrorCode, ToolRunResult, ToolSpec } from "./types.js";
 
 export interface RegistryRunContext extends ToolContext {
@@ -203,7 +204,8 @@ export class ToolRegistry {
     } catch (err) {
       const isTimeout = err instanceof Error && err.message === "__tool_timeout__";
       const code: ToolErrorCode = isTimeout ? "timeout" : "error";
-      const error = isTimeout ? `工具执行超时（${tool.timeoutMs}ms）` : String(err);
+      const rawError = isTimeout ? `工具执行超时（${tool.timeoutMs}ms）` : String(err);
+      const error = sanitizeWorkspacePathsInError(ctx.workspaceRoot, rawError);
       const category = classifyToolError(code, error);
       const risk =
         category === "permission_error" || /策略拒绝|高风险命令被拒绝/.test(error)

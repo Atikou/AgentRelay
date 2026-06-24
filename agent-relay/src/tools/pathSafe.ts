@@ -61,8 +61,68 @@ export function shouldIgnoreDir(name: string, extra?: Set<string>): boolean {
   return DEFAULT_IGNORED_DIRS.has(name);
 }
 
-/** 目标必须是普通文件。 */
-export async function assertIsFile(fullPath: string): Promise<void> {
-  const s = await stat(fullPath);
-  if (!s.isFile()) throw new Error(`不是文件：${fullPath}`);
+/** 将绝对路径转为相对工作区的展示路径（用于错误信息，避免泄露 workspaceRoot）。 */
+export function toWorkspaceRelativePath(workspaceRoot: string, target: string): string {
+  const root = path.resolve(workspaceRoot);
+  const full = path.isAbsolute(target) ? path.resolve(target) : path.resolve(root, target);
+  const rel = path.relative(root, full);
+  if (rel === "" || (!rel.startsWith("..") && !path.isAbsolute(rel))) {
+    return rel.replace(/\\/g, "/") || ".";
+  }
+  return path.basename(target).replace(/\\/g, "/");
+}
+
+/**
+ * 从工具错误文案中剥离 workspaceRoot，并把其下的绝对路径改写为相对路径。
+ */
+export function sanitizeWorkspacePathsInError(workspaceRoot: string, message: string): string {
+  const root = path.resolve(workspaceRoot);
+  let out = message;
+
+  const relativize = (absLike: string): string | null => {
+    try {
+      const full = path.isAbsolute(absLike) ? path.resolve(absLike) : path.resolve(root, absLike);
+      const rel = path.relative(root, full);
+      if (rel === "" || (!rel.startsWith("..") && !path.isAbsolute(rel))) {
+        return rel.replace(/\\/g, "/") || ".";
+      }
+    } catch {
+      // ignore
+    }
+    return null;
+  };
+
+  out = out.replace(/(['"])([^'"]+)\1/g, (match, quote: string, inner: string) => {
+    const rel = relativize(inner);
+    return rel != null ? `${quote}${rel}${quote}` : match;
+  });
+
+  const rootEsc = root.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  out = out.replace(new RegExp(rootEsc + "[/\\\\]?", "gi"), "");
+
+  out = out
+    .replace(/Error:\s*ENOENT:[^,]+,\s*stat\s+''/i, "ENOENT: 文件不存在")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+
+  if (/ENOENT/i.test(out) && /no such file|文件不存在/i.test(out)) {
+    const statMatch = out.match(/stat\s+['"]?([^'"]+)['"]?/i);
+    const rel = statMatch?.[1] ? relativize(statMatch[1]) ?? statMatch[1].replace(/\\/g, "/") : null;
+    if (rel) return `文件不存在：${rel}`;
+  }
+
+  return out;
+}
+
+/** 目标必须是普通文件。displayPath 为工作区相对路径，用于错误展示。 */
+export async function assertIsFile(fullPath: string, displayPath?: string): Promise<void> {
+  const label = displayPath?.replace(/\\/g, "/") ?? fullPath;
+  try {
+    const s = await stat(fullPath);
+    if (!s.isFile()) throw new Error(`不是文件：${label}`);
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code === "ENOENT") throw new Error(`文件不存在：${label}`);
+    throw err;
+  }
 }

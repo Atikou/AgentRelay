@@ -10,7 +10,8 @@ export type AgentStopReason =
   | "budget_exhausted"
   | "error"
   | "user_cancelled"
-  | "awaiting_permission";
+  | "awaiting_permission"
+  | "awaiting_plan_handoff";
 
 export type PlanExecutionVariant = "plan_only" | "plan_wait_approval" | "plan_then_execute";
 
@@ -254,6 +255,14 @@ export interface AgentExecutionMeta {
   stopReason: AgentStopReason;
   needsMoreBudget: boolean;
   suggestedBudget?: RunBudget;
+  /** 用户可读执行状态（非 mode）。 */
+  userFacingState?: import("./presentation/ExecutionStatePresenter.js").UserFacingExecutionState;
+  userFacingLabel?: string;
+  /** 入口意图决策来源（session_continuation / ai_classifier / legacy_fallback）。 */
+  intentDecisionSource?: import("./routing/IntentDecision.js").IntentDecisionSource;
+  isContinuation?: boolean;
+  intentDecisionReason?: string;
+  intentDecisionConfidence?: number;
   /** 按任务复杂度估算的建议工具调用次数（预算耗尽时返回）。 */
   suggestedToolCalls?: number;
   complexityTier?: "low" | "medium" | "high";
@@ -281,6 +290,10 @@ export interface RunPolicy {
   allowPartialAnswer: boolean;
   suggestedBudget: RunBudget;
   systemHint: string;
+  intentDecisionSource?: import("./routing/IntentDecision.js").IntentDecisionSource;
+  isContinuation?: boolean;
+  intentDecisionReason?: string;
+  intentDecisionConfidence?: number;
 }
 
 export interface ResolveRunPolicyInput {

@@ -54,6 +54,11 @@ import {
   handleRunApprove,
 } from "./handlers/permission.handlers.js";
 import {
+  handlePlanHandoffGet,
+  handlePlanHandoffRespond,
+  handlePlanHandoffsPending,
+} from "./handlers/planHandoff.handlers.js";
+import {
   handleSchedulerCancel,
   handleSchedulerCreate,
   handleSchedulerList,
@@ -348,6 +353,28 @@ export function createHttpServer(app: AppContext, opts?: HttpServerOptions): Ser
           sendJson(res, result.status, result.body);
           return;
         }
+        if (pathname === "/api/plan-handoffs/pending" && method === "GET") {
+          const result = handlePlanHandoffsPending(app, url);
+          sendJson(res, result.status, result.body);
+          return;
+        }
+        const planHandoffMatch = pathname.match(/^\/api\/plan-handoffs\/([^/]+)$/);
+        if (planHandoffMatch && method === "GET") {
+          const handoffId = decodeURIComponent(planHandoffMatch[1]!);
+          const result = handlePlanHandoffGet(app, handoffId);
+          sendJson(res, result.status, result.body);
+          return;
+        }
+        const planHandoffRespondMatch = pathname.match(/^\/api\/plan-handoffs\/([^/]+)\/respond$/);
+        if (planHandoffRespondMatch && method === "POST") {
+          const result = handlePlanHandoffRespond(
+            app,
+            decodeURIComponent(planHandoffRespondMatch[1]!),
+            await readBody(req, maxBodyBytes),
+          );
+          sendJson(res, result.status, result.body);
+          return;
+        }
         const permissionRequestMatch = pathname.match(/^\/api\/permission-requests\/([^/]+)$/);
         if (permissionRequestMatch && method === "GET") {
           const requestId = decodeURIComponent(permissionRequestMatch[1]!);
@@ -377,6 +404,16 @@ export function createHttpServer(app: AppContext, opts?: HttpServerOptions): Ser
             const runId = rest.slice(0, -"/resume-permission".length);
             const rawBody = (await readBody(req, maxBodyBytes)) as Record<string, unknown>;
             const result = await app.orchestrator.resumeAfterPermission(
+              { ...rawBody, runId: rawBody.runId ?? runId },
+              app.makeChatFn(),
+            );
+            sendJson(res, result.status, result.body);
+            return;
+          }
+          if (rest.endsWith("/resume-plan-handoff")) {
+            const runId = rest.slice(0, -"/resume-plan-handoff".length);
+            const rawBody = (await readBody(req, maxBodyBytes)) as Record<string, unknown>;
+            const result = await app.orchestrator.resumeAfterPlanHandoff(
               { ...rawBody, runId: rawBody.runId ?? runId },
               app.makeChatFn(),
             );

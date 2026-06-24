@@ -52,7 +52,10 @@ import { toTaskRunnerPlan } from "../plan/planConverter.js";
 import type { PlanService } from "../plan/PlanService.js";
 import { PlanValidationError } from "../plan/types.js";
 
+import { isPlanHandoffFollowUpMessage } from "../agent/planHandoffFollowUp.js";
+import type { PlanHandoffStore } from "../policy/PlanHandoffStore.js";
 import type { PermissionRequestStore } from "../policy/PermissionRequestStore.js";
+import { findBlockingAgentPause } from "../policy/permissionPauseGate.js";
 import type { SessionPermissionGrants } from "../policy/SessionPermissionGrants.js";
 import type { ScopedApprovedPermissions } from "../policy/permissionRequestTypes.js";
 
@@ -130,6 +133,7 @@ export interface OrchestratorDeps {
   agentRunRegistry: AgentRunRegistry;
 
   permissionRequestStore?: PermissionRequestStore;
+  planHandoffStore?: PlanHandoffStore;
   sessionPermissionGrants?: SessionPermissionGrants;
   pausedRunStore?: PausedRunStore;
 }
@@ -723,6 +727,9 @@ export class Orchestrator {
     const activation = await this.tryPlanActivationFromAgentBody(body);
     if (activation) return activation;
 
+    const handoffResume = await this.tryPlanHandoffFollowUpResume(body, makeChat);
+    if (handoffResume) return handoffResume;
+
     const prepared = this.prepareAgentRun(body, makeChat, {
       registerForCancel: true,
       enableTimeline: true,
@@ -891,6 +898,7 @@ export class Orchestrator {
 
     const request =
       (payload.permissionRequestId ? store.get(payload.permissionRequestId.trim()) : null) ??
+      store.getApprovedByRunId(runId) ??
       store.getPendingByRunId(runId);
     if (!request || request.status !== "approved") {
       return {
@@ -939,6 +947,20 @@ export class Orchestrator {
     this.deps.runs.update(runId, { status: "running" });
     this.deps.tasks.update(task.id, { status: "running" });
 
+    const timeline = new AgentTimelineService({
+      workspaceRoot: this.workspaceForSession(sessionId),
+    });
+    timeline.createRun({
+      id: runId,
+      goal: snapshot.goal,
+      sessionId,
+      metadata: {
+        userInput: snapshot.goal,
+        mode: policy.mode,
+        projectRoot: this.workspaceForSession(sessionId),
+      },
+    });
+
     const abortController = this.deps.agentRunRegistry.register(runId, "agent");
     const loop = new AgentLoop({
       chat: makeChat ?? this.deps.makeChatFn(),
@@ -957,6 +979,7 @@ export class Orchestrator {
       runStateStore: this.deps.runStateStore,
       projectIndex: this.deps.projectIndex,
       permissionRequestStore: store,
+      planHandoffStore: this.deps.planHandoffStore,
       sessionPermissionGrants: this.deps.sessionPermissionGrants,
       pausedRunStore: pausedStore,
       pausedRun: snapshot,
@@ -966,6 +989,7 @@ export class Orchestrator {
       subAgentDispatchDepth: 0,
       maxSubAgentDispatchDepth: this.deps.maxSubAgentDispatchDepth ?? 1,
       signal: abortController.signal,
+      timeline,
     });
 
     const ctx = { message: snapshot.goal, sessionId, task, run: { id: runId }, loop };
@@ -974,10 +998,174 @@ export class Orchestrator {
       const body = this.finalizeAgentRunSuccess(ctx, result, { resumed: true });
       return { status: 200, body };
     } catch (error) {
+      pausedStore.save(snapshot);
+      this.deps.runs.update(runId, { status: "waiting_confirmation" });
+      this.deps.tasks.update(task.id, { status: "blocked" });
       return { status: 502, body: this.finalizeAgentRunFailure(ctx, error) };
     } finally {
       this.deps.agentRunRegistry.unregister(runId);
     }
+  }
+
+  /**
+   * 计划交接批准后续跑：用暂停快照在 implement 模式下忠实执行计划。
+   * 与 resumeAfterPermission（工具级 JIT）分离。
+   */
+  async resumeAfterPlanHandoff(body: unknown, makeChat?: LoopChatFn): Promise<ApiResult> {
+    const payload = (body ?? {}) as {
+      runId?: string;
+      planHandoffId?: string;
+      autoConfirm?: boolean;
+      permissionPolicy?: string;
+    };
+    const runId = (payload.runId ?? "").trim();
+    if (!runId) return { status: 400, body: { error: "runId 不能为空" } };
+
+    const run = this.deps.runs.get(runId);
+    if (!run) return { status: 404, body: { error: "运行记录不存在", runId } };
+
+    const store = this.deps.planHandoffStore;
+    if (!store) {
+      return { status: 500, body: { error: "计划交接服务未配置" } };
+    }
+
+    const handoff =
+      (payload.planHandoffId ? store.get(payload.planHandoffId.trim()) : null) ??
+      store.getApprovedByRunId(runId) ??
+      store.getPendingByRunId(runId);
+    if (!handoff || handoff.status !== "approved") {
+      return {
+        status: 400,
+        body: { error: "未找到已批准的计划交接", runId, planHandoffId: payload.planHandoffId },
+      };
+    }
+
+    const pausedStore = this.deps.pausedRunStore ?? defaultPausedRunStore;
+    const snapshot = pausedStore.take(runId);
+    if (!snapshot) {
+      return {
+        status: 409,
+        body: {
+          error: "无可恢复的计划快照（服务可能已重启，或该批准已被执行）。请重新发起计划请求。",
+          runId,
+        },
+      };
+    }
+
+    const sessionId = run.sessionId;
+    const explicitPermissionPolicy = payload.permissionPolicy
+      ? defaultRunPolicyManager.parsePermissionPolicy(payload.permissionPolicy)
+      : undefined;
+    const policy = defaultRunPolicyManager.resolve({
+      requestedMode: snapshot.resumeMode ?? snapshot.mode,
+      forceMode: true,
+      sessionId,
+      message: snapshot.goal,
+      autoConfirm: payload.autoConfirm,
+      requestedPermissionPolicy: explicitPermissionPolicy ?? snapshot.permissionPolicy ?? "confirmBeforeEdit",
+    });
+
+    const task = run.taskId
+      ? this.deps.tasks.get(run.taskId)
+      : this.resolveOrCreateTask(sessionId, snapshot.goal.slice(0, 500));
+    if (!task) return { status: 404, body: { error: "关联 task 不存在", taskId: run.taskId } };
+
+    this.deps.runs.update(runId, { status: "running" });
+    this.deps.tasks.update(task.id, { status: "running" });
+
+    const timeline = new AgentTimelineService({
+      workspaceRoot: this.workspaceForSession(sessionId),
+    });
+    timeline.createRun({
+      id: runId,
+      goal: snapshot.goal,
+      sessionId,
+      metadata: {
+        userInput: snapshot.goal,
+        mode: policy.mode,
+        projectRoot: this.workspaceForSession(sessionId),
+      },
+    });
+
+    const abortController = this.deps.agentRunRegistry.register(runId, "agent");
+    const loop = new AgentLoop({
+      chat: makeChat ?? this.deps.makeChatFn(),
+      registry: this.deps.registry,
+      workspaceRoot: this.workspaceForSession(sessionId),
+      autoConfirm: payload.autoConfirm ?? false,
+      policy,
+      projectAllowedPermissions: this.deps.projectAllowedPermissions,
+      trace: this.deps.trace,
+      notificationQueue: this.deps.notificationQueue,
+      contextManager: sessionId ? this.deps.contextManager : undefined,
+      sessionId,
+      runId,
+      taskId: task.id,
+      requestId: runId,
+      runStateStore: this.deps.runStateStore,
+      projectIndex: this.deps.projectIndex,
+      permissionRequestStore: this.deps.permissionRequestStore,
+      planHandoffStore: store,
+      sessionPermissionGrants: this.deps.sessionPermissionGrants,
+      pausedRunStore: pausedStore,
+      pausedRun: snapshot,
+      pauseOnPermissionRequest: payload.autoConfirm !== true,
+      maxCostUsdPerRun: this.deps.maxCostUsdPerRun,
+      subAgentDispatchDepth: 0,
+      maxSubAgentDispatchDepth: this.deps.maxSubAgentDispatchDepth ?? 1,
+      signal: abortController.signal,
+      timeline,
+    });
+
+    const ctx = { message: snapshot.goal, sessionId, task, run: { id: runId }, loop };
+    try {
+      const result = await loop.run(snapshot.goal);
+      const bodyOut = this.finalizeAgentRunSuccess(ctx, result, { resumed: true });
+      return { status: 200, body: bodyOut };
+    } catch (error) {
+      pausedStore.save(snapshot);
+      this.deps.runs.update(runId, { status: "waiting_plan_handoff" });
+      this.deps.tasks.update(task.id, { status: "blocked" });
+      return { status: 502, body: this.finalizeAgentRunFailure(ctx, error) };
+    } finally {
+      this.deps.agentRunRegistry.unregister(runId);
+    }
+  }
+
+  /** pending planHandoff 时，短句 follow-up 优先走计划恢复而非 IntentRouter。 */
+  private async tryPlanHandoffFollowUpResume(
+    body: unknown,
+    makeChat?: LoopChatFn,
+  ): Promise<ApiResult | null> {
+    const payload = (body ?? {}) as {
+      message?: string;
+      sessionId?: string;
+      permissionPolicy?: string;
+      autoConfirm?: boolean;
+    };
+    const message = (payload.message ?? "").trim();
+    const sessionId = payload.sessionId?.trim();
+    if (!sessionId || !isPlanHandoffFollowUpMessage(message)) return null;
+
+    const store = this.deps.planHandoffStore;
+    if (!store) return null;
+
+    const pending = store.getPendingBySessionId(sessionId);
+    if (!pending) return null;
+
+    const responded = store.respond(pending.id, { decision: "approve" });
+    if (!responded) return null;
+
+    this.deps.runs.update(pending.runId, { status: "waiting_plan_handoff" });
+    return this.resumeAfterPlanHandoff(
+      {
+        runId: pending.runId,
+        planHandoffId: pending.id,
+        permissionPolicy: payload.permissionPolicy,
+        autoConfirm: payload.autoConfirm,
+      },
+      makeChat,
+    );
   }
 
   listRunningAgentRuns() {
@@ -1019,6 +1207,23 @@ export class Orchestrator {
     emit: (event: AgentStreamEvent) => void,
     makeChat?: LoopChatFn,
   ): Promise<void> {
+    const handoffResume = await this.tryPlanHandoffFollowUpResume(body, makeChat);
+    if (handoffResume) {
+      if (handoffResume.status === 200) {
+        const doneBody = handoffResume.body as AgentRunResult & { runId: string; taskId: string };
+        emit({ type: "done", ...doneBody });
+      } else {
+        const errBody = handoffResume.body as { error?: string; runId?: string; taskId?: string };
+        emit({
+          type: "error",
+          error: String(errBody.error ?? "计划交接续跑失败"),
+          runId: errBody.runId ?? "",
+          taskId: errBody.taskId ?? "",
+        });
+      }
+      return;
+    }
+
     const payload = (body ?? {}) as { streamTokens?: boolean };
     let activeIteration = 0;
     // run_start 必须是流的首帧；prepareAgentRun 会在准备阶段就启动 timeline 并产生
@@ -1044,7 +1249,17 @@ export class Orchestrator {
         emit({ type: "activity_event", event });
       },
     });
-    if ("error" in prepared) throw new Error(String((prepared.error.body as { error?: string }).error));
+    if ("error" in prepared) {
+      const errBody = prepared.error.body as Record<string, unknown>;
+      emit({
+        type: "error",
+        error: String(errBody.error ?? "准备运行失败"),
+        runId: String(errBody.runId ?? ""),
+        taskId: "",
+        ...errBody,
+      });
+      return;
+    }
     const { ctx } = prepared;
 
     emit({ type: "run_start", runId: ctx.run.id, taskId: ctx.task.id, sessionId: ctx.sessionId });
@@ -1475,6 +1690,26 @@ export class Orchestrator {
 
     const persist = payload.persist !== false;
     const sessionId = persist ? this.ensureSession(payload.sessionId, "智能体会话") : undefined;
+    const pauseGate = findBlockingAgentPause({
+      sessionId,
+      planHandoffStore: this.deps.planHandoffStore,
+      permissionRequestStore: this.deps.permissionRequestStore,
+      pausedRunStore: this.deps.pausedRunStore,
+    });
+    if (pauseGate) {
+      return {
+        error: {
+          status: 409,
+          body: {
+            error: pauseGate.error,
+            code: pauseGate.code,
+            planHandoff: pauseGate.planHandoff,
+            permissionRequest: pauseGate.permissionRequest,
+            runId: pauseGate.runId,
+          },
+        },
+      };
+    }
     const task = this.resolveOrCreateTask(sessionId, message.slice(0, 500));
     const run = this.deps.runs.create({
       kind: "agent",
@@ -1538,6 +1773,7 @@ export class Orchestrator {
       signal: cancelSignal,
       timeline,
       permissionRequestStore: this.deps.permissionRequestStore,
+      planHandoffStore: this.deps.planHandoffStore,
       sessionPermissionGrants: this.deps.sessionPermissionGrants,
       pausedRunStore: this.deps.pausedRunStore,
       pauseOnPermissionRequest: payload.autoConfirm !== true,
@@ -1574,13 +1810,23 @@ export class Orchestrator {
     result: AgentRunResult,
     extra?: { resumed?: boolean },
   ): AgentRunResult & { runId: string; taskId: string; runState?: RunState | null; resumed?: boolean } {
-    const awaitingPermission = result.awaitingPermission === true || result.executionMeta.stopReason === "awaiting_permission";
+    const awaitingPlanHandoff =
+      result.awaitingPlanHandoff === true || result.executionMeta.stopReason === "awaiting_plan_handoff";
+    const awaitingPermission =
+      !awaitingPlanHandoff &&
+      (result.awaitingPermission === true || result.executionMeta.stopReason === "awaiting_permission");
     const cancelled = result.executionMeta.stopReason === "user_cancelled";
     this.deps.tasks.update(ctx.task.id, {
-      status: cancelled ? "cancelled" : awaitingPermission ? "blocked" : result.reachedLimit ? "failed" : "done",
+      status: cancelled
+        ? "cancelled"
+        : awaitingPlanHandoff || awaitingPermission
+          ? "blocked"
+          : result.reachedLimit
+            ? "failed"
+            : "done",
       summary: result.answer.slice(0, 500),
     });
-    if (!result.reachedLimit && !cancelled && !awaitingPermission) {
+    if (!result.reachedLimit && !cancelled && !awaitingPermission && !awaitingPlanHandoff) {
       this.releaseTaskFromSession(ctx.sessionId, ctx.task.id);
     }
     const runState = result.reachedLimit
@@ -1589,11 +1835,13 @@ export class Orchestrator {
     this.deps.runs.update(ctx.run.id, {
       status: cancelled
         ? "cancelled"
-        : awaitingPermission
-          ? "waiting_confirmation"
-          : result.reachedLimit
-            ? "failed"
-            : "completed",
+        : awaitingPlanHandoff
+          ? "waiting_plan_handoff"
+          : awaitingPermission
+            ? "waiting_confirmation"
+            : result.reachedLimit
+              ? "failed"
+              : "completed",
       resultJson: JSON.stringify({
         answer: result.answer,
         iterations: result.iterations,
@@ -1601,7 +1849,9 @@ export class Orchestrator {
         routerDecision: result.routerDecision,
         promptStrategy: result.promptStrategy,
         permissionRequest: result.permissionRequest,
+        planHandoff: result.planHandoff,
         awaitingPermission,
+        awaitingPlanHandoff,
         runState: runState
           ? { status: runState.status, pendingSteps: runState.pendingSteps, completedSteps: runState.completedSteps }
           : undefined,
@@ -1614,14 +1864,17 @@ export class Orchestrator {
       kind: "agent",
       status: cancelled
         ? "cancelled"
-        : awaitingPermission
-          ? "waiting_confirmation"
-          : result.reachedLimit
-            ? "failed"
-            : "completed",
+        : awaitingPlanHandoff
+          ? "waiting_plan_handoff"
+          : awaitingPermission
+            ? "waiting_confirmation"
+            : result.reachedLimit
+              ? "failed"
+              : "completed",
       resumed: extra?.resumed,
       resumable: runState?.status === "resumable",
       awaitingPermission,
+      awaitingPlanHandoff,
     });
     return {
       ...result,

@@ -111,7 +111,7 @@ export const readFileTool: Tool<
   }),
   async execute(input, ctx) {
     const full = await resolveInsideWorkspaceAsync(ctx.workspaceRoot, input.path);
-    await assertIsFile(full);
+    await assertIsFile(full, input.path);
     const buf = await fs.readFile(full);
     const sizeBytes = buf.byteLength;
     const sha256 = hashContent(buf.toString("utf-8"));
@@ -475,7 +475,7 @@ export const applyPatchTool: Tool<
   }),
   async execute(input, ctx) {
     const full = await resolveInsideWorkspaceAsync(ctx.workspaceRoot, input.path);
-    await assertIsFile(full);
+    await assertIsFile(full, input.path);
     const oldContent = await fs.readFile(full, "utf-8");
     const beforeHash = hashContent(oldContent);
 

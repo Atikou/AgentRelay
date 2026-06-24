@@ -111,6 +111,29 @@ export class PausedRunStore {
     this.snapshots.delete(runId);
   }
 
+  /** 会话是否仍有未恢复的暂停快照（含已批准待 resume 的场景）。 */
+  hasPausedForSession(sessionId: string): boolean {
+    return this.getFirstPausedRunIdForSession(sessionId) != null;
+  }
+
+  getFirstPausedRunIdForSession(sessionId: string): string | null {
+    if (this.db) {
+      const row = this.db
+        .prepare(
+          `SELECT run_id FROM paused_run_snapshots
+           WHERE session_id=? AND status='paused'
+           ORDER BY updated_at DESC
+           LIMIT 1`,
+        )
+        .get(sessionId) as { run_id: string } | undefined;
+      return row?.run_id ?? null;
+    }
+    for (const snapshot of this.snapshots.values()) {
+      if (snapshot.sessionId === sessionId) return snapshot.runId;
+    }
+    return null;
+  }
+
   private parseSnapshot(row: { snapshot_json: string } | undefined): PausedRunSnapshot | null {
     if (!row) return null;
     try {

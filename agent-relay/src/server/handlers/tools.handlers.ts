@@ -92,7 +92,7 @@ export async function buildToolPreview(
       expectedHash?: string;
     };
     const full = await resolveInsideWorkspaceAsync(workspaceRoot, data.path);
-    await assertIsFile(full);
+    await assertIsFile(full, data.path);
     const oldContent = await readFile(full, "utf-8");
     const beforeHash = hashContent(oldContent);
     if (data.expectedHash != null && beforeHash !== data.expectedHash) {

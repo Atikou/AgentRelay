@@ -43,7 +43,7 @@ function removeTempDir(dir: string): void {
   }
 }
 
-test("全新 memory.db 应用 v1–v14 并写入 schema_migrations", () => {
+test("v1–v17 全新 memory.db 应用迁移", () => {
   const dataDir = tempDataDir();
   let dbm: DatabaseManager | undefined;
   try {
@@ -52,7 +52,7 @@ test("全新 memory.db 应用 v1–v14 并写入 schema_migrations", () => {
     assert.equal(dbm.schemaInfo.userVersion, MEMORY_DB_SCHEMA_VERSION);
     assert.equal(dbm.schemaInfo.migrations.length, MEMORY_DB_MIGRATIONS.length);
     assert.equal(dbm.schemaInfo.migrations[0]?.name, "core_sessions_messages_memories");
-    assert.equal(dbm.schemaInfo.migrations.at(-1)?.name, "durable_permission_pauses");
+    assert.equal(dbm.schemaInfo.migrations.at(-1)?.name, "session_task_contexts");
 
     const runStatesTable = dbm.connection
       .prepare(`SELECT name FROM sqlite_master WHERE type='table' AND name='run_states'`)
@@ -88,6 +88,21 @@ test("全新 memory.db 应用 v1–v14 并写入 schema_migrations", () => {
       .prepare(`SELECT name FROM sqlite_master WHERE type='table' AND name='paused_run_snapshots'`)
       .get() as { name: string };
     assert.equal(pausedTable.name, "paused_run_snapshots");
+
+    const sessionGrantsTable = dbm.connection
+      .prepare(`SELECT name FROM sqlite_master WHERE type='table' AND name='session_permission_grants'`)
+      .get() as { name: string };
+    assert.equal(sessionGrantsTable.name, "session_permission_grants");
+
+    const planHandoffsTable = dbm.connection
+      .prepare(`SELECT name FROM sqlite_master WHERE type='table' AND name='plan_handoffs'`)
+      .get() as { name: string };
+    assert.equal(planHandoffsTable.name, "plan_handoffs");
+
+    const sessionTaskTable = dbm.connection
+      .prepare(`SELECT name FROM sqlite_master WHERE type='table' AND name='session_task_contexts'`)
+      .get() as { name: string };
+    assert.equal(sessionTaskTable.name, "session_task_contexts");
   } finally {
     dbm?.close();
     removeTempDir(dataDir);
