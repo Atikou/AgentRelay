@@ -1,13 +1,14 @@
 import type { AgentIntentType, AgentWorkflowType } from "./IntentTypes.js";
 import type { AgentWorkflowSwitch, AgentWorkflowTaskState } from "./RunPolicyTypes.js";
 
+/** @deprecated 使用 TaskContext；仅 workflow switch 比较所需字段。 */
 export interface WorkflowSessionSnapshot {
   sessionId: string;
   intent: AgentIntentType;
   workflowType: AgentWorkflowType;
   workflowTaskState?: AgentWorkflowTaskState;
   runId?: string;
-  updatedAt: string;
+  updatedAt?: string;
 }
 
 export interface ResolveWorkflowSwitchInput {
@@ -17,29 +18,6 @@ export interface ResolveWorkflowSwitchInput {
     workflowType: AgentWorkflowType;
   };
 }
-
-/** In-memory per-session workflow snapshot for automatic workflow switching. */
-export class WorkflowSessionStore {
-  private readonly snapshots = new Map<string, WorkflowSessionSnapshot>();
-
-  get(sessionId: string): WorkflowSessionSnapshot | undefined {
-    return this.snapshots.get(sessionId);
-  }
-
-  set(snapshot: WorkflowSessionSnapshot): void {
-    this.snapshots.set(snapshot.sessionId, snapshot);
-  }
-
-  clear(sessionId?: string): void {
-    if (sessionId) {
-      this.snapshots.delete(sessionId);
-      return;
-    }
-    this.snapshots.clear();
-  }
-}
-
-export const defaultWorkflowSessionStore = new WorkflowSessionStore();
 
 export function resolveWorkflowSwitch(input: ResolveWorkflowSwitchInput): AgentWorkflowSwitch | undefined {
   const { previous, current } = input;

@@ -140,8 +140,9 @@ export function flattenTaggedFragments(
     text: string;
   }> = [];
   for (const section of sections) {
-    for (let i = 0; i < section.items.length; i += 1) {
-      const item = section.items[i]!;
+    const items = section.items ?? [];
+    for (let i = 0; i < items.length; i += 1) {
+      const item = items[i]!;
       const tags = mergeTags([sectionTypeTag(section.type)], item.tags);
       out.push({
         id: item.sourceId ?? `${section.type}:${i}`,

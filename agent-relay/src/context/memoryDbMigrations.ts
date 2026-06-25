@@ -2,9 +2,10 @@ import type { DatabaseSync } from "node:sqlite";
 
 import { ensureRoutingTables } from "../model-router/route-stores.js";
 import { ensureEvalTables } from "../model-router/eval-set-store.js";
+import { backfillMessageEnvelopes } from "./messageEnvelopeBackfill.js";
 import { addColumnIfMissing, hashRowId, type SqliteMigration } from "../storage/sqliteMigration.js";
 
-export const MEMORY_DB_SCHEMA_VERSION = 17;
+export const MEMORY_DB_SCHEMA_VERSION = 21;
 
 function ensureFts(
   db: DatabaseSync,
@@ -546,6 +547,43 @@ export const MEMORY_DB_MIGRATIONS: readonly SqliteMigration[] = [
         CREATE INDEX IF NOT EXISTS idx_session_task_contexts_active
           ON session_task_contexts(is_active, updated_at DESC);
       `);
+    },
+  },
+  {
+    version: 18,
+    name: "session_task_contexts_side_effect",
+    up(db) {
+      db.exec(`
+        ALTER TABLE session_task_contexts ADD COLUMN last_stop_reason TEXT;
+        ALTER TABLE session_task_contexts ADD COLUMN last_completed_at TEXT;
+        ALTER TABLE session_task_contexts ADD COLUMN side_effect_summary_json TEXT;
+      `);
+    },
+  },
+  {
+    version: 19,
+    name: "messages_model_meta",
+    up(db) {
+      addColumnIfMissing(db, "messages", "client_name", "client_name TEXT");
+      addColumnIfMissing(db, "messages", "model_name", "model_name TEXT");
+    },
+  },
+  {
+    version: 20,
+    name: "messages_envelope",
+    up(db) {
+      addColumnIfMissing(db, "messages", "message_kind", "message_kind TEXT");
+      addColumnIfMissing(db, "messages", "ui_visible", "ui_visible INTEGER NOT NULL DEFAULT 1");
+      addColumnIfMissing(db, "messages", "trusted", "trusted INTEGER NOT NULL DEFAULT 0");
+      addColumnIfMissing(db, "messages", "source", "source TEXT");
+      addColumnIfMissing(db, "messages", "run_id", "run_id TEXT");
+    },
+  },
+  {
+    version: 21,
+    name: "messages_envelope_backfill",
+    up(db) {
+      backfillMessageEnvelopes(db);
     },
   },
 ];

@@ -15,6 +15,8 @@ export interface RunUsageReport {
   totalCostUsd: number;
   toolCalls: number;
   toolFailures: number;
+  toolObservationFailures: number;
+  toolExecutionErrors: number;
 }
 
 export type RunTimelineCategory =
@@ -64,6 +66,8 @@ function accumulateUsage(events: TraceEvent[]): RunUsageReport {
     totalCostUsd: 0,
     toolCalls: 0,
     toolFailures: 0,
+    toolObservationFailures: 0,
+    toolExecutionErrors: 0,
   };
 
   for (const event of events) {
@@ -76,7 +80,16 @@ function accumulateUsage(events: TraceEvent[]): RunUsageReport {
     }
     if (e.type === "agent_tool" || e.type === "tool_audit") {
       usage.toolCalls += 1;
-      if (e.success === false || e.ok === false || e.status === "error") usage.toolFailures += 1;
+      const outcomeClass = typeof e.outcomeClass === "string" ? e.outcomeClass : undefined;
+      if (outcomeClass === "observation_failure") {
+        usage.toolObservationFailures += 1;
+        usage.toolFailures += 1;
+      } else if (outcomeClass === "execution_error") {
+        usage.toolExecutionErrors += 1;
+        usage.toolFailures += 1;
+      } else if (e.success === false || e.ok === false || e.status === "error") {
+        usage.toolFailures += 1;
+      }
     }
     if (e.type === "run_usage_summary") {
       usage.modelTurns = Number(e.modelTurns ?? usage.modelTurns);
@@ -85,6 +98,8 @@ function accumulateUsage(events: TraceEvent[]): RunUsageReport {
       usage.totalCostUsd = Number(e.totalCostUsd ?? usage.totalCostUsd);
       usage.toolCalls = Number(e.toolCalls ?? usage.toolCalls);
       usage.toolFailures = Number(e.toolFailures ?? usage.toolFailures);
+      usage.toolObservationFailures = Number(e.toolObservationFailures ?? usage.toolObservationFailures);
+      usage.toolExecutionErrors = Number(e.toolExecutionErrors ?? usage.toolExecutionErrors);
     }
   }
 
@@ -191,18 +206,24 @@ export function mapTraceEventToTimelineEntry(event: TraceEvent): RunTimelineEntr
     };
   }
   if (type === "tool_audit") {
+    const outcomeClass = str(e.outcomeClass);
+    const outcomeKind = str(e.outcomeKind);
     return {
       time,
       category: "tool",
       type,
       title: `工具审计 · ${str(e.tool) ?? "unknown"}`,
-      status: str(e.status) ?? "unknown",
-      detail: str(e.error) ?? str(e.code),
+      status: outcomeClass ?? str(e.status) ?? "unknown",
+      detail: outcomeKind
+        ? `${outcomeKind}${str(e.error) ? ` · ${str(e.error)}` : ""}`
+        : str(e.error) ?? str(e.code),
       refs: {
         toolCallId: str(e.toolCallId),
         permission: str(e.permission),
         riskTier: str(e.riskTier),
         durationMs: num(e.durationMs),
+        outcomeClass,
+        outcomeKind,
       },
     };
   }

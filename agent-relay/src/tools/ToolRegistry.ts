@@ -9,6 +9,11 @@ import type { ToolPermission } from "../core/permissions.js";
 import { CONFIRMATION_REQUIRED } from "../core/permissions.js";
 import type { ToolStorage } from "./storage/ToolStorage.js";
 import { sanitizeWorkspacePathsInError } from "./pathSafe.js";
+import {
+  executionError,
+  resolveToolOutcome,
+  type ToolOutcome,
+} from "./toolOutcome.js";
 import type { Tool, ToolContext, ToolErrorCategory, ToolErrorCode, ToolRunResult, ToolSpec } from "./types.js";
 
 export interface RegistryRunContext extends ToolContext {
@@ -68,15 +73,15 @@ export class ToolRegistry {
 
     const tool = this.tools.get(name);
     if (!tool) {
-      const result: ToolRunResult = {
-        ok: false,
+      const result = registryExecutionError({
         tool: name,
-        code: "unknown_tool",
-        category: "user_error",
-        error: `未知工具：${name}`,
         durationMs: elapsed(),
         toolCallId,
-      };
+        code: "unknown_tool",
+        category: "user_error",
+        kind: "unknown_tool",
+        message: `未知工具：${name}`,
+      });
       this.logStorage(name, rawInput, result, startedAt, ctx);
       return result;
     }
@@ -88,16 +93,18 @@ export class ToolRegistry {
         shellPolicy: ctx.shellPolicy ?? this.defaultContext.shellPolicy,
         networkPolicy: ctx.networkPolicy ?? this.defaultContext.networkPolicy,
       });
-      const result: ToolRunResult = {
-        ok: false,
+      const result = registryExecutionError({
         tool: name,
-        code: "permission_denied",
-        category: "permission_error",
-        error: `当前不允许的权限：${tool.permission}`,
         durationMs: elapsed(),
         toolCallId,
+        code: "permission_denied",
+        category: "permission_error",
+        kind: "permission_denied",
+        message: `当前不允许的权限：${tool.permission}`,
         risk,
-      };
+        requiresUserAction: true,
+        recoverable: true,
+      });
       this.logStorage(name, rawInput, result, startedAt, ctx);
       return result;
     }
@@ -105,15 +112,15 @@ export class ToolRegistry {
     const normalizedInput = tool.normalizeInput ? tool.normalizeInput(rawInput) : rawInput;
     const parsed = tool.inputSchema.safeParse(normalizedInput);
     if (!parsed.success) {
-      const result: ToolRunResult = {
-        ok: false,
+      const result = registryExecutionError({
         tool: name,
-        code: "invalid_input",
-        category: "user_error",
-        error: parsed.error.issues.map((i) => `${i.path.join(".") || "(root)"}: ${i.message}`).join("; "),
         durationMs: elapsed(),
         toolCallId,
-      };
+        code: "invalid_input",
+        category: "user_error",
+        kind: "invalid_input",
+        message: parsed.error.issues.map((i) => `${i.path.join(".") || "(root)"}: ${i.message}`).join("; "),
+      });
       this.logStorage(name, normalizedInput, result, startedAt, ctx);
       return result;
     }
@@ -129,16 +136,16 @@ export class ToolRegistry {
             decision.reason ?? `域名被策略拒绝：${decision.hostname}`,
             { toolName: name, input: parsed.data, networkPolicy },
           );
-          const result: ToolRunResult = {
-            ok: false,
+          const result = registryExecutionError({
             tool: name,
-            code: "permission_denied",
-            category: "permission_error",
-            error: decision.reason ?? `域名被策略拒绝：${decision.hostname}`,
             durationMs: elapsed(),
             toolCallId,
+            code: "permission_denied",
+            category: "permission_error",
+            kind: "permission_denied",
+            message: decision.reason ?? `域名被策略拒绝：${decision.hostname}`,
             risk,
-          };
+          });
           this.logStorage(name, rawInput, result, startedAt, ctx);
           return result;
         }
@@ -187,10 +194,19 @@ export class ToolRegistry {
     try {
       const output = await this.withTimeout(tool, () => tool.execute(parsed.data, execCtx), abortController);
       const durationMs = elapsed();
+      const outcome = resolveToolOutcome(name, output);
+      const auditStatus =
+        outcome.class === "observation_success"
+          ? "ok"
+          : outcome.class === "observation_failure"
+            ? "observation_failure"
+            : "execution_error";
       this.trace?.write({
         type: "tool_audit",
         tool: name,
-        status: "ok",
+        status: auditStatus,
+        outcomeClass: outcome.class,
+        outcomeKind: outcome.kind,
         durationMs,
         outputPreview: redactPreview(output, 600),
         toolCallId,
@@ -198,7 +214,14 @@ export class ToolRegistry {
         sessionId: ctx.sessionId,
         taskId: ctx.taskId,
       });
-      const result = { ok: true as const, tool: name, output, durationMs, toolCallId };
+      const result = registryFromOutcome({
+        tool: name,
+        durationMs,
+        toolCallId,
+        executed: true,
+        outcome,
+        output,
+      });
       this.logStorage(name, parsed.data, result, startedAt, ctx);
       return result;
     } catch (err) {
@@ -207,6 +230,8 @@ export class ToolRegistry {
       const rawError = isTimeout ? `工具执行超时（${tool.timeoutMs}ms）` : String(err);
       const error = sanitizeWorkspacePathsInError(ctx.workspaceRoot, rawError);
       const category = classifyToolError(code, error);
+      const kind = isTimeout ? "timeout" : /策略拒绝|高风险命令被拒绝/.test(error) ? "policy_blocked" : "tool_crash";
+      const policyBlocked = kind === "policy_blocked";
       const risk =
         category === "permission_error" || /策略拒绝|高风险命令被拒绝/.test(error)
           ? assessToolRisk({
@@ -224,7 +249,9 @@ export class ToolRegistry {
       this.trace?.write({
         type: "tool_audit",
         tool: name,
-        status: "error",
+        status: "execution_error",
+        outcomeClass: "execution_error",
+        outcomeKind: kind,
         code,
         category,
         error: redactPreview(error, 300),
@@ -233,16 +260,19 @@ export class ToolRegistry {
         sessionId: ctx.sessionId,
         taskId: ctx.taskId,
       });
-      const result = {
-        ok: false as const,
+      const result = registryExecutionError({
         tool: name,
-        code,
-        category,
-        error,
         durationMs: elapsed(),
         toolCallId,
+        code,
+        category,
+        kind,
+        message: error,
         risk,
-      };
+        executed: true,
+        requiresUserAction: policyBlocked,
+        recoverable: policyBlocked,
+      });
       this.logStorage(name, parsed.data, result, startedAt, ctx);
       return result;
     }
@@ -268,11 +298,17 @@ export class ToolRegistry {
         requestId: ctx.requestId,
         inputJson: stringifyStorageJson(input ?? {}),
         outputJson: stringifyStorageJson(
-          result.ok ? result.output : { error: result.error, code: result.code, category: result.category },
+          result.output ?? {
+            error: result.error ?? result.message,
+            code: result.code,
+            category: result.category,
+            outcomeClass: result.outcomeClass,
+            outcomeKind: result.outcomeKind,
+          },
         ),
-        ok: result.ok,
-        errorCode: result.ok ? undefined : result.code,
-        errorMessage: result.ok ? undefined : redactString(result.error),
+        ok: result.outcomeClass === "observation_success",
+        errorCode: result.code,
+        errorMessage: result.outcomeClass === "execution_error" ? redactString(result.error ?? result.message) : undefined,
         startedAt,
         endedAt: new Date().toISOString(),
         durationMs: result.durationMs,
@@ -344,4 +380,67 @@ function describeSchema(tool: Tool): string | undefined {
   const shape = (tool.inputSchema as { shape?: Record<string, unknown> }).shape;
   if (!shape) return undefined;
   return Object.keys(shape).join(", ");
+}
+
+function registryFromOutcome(input: {
+  tool: string;
+  durationMs: number;
+  toolCallId: string;
+  executed: boolean;
+  outcome: ToolOutcome;
+  output?: unknown;
+  code?: ToolErrorCode;
+  category?: ToolErrorCategory;
+  risk?: ToolRunResult["risk"];
+}): ToolRunResult {
+  return {
+    tool: input.tool,
+    durationMs: input.durationMs,
+    toolCallId: input.toolCallId,
+    executed: input.executed,
+    outcomeClass: input.outcome.class,
+    outcomeKind: input.outcome.kind,
+    message: input.outcome.message,
+    recoverable: input.outcome.recoverable,
+    requiresUserAction: input.outcome.requiresUserAction,
+    suggestedNextActions: input.outcome.suggestedNextActions,
+    outcomePath: input.outcome.path,
+    outcomeCommand: input.outcome.command,
+    outcomeExitCode: input.outcome.exitCode,
+    output: input.output,
+    ok: input.outcome.class === "observation_success",
+    code: input.code,
+    category: input.category,
+    risk: input.risk,
+    error: input.outcome.class === "execution_error" ? input.outcome.message : undefined,
+  };
+}
+
+function registryExecutionError(input: {
+  tool: string;
+  durationMs: number;
+  toolCallId: string;
+  code: ToolErrorCode;
+  category: ToolErrorCategory;
+  kind: ToolOutcome["kind"];
+  message: string;
+  risk?: ToolRunResult["risk"];
+  executed?: boolean;
+  requiresUserAction?: boolean;
+  recoverable?: boolean;
+}): ToolRunResult {
+  const outcome = executionError(input.kind as "invalid_input", input.message, {
+    recoverable: input.recoverable ?? false,
+    requiresUserAction: input.requiresUserAction,
+  });
+  return registryFromOutcome({
+    tool: input.tool,
+    durationMs: input.durationMs,
+    toolCallId: input.toolCallId,
+    executed: input.executed ?? false,
+    outcome: { ...outcome, kind: input.kind as ToolOutcome["kind"] },
+    code: input.code,
+    category: input.category,
+    risk: input.risk,
+  });
 }

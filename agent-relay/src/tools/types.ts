@@ -6,6 +6,8 @@ import type { NetworkPolicy } from "../policy/NetworkPolicy.js";
 import type { StructuredToolRisk } from "../policy/ToolRiskAssessment.js";
 import type { SubAgentCoordinator } from "../subagent/SubAgentCoordinator.js";
 
+import type { ToolOutcomeClass, SuggestedToolAction } from "./toolOutcome.js";
+
 export type { ToolPermission };
 
 /** 工具执行时的运行上下文。 */
@@ -90,16 +92,24 @@ export type ToolErrorCategory =
   | "unknown_error";
 
 /** 注册表执行工具后的归一化结果（不抛异常，便于服务端/执行器分支处理）。 */
-export type ToolRunResult =
-  | { ok: true; tool: string; output: unknown; durationMs: number; toolCallId?: string }
-  | {
-      ok: false;
-      tool: string;
-      code: ToolErrorCode;
-      category: ToolErrorCategory;
-      error: string;
-      durationMs: number;
-      toolCallId?: string;
-      /** 结构化风险字段（策略拒绝 / 高风险预览）。 */
-      risk?: StructuredToolRisk;
-    };
+export interface ToolRunResult {
+  tool: string;
+  durationMs: number;
+  toolCallId?: string;
+  executed: boolean;
+  outcomeClass: ToolOutcomeClass;
+  outcomeKind: string;
+  message: string;
+  recoverable: boolean;
+  requiresUserAction?: boolean;
+  suggestedNextActions?: SuggestedToolAction[];
+  outcomePath?: string;
+  outcomeCommand?: string;
+  outcomeExitCode?: number;
+  output?: unknown;
+  ok: boolean;
+  code?: ToolErrorCode;
+  category?: ToolErrorCategory;
+  risk?: StructuredToolRisk;
+  error?: string;
+}

@@ -11,6 +11,7 @@ export type UserFacingExecutionState =
   | "verifying"
   | "write_gate_blocked"
   | "completed"
+  | "completed_partial"
   | "failed"
   | "cancelled";
 
@@ -57,6 +58,13 @@ export function presentExecutionState(meta: Partial<AgentExecutionMeta>): Execut
   if (meta.stopReason === "user_cancelled") {
     return { userFacingState: "cancelled", userFacingLabel: "已取消" };
   }
+  if (
+    meta.stopReason === "completed_partial" ||
+    meta.stopReason === "misleading_completion" ||
+    meta.stopReason === "blocked_by_policy"
+  ) {
+    return { userFacingState: "completed_partial", userFacingLabel: "任务未完全完成" };
+  }
   if (meta.workflowTaskState === "completed" || meta.stopReason === "completed") {
     return { userFacingState: "completed", userFacingLabel: "任务已完成" };
   }
@@ -67,10 +75,26 @@ export function presentExecutionState(meta: Partial<AgentExecutionMeta>): Execut
     const to = meta.workflowSwitch.toWorkflowType || meta.workflowSwitch.toIntent;
     return { userFacingState: "analyzing", userFacingLabel: `已切换工作流：${WORKFLOW_LABELS[to] ?? to}` };
   }
+  if (meta.capabilityEscalations?.length) {
+    const latest = meta.capabilityEscalations[meta.capabilityEscalations.length - 1]!;
+    const to = meta.reconciledWorkflowType ?? latest.toWorkflow;
+    const fromLabel = WORKFLOW_LABELS[latest.fromWorkflow] ?? latest.fromWorkflow;
+    const toLabel = WORKFLOW_LABELS[to] ?? to;
+    return {
+      userFacingState: mapWorkflowToFacing(to),
+      userFacingLabel: `任务能力已升级：${fromLabel} → ${toLabel}`,
+    };
+  }
   if (meta.workflowTaskState && TASK_STATE_LABELS[meta.workflowTaskState]) {
-    const label = TASK_STATE_LABELS[meta.workflowTaskState]!;
-    const state = mapTaskStateToFacing(meta.workflowTaskState, meta.stopReason);
-    return { userFacingState: state, userFacingLabel: label };
+    const internalPlanningOnly =
+      meta.workflowTaskState === "planning" &&
+      meta.workflowType != null &&
+      meta.workflowType !== "planWorkflow";
+    if (!internalPlanningOnly) {
+      const label = TASK_STATE_LABELS[meta.workflowTaskState]!;
+      const state = mapTaskStateToFacing(meta.workflowTaskState, meta.stopReason);
+      return { userFacingState: state, userFacingLabel: label };
+    }
   }
   const workflowLabel = meta.workflowType ? WORKFLOW_LABELS[meta.workflowType] : undefined;
   if (workflowLabel) {

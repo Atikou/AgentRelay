@@ -1,4 +1,4 @@
-import { type ToolPermission } from "../core/permissions.js";
+import { resolveAllowedPermissions } from "./WorkflowCapability.js";
 import { BudgetManager } from "./BudgetManager.js";
 import { defaultWorkflowRouter } from "./WorkflowRouter.js";
 import { defaultEntryIntentRouter } from "./routing/EntryIntentRouter.js";
@@ -8,6 +8,12 @@ import {
   type PlanExecutionVariant,
 } from "./planExecutionVariant.js";
 import type { AgentIntentType } from "./IntentTypes.js";
+import {
+  MODE_BASE_BUDGETS,
+  MODE_SUGGESTED_BUDGETS,
+  mergeBudgetMax,
+  mergeRunBudget,
+} from "./runBudgetDefaults.js";
 import {
   parseRunModeValue,
   parseUserPermissionPolicyValue,
@@ -19,102 +25,30 @@ import {
   type UserPermissionPolicy,
 } from "./RunPolicyTypes.js";
 
-const MODE_DEFAULT_BUDGETS: Record<AgentRunMode, RunBudget> = {
-  chat: {
-    maxModelTurns: 8,
-    maxToolCalls: 8,
-    maxReadCalls: 6,
-    maxWriteCalls: 2,
-    maxShellCalls: 2,
-    maxRuntimeMs: 120_000,
-  },
-  plan: {
-    maxModelTurns: 16,
-    maxToolCalls: 20,
-    maxReadCalls: 20,
-    maxWriteCalls: 0,
-    maxShellCalls: 0,
-    maxRuntimeMs: 180_000,
-  },
-  implement: {
-    maxModelTurns: 24,
-    maxToolCalls: 40,
-    maxReadCalls: 24,
-    maxWriteCalls: 12,
-    maxShellCalls: 10,
-    maxRuntimeMs: 300_000,
-  },
-  debug: {
-    maxModelTurns: 20,
-    maxToolCalls: 36,
-    maxReadCalls: 18,
-    maxWriteCalls: 4,
-    maxShellCalls: 14,
-    maxRuntimeMs: 300_000,
-  },
-  review: {
-    maxModelTurns: 16,
-    maxToolCalls: 20,
-    maxReadCalls: 20,
-    maxWriteCalls: 0,
-    maxShellCalls: 0,
-    maxRuntimeMs: 180_000,
-  },
-};
-
-const MODE_SUGGESTED_BUDGETS: Record<AgentRunMode, RunBudget> = {
-  chat: {
-    maxModelTurns: 8,
-    maxToolCalls: 8,
-    maxReadCalls: 6,
-    maxWriteCalls: 2,
-    maxShellCalls: 2,
-    maxRuntimeMs: 120_000,
-  },
-  plan: {
-    maxModelTurns: 16,
-    maxToolCalls: 20,
-    maxReadCalls: 20,
-    maxWriteCalls: 0,
-    maxShellCalls: 0,
-    maxRuntimeMs: 180_000,
-  },
-  implement: {
-    maxModelTurns: 24,
-    maxToolCalls: 40,
-    maxReadCalls: 24,
-    maxWriteCalls: 12,
-    maxShellCalls: 10,
-    maxRuntimeMs: 300_000,
-  },
-  debug: {
-    maxModelTurns: 24,
-    maxToolCalls: 42,
-    maxReadCalls: 22,
-    maxWriteCalls: 6,
-    maxShellCalls: 16,
-    maxRuntimeMs: 360_000,
-  },
-  review: {
-    maxModelTurns: 16,
-    maxToolCalls: 20,
-    maxReadCalls: 20,
-    maxWriteCalls: 0,
-    maxShellCalls: 0,
-    maxRuntimeMs: 180_000,
-  },
-};
-
 /** 解析运行模式、分项预算与权限策略；与 `BudgetManager` 配对使用。 */
 export class RunPolicyManager {
   resolve(input: ResolveRunPolicyInput = {}): RunPolicy {
-    const decision = defaultEntryIntentRouter.resolve({
+    return this.buildPolicy(input, defaultEntryIntentRouter.resolve({
+      requestedMode: input.requestedMode,
+      forceRequestedMode: input.forceMode === true,
+      message: input.message,
+      taskType: input.taskType,
+      sessionId: input.sessionId,
+    }));
+  }
+
+  async resolveAsync(input: ResolveRunPolicyInput = {}): Promise<RunPolicy> {
+    const decision = await defaultEntryIntentRouter.resolveAsync({
       requestedMode: input.requestedMode,
       forceRequestedMode: input.forceMode === true,
       message: input.message,
       taskType: input.taskType,
       sessionId: input.sessionId,
     });
+    return this.buildPolicy(input, decision);
+  }
+
+  private buildPolicy(input: ResolveRunPolicyInput, decision: import("./routing/IntentDecision.js").IntentDecision): RunPolicy {
     const mode = decision.mode;
     const budget = this.resolveBudget(mode, input.budget);
     const suggestedBudget = mergeBudgetMax(MODE_SUGGESTED_BUDGETS[mode], budget);
@@ -125,10 +59,7 @@ export class RunPolicyManager {
       autoConfirm: input.autoConfirm === true,
     });
     const workflowRoute = defaultWorkflowRouter.routeIntent(decision.intent);
-    const hasWorkflowInput = Boolean(input.message?.trim()) || input.taskType != null;
-    const allowedPermissions = hasWorkflowInput && workflowRoute.enforceReadOnlyTools
-      ? ["read"] satisfies ToolPermission[]
-      : permissionsForPolicy(permissionPolicy);
+    const allowedPermissions = resolveAllowedPermissions(workflowRoute, permissionPolicy);
 
     const planVariant = resolvePlanVariant(decision.intent, input.message);
     const afterPlan = afterPlanForVariant(planVariant);
@@ -153,6 +84,10 @@ export class RunPolicyManager {
       isContinuation: decision.isContinuation,
       intentDecisionReason: decision.reason,
       intentDecisionConfidence: decision.confidence,
+      inheritedTaskId: decision.inheritedTaskId,
+      previousWorkflowType: decision.previousWorkflowType,
+      continuationScore: decision.continuationScore,
+      continuationSignals: decision.continuationSignals,
     };
   }
 
@@ -175,15 +110,7 @@ export class RunPolicyManager {
   }
 
   resolveBudget(mode: AgentRunMode, override: Partial<RunBudget> | undefined): RunBudget {
-    const base = MODE_DEFAULT_BUDGETS[mode];
-    return {
-      maxModelTurns: normalizeBudgetValue(override?.maxModelTurns, 60) ?? base.maxModelTurns,
-      maxToolCalls: normalizeBudgetValue(override?.maxToolCalls, 200) ?? base.maxToolCalls,
-      maxReadCalls: normalizeBudgetValue(override?.maxReadCalls, 200) ?? base.maxReadCalls,
-      maxWriteCalls: normalizeBudgetValue(override?.maxWriteCalls, 100) ?? base.maxWriteCalls,
-      maxShellCalls: normalizeBudgetValue(override?.maxShellCalls, 100) ?? base.maxShellCalls,
-      maxRuntimeMs: normalizeBudgetValue(override?.maxRuntimeMs, 1_800_000) ?? base.maxRuntimeMs,
-    };
+    return mergeRunBudget(MODE_BASE_BUDGETS[mode], override);
   }
 
   createBudgetManager(policy: RunPolicy): BudgetManager {
@@ -192,24 +119,6 @@ export class RunPolicyManager {
 }
 
 export const defaultRunPolicyManager = new RunPolicyManager();
-
-function normalizeBudgetValue(value: number | undefined, max: number): number | undefined {
-  if (value == null || !Number.isFinite(value)) return undefined;
-  const n = Math.floor(value);
-  if (n <= 0) return undefined;
-  return Math.min(n, max);
-}
-
-function mergeBudgetMax(base: RunBudget, budget: RunBudget): RunBudget {
-  return {
-    maxModelTurns: Math.max(base.maxModelTurns, budget.maxModelTurns),
-    maxToolCalls: Math.max(base.maxToolCalls, budget.maxToolCalls),
-    maxReadCalls: Math.max(base.maxReadCalls, budget.maxReadCalls),
-    maxWriteCalls: Math.max(base.maxWriteCalls, budget.maxWriteCalls),
-    maxShellCalls: Math.max(base.maxShellCalls, budget.maxShellCalls),
-    maxRuntimeMs: Math.max(base.maxRuntimeMs, budget.maxRuntimeMs),
-  };
-}
 
 function buildSystemHint(mode: AgentRunMode): string {
   if (mode === "plan") {
@@ -257,19 +166,6 @@ function inferPermissionPolicy(input: {
   return input.autoConfirm ? "autoEdit" : "confirmBeforeEdit";
 }
 
-function permissionsForPolicy(policy: UserPermissionPolicy): ToolPermission[] {
-  switch (policy) {
-    case "readOnly":
-      return ["read"];
-    case "confirmBeforeEdit":
-    case "autoEdit":
-      return ["read", "write"];
-    case "confirmBeforeRun":
-    case "autoRun":
-      return ["read", "write", "shell", "network", "dangerous"];
-  }
-}
-
 function stageForIntent(intent: AgentIntentType): AgentExecutionStage {
   if (intent === "plan") return "plan";
   if (intent === "verify" || intent === "run" || intent === "debug") return "verify";
@@ -284,3 +180,4 @@ function resolvePlanVariant(
   if (intent !== "plan") return undefined;
   return detectPlanExecutionVariant(message) ?? "plan_only";
 }
+

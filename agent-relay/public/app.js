@@ -14,6 +14,7 @@ const profileTag = document.getElementById("profile-tag");
 const sidebarHistoryList = document.getElementById("sidebar-history-list");
 
 let appConfig = null;
+const DEV_MODE = new URLSearchParams(window.location.search).has("dev");
 const ACTIVE_SESSION_KEY = "agentrelay.activeSessionId";
 const PERMISSION_POLICY_KEY = "agentrelay.permissionPolicy";
 let activeSessionId = localStorage.getItem(ACTIVE_SESSION_KEY) || undefined;
@@ -89,8 +90,13 @@ function getSelectedPermissionPolicy() {
 }
 
 function getExplicitRunMode() {
+  if (!DEV_MODE) return undefined;
   const value = explicitModeSelect?.value?.trim();
   return value || undefined;
+}
+
+function initDevModeUi() {
+  if (DEV_MODE) document.body.classList.add("dev-mode");
 }
 
 function persistPermissionPolicy() {
@@ -274,6 +280,43 @@ function roleLabel(role) {
   }[role] || role;
 }
 
+function formatModelDisplayName(input) {
+  if (!input) return null;
+  const client = input.clientName ?? input.client_name;
+  const model = input.modelName ?? input.model_name;
+  const selected = input.selectedModelId;
+  if (client && model && client !== model) return `${client} / ${model}`;
+  if (model) return model;
+  if (client) return client;
+  if (selected) return selected;
+  return null;
+}
+
+function defaultModelDisplayName() {
+  return formatModelDisplayName({ clientName: appConfig?.defaultModel }) || appConfig?.defaultModel || "默认模型";
+}
+
+function inferTurnModelLabel(replies) {
+  if (!replies?.length) return defaultModelDisplayName();
+  for (let i = replies.length - 1; i >= 0; i -= 1) {
+    const label = formatModelDisplayName(replies[i]);
+    if (label) return label;
+  }
+  return defaultModelDisplayName();
+}
+
+function messageMetaTitle(message, turnModelLabel) {
+  const when = formatDateTime(message?.createdAt ?? message?.created_at ?? new Date().toISOString());
+  if (message?.role === "assistant") {
+    if (message?.source === "guard") {
+      return `系统核实 · ${when}`;
+    }
+    const model = formatModelDisplayName(message) || turnModelLabel || defaultModelDisplayName();
+    return `${model} · ${when}`;
+  }
+  return `${roleLabel(message.role)} · ${when}`;
+}
+
 function messageClass(role) {
   if (role === "user") return "user";
   if (role === "assistant") return "assistant";
@@ -281,6 +324,8 @@ function messageClass(role) {
 }
 
 function renderStoredMessage(message) {
+  const env = resolveMessageEnvelope(message);
+  if (!env.uiVisible && message.role !== "user") return null;
   const wrap = document.createElement("div");
   wrap.className = `msg ${messageClass(message.role)} history-message`;
   const bubble = document.createElement("div");
@@ -294,7 +339,7 @@ function renderStoredMessage(message) {
   wrap.appendChild(bubble);
   const meta = document.createElement("div");
   meta.className = "msg-meta";
-  meta.textContent = `${roleLabel(message.role)} · ${formatDateTime(message.createdAt ?? message.created_at)}`;
+  meta.textContent = messageMetaTitle(message);
   wrap.appendChild(meta);
   return wrap;
 }
@@ -320,33 +365,65 @@ function stringifyAgentAnswer(answer) {
   return JSON.stringify(answer, null, 2);
 }
 
+function resolveMessageEnvelope(message) {
+  if (message?.messageKind) {
+    return {
+      messageKind: message.messageKind,
+      uiVisible: message.uiVisible !== false,
+      trusted: message.trusted === true,
+      source: message.source,
+    };
+  }
+  if (message?.role === "user") {
+    return { messageKind: "user_input", uiVisible: true, trusted: true, source: "user" };
+  }
+  if (message?.role === "tool") {
+    return { messageKind: "tool_result", uiVisible: false, trusted: true, source: "tool" };
+  }
+  if (message?.role === "assistant") {
+    const action = parseAgentActionJson(message.content);
+    if (action?.action === "tool") {
+      return { messageKind: "tool_action", uiVisible: false, trusted: false, source: "model" };
+    }
+    if (action?.action === "final") {
+      return { messageKind: "raw_model_final", uiVisible: false, trusted: false, source: "model" };
+    }
+    return { messageKind: "final_answer", uiVisible: true, trusted: false, source: "model" };
+  }
+  return { messageKind: "workflow_event", uiVisible: false, trusted: false, source: "workflow" };
+}
+
 function extractFinalAnswerFromReplies(replies) {
   for (let i = replies.length - 1; i >= 0; i -= 1) {
     const message = replies[i];
     if (message.role !== "assistant") continue;
-    const action = parseAgentActionJson(message.content);
-    if (action?.action === "final") {
-      return stringifyAgentAnswer(action.answer);
+    const env = resolveMessageEnvelope(message);
+    if (env.messageKind === "final_answer" && env.uiVisible) {
+      return message.content || "";
     }
   }
-  const lastAssistant = [...replies].reverse().find((m) => m.role === "assistant");
-  if (lastAssistant?.content && !parseAgentActionJson(lastAssistant.content)) {
-    return lastAssistant.content;
+  for (let i = replies.length - 1; i >= 0; i -= 1) {
+    const message = replies[i];
+    if (message.role !== "assistant") continue;
+    const action = parseAgentActionJson(message.content);
+    if (action) continue;
+    if (message.content?.trim()) return message.content;
   }
   return "";
 }
 
 function turnHasThinkingTrail(replies) {
   if (!replies?.length) return false;
-  let assistantCount = 0;
   for (const message of replies) {
     if (message.role === "tool") return true;
+    const env = resolveMessageEnvelope(message);
+    if (env.messageKind === "tool_action" || env.messageKind === "raw_model_final") return true;
     if (message.role !== "assistant") continue;
-    assistantCount += 1;
     const action = parseAgentActionJson(message.content);
-    if (!action || action.action !== "final") return true;
+    if (!action || action.action === "tool") return true;
+    if (action.action === "final" && env.messageKind !== "final_answer") return true;
   }
-  return assistantCount > 1;
+  return false;
 }
 
 function formatHistoryThinkingEntry(message) {
@@ -386,6 +463,8 @@ function groupMessagesIntoTurns(messages) {
       continue;
     }
     if (message.role === "system") {
+      const env = resolveMessageEnvelope(message);
+      if (!env.uiVisible) continue;
       turns.push({ user: null, replies: [message], systemOnly: true });
       continue;
     }
@@ -402,11 +481,13 @@ function groupMessagesIntoTurns(messages) {
 function renderHistoryTurn(turn) {
   const frag = document.createDocumentFragment();
   if (turn.user) {
-    frag.appendChild(renderStoredMessage(turn.user));
+    const userNode = renderStoredMessage(turn.user);
+    if (userNode) frag.appendChild(userNode);
   }
   if (turn.systemOnly) {
     for (const message of turn.replies) {
-      frag.appendChild(renderStoredMessage(message));
+      const node = renderStoredMessage(message);
+      if (node) frag.appendChild(node);
     }
     return frag;
   }
@@ -424,6 +505,7 @@ function renderHistoryTurn(turn) {
   wrap.appendChild(bubble);
 
   if (turnHasThinkingTrail(replies)) {
+    const turnModelLabel = inferTurnModelLabel(replies);
     const toggle = document.createElement("button");
     toggle.type = "button";
     toggle.className = "history-thinking-toggle";
@@ -439,7 +521,7 @@ function renderHistoryTurn(turn) {
       entry.className = "history-thinking-entry";
       const head = document.createElement("div");
       head.className = "history-thinking-entry-head";
-      head.textContent = `${roleLabel(message.role)} · ${formatDateTime(message.createdAt ?? message.created_at)}`;
+      head.textContent = messageMetaTitle(message, turnModelLabel);
       const body = document.createElement("pre");
       body.className = "history-thinking-entry-body";
       body.textContent = formatHistoryThinkingEntry(message);
@@ -462,7 +544,7 @@ function renderHistoryTurn(turn) {
   const lastReply = replies[replies.length - 1];
   const meta = document.createElement("div");
   meta.className = "msg-meta";
-  meta.textContent = `助手 · ${formatDateTime(lastReply?.createdAt ?? lastReply?.created_at)}`;
+  meta.textContent = messageMetaTitle(lastReply, inferTurnModelLabel(replies));
   wrap.appendChild(meta);
   frag.appendChild(wrap);
   return frag;
@@ -810,7 +892,7 @@ function buildAgentStepRow(s) {
   const thought = s.thought ? `<div class="plan-step-desc">想法：${escapeHtml(s.thought)}</div>` : "";
   const io = `入参 ${escapeHtml(JSON.stringify(s.input))}`;
   const out = s.ok
-    ? `结果 ${escapeHtml(truncate(JSON.stringify(s.output), 400))}`
+    ? `结果 ${escapeHtml(truncate(s.output == null ? "" : JSON.stringify(s.output), 400))}`
     : escapeHtml(s.error || "");
   const riskTag = s.risk
     ? `<span class="tag-warn">${escapeHtml(s.risk.tier)}</span> <span class="plan-perms">${escapeHtml(s.risk.summary)}</span>`
@@ -845,15 +927,32 @@ const ACTIVITY_STEP_ICONS = {
   summary: "✅",
   error: "⚠️",
   retry: "↻",
+  escalation: "⬆️",
 };
 
 const ACTIVITY_STEP_STATUS_LABELS = {
   pending: "等待",
   running: "进行中",
   success: "完成",
+  warning: "观察失败",
   failed: "失败",
   skipped: "跳过",
 };
+
+function resolveRunUiStatus(meta) {
+  if (!meta) return "已完成";
+  if (meta.stopReason === "user_cancelled") return "已取消";
+  if (meta.userFacingLabel) return meta.userFacingLabel;
+  const status = meta.completionStatus;
+  if (status === "completed_success" || meta.stopReason === "completed") return "已完成";
+  if (status === "awaiting_permission" || meta.stopReason === "awaiting_permission") return "等待授权";
+  if (status === "misleading_completion") return "虚假完成（未执行副作用）";
+  if (status === "completed_partial" || meta.stopReason === "completed_partial") return "任务未完全完成";
+  if (status === "blocked_by_policy" || meta.stopReason === "blocked_by_policy") return "被策略阻止";
+  if (meta.stopReason === "budget_exhausted") return "预算耗尽";
+  if (meta.stopReason === "error") return "执行失败";
+  return "已完成";
+}
 
 function createActivityTimelinePanel(initialLabel) {
   const card = document.createElement("div");
@@ -925,7 +1024,14 @@ function createActivityTimelinePanel(initialLabel) {
       }
       contentEl.textContent = step.content;
     }
-    if (step.metadata?.errorMessage && !row.querySelector(".activity-step-error")) {
+    if (step.metadata?.outcomeClass === "observation_failure" && !row.querySelector(".activity-step-warning")) {
+      const warn = document.createElement("div");
+      warn.className = "activity-step-warning";
+      const kind = step.metadata?.outcomeKind ?? "observation_failure";
+      warn.textContent = `类型：观察失败（${kind}）— 工具已执行，但结果不满足目标`;
+      row.appendChild(warn);
+    }
+    if (step.metadata?.errorMessage && step.status === "failed" && !row.querySelector(".activity-step-error")) {
       const err = document.createElement("div");
       err.className = "activity-step-error";
       err.textContent = step.metadata.errorMessage;
@@ -958,7 +1064,8 @@ function createActivityTimelinePanel(initialLabel) {
       } else if (event.type === "step_completed") {
         const node = stepNodes.get(event.stepId);
         if (node) {
-          node.step.status = "success";
+          node.step.status = event.metadata?.outcomeClass === "observation_failure" ? "warning" : "success";
+          if (event.metadata) node.step.metadata = { ...node.step.metadata, ...event.metadata };
           if (event.result) node.step.content = event.result;
           refreshActivityStepRow(node.row, node.step);
         }
@@ -976,7 +1083,6 @@ function createActivityTimelinePanel(initialLabel) {
           refreshActivityStepRow(node.row, node.step);
         }
       } else if (event.type === "run_completed") {
-        this.setStatus("已完成");
         summaryEl.style.display = "block";
         summaryEl.textContent = event.summary || "";
       } else if (event.type === "run_failed") {
@@ -993,9 +1099,15 @@ function createActivityTimelinePanel(initialLabel) {
       scrollToBottom();
     },
     finalize(result) {
-      if (result?.answer && summaryEl.style.display === "none") {
+      if (result?.executionMeta) {
+        this.setStatus(resolveRunUiStatus(result.executionMeta));
+      }
+      const summary = result?.answer?.trim()
+        ? result.answer
+        : result?.executionMeta?.partialSummary;
+      if (summary && summaryEl.style.display === "none") {
         summaryEl.style.display = "block";
-        summaryEl.textContent = result.answer;
+        summaryEl.textContent = summary;
       }
     },
   };
@@ -1004,6 +1116,7 @@ function createActivityTimelinePanel(initialLabel) {
 function createAgentStreamPanel(initialLabel) {
   const card = document.createElement("div");
   card.className = "plan-card thinking-stream-card";
+  let activeModelLabel = null;
 
   const header = document.createElement("div");
   header.className = "thinking-header";
@@ -1082,6 +1195,8 @@ function createAgentStreamPanel(initialLabel) {
         turnsWrap.appendChild(row);
         turnNodes.set(turn.iteration, row);
       }
+      const modelLabel = formatModelDisplayName(turn);
+      if (modelLabel) activeModelLabel = modelLabel;
       row.className = `thinking-turn thinking-turn-${turn.phase}${turn.action === "tool" ? " thinking-turn-tool" : ""}`;
       const modelHint =
         turn.clientName && turn.modelName
@@ -1108,7 +1223,7 @@ function createAgentStreamPanel(initialLabel) {
     finalize(result) {
       cancelBtn.style.display = "none";
       const cancelled = result.executionMeta?.stopReason === "user_cancelled";
-      this.setStatus(cancelled ? "已取消" : "已完成");
+      this.setStatus(cancelled ? "已取消" : resolveRunUiStatus(result.executionMeta));
       if (result.notifications?.length) {
         const notes = document.createElement("div");
         notes.className = "plan-step-desc";
@@ -1128,13 +1243,23 @@ function createAgentStreamPanel(initialLabel) {
           ? `\nlocation=${m.location.usedLocateSteps ?? 0} steps · found=${(m.location.locatedFiles || []).slice(0, 4).join(",") || "-"}`
           : "";
         metaBox.innerHTML = `${workflowStatus}<strong>执行元信息</strong><br>${escapeHtml(
-          `mode=${m.mode} · stop=${m.stopReason} · model=${u.modelTurns ?? m.usedModelTurns}/${b.maxModelTurns ?? "-"} · tools=${u.toolCalls ?? m.usedToolCalls}/${b.maxToolCalls ?? "-"}`,
+          `mode=${m.mode} · stop=${m.stopReason} · model=${u.modelTurns ?? m.usedModelTurns}/${b.maxModelTurns ?? "-"} · tools=${u.toolCalls ?? m.usedToolCalls}/${b.maxToolCalls ?? "-"}${u.toolObservationFailures != null ? ` · obsFail=${u.toolObservationFailures} execErr=${u.toolExecutionErrors ?? 0}` : ""}`,
         )}${escapeHtml(locationInfo)}`;
       }
-      answerTitle.style.display = "block";
-      answerBody.style.display = "block";
-      answerBody.textContent = result.answer || "";
+      if (result.answer?.trim()) {
+        answerTitle.style.display = "block";
+        answerBody.style.display = "block";
+        if (typeof marked !== "undefined") {
+          answerBody.classList.add("markdown-body");
+          answerBody.innerHTML = marked.parse(result.answer);
+        } else {
+          answerBody.textContent = result.answer;
+        }
+      }
       return `${cancelled ? "已取消 · " : ""}模型轮次 ${result.iterations} · 工具 ${result.steps?.length ?? 0} 次${result.reachedLimit ? " · 已达预算" : ""}`;
+    },
+    getModelLabel() {
+      return activeModelLabel;
     },
   };
 }
@@ -1790,6 +1915,28 @@ const RUN_TIMELINE_CATEGORY_LABEL = {
   other: "其他",
 };
 
+function formatRunToolOutcomeLine(u) {
+  const obs = Number(u.toolObservationFailures ?? 0);
+  const exec = Number(u.toolExecutionErrors ?? 0);
+  const legacy = Number(u.toolFailures ?? 0);
+  const total = obs + exec > 0 ? obs + exec : legacy;
+  if (obs > 0 || exec > 0) {
+    return `工具 ${u.toolCalls ?? 0} 次（失败 ${total}：观察 ${obs} · 执行 ${exec}）`;
+  }
+  return `工具 ${u.toolCalls ?? 0} 次（失败 ${total}）`;
+}
+
+function runTimelineStatusPill(status) {
+  if (!status) return "";
+  const cls =
+    status === "observation_failure" || status === "warning"
+      ? "pill pill-warning"
+      : status === "execution_error" || status === "failed"
+        ? "pill pill-danger"
+        : "pill";
+  return `<span class="${cls}">${escapeHtml(status)}</span>`;
+}
+
 function renderRunTimelineRows(timeline, usageEl) {
   if (!timeline.length) {
     usageEl.textContent = "该 Run 暂无时间线事件。";
@@ -1799,7 +1946,7 @@ function renderRunTimelineRows(timeline, usageEl) {
     .map((entry) => {
       const cat = RUN_TIMELINE_CATEGORY_LABEL[entry.category] ?? entry.category;
       const time = formatDateTime(entry.time);
-      const status = entry.status ? `<span class="pill">${escapeHtml(entry.status)}</span>` : "";
+      const status = entry.status ? runTimelineStatusPill(entry.status) : "";
       const detail = entry.detail ? `<div class="run-timeline-detail">${escapeHtml(entry.detail)}</div>` : "";
       return `
         <div class="run-timeline-item" data-category="${escapeHtml(entry.category)}">
@@ -1897,7 +2044,7 @@ async function handleRunReports() {
       const u = report.usage || {};
       usage.innerHTML = `
         <strong>用量摘要</strong> · 事件 ${report.eventCount ?? 0} 条 ·
-        模型 ${u.modelTurns ?? 0} 轮 · 工具 ${u.toolCalls ?? 0} 次（失败 ${u.toolFailures ?? 0}） ·
+        模型 ${u.modelTurns ?? 0} 轮 · ${formatRunToolOutcomeLine(u)} ·
         tokens ${u.totalInputTokens ?? 0}/${u.totalOutputTokens ?? 0} · $${u.totalCostUsd ?? 0}`;
       timelineBox.innerHTML = renderRunTimelineRows(report.timeline || [], usage);
     } catch (err) {
@@ -2588,9 +2735,7 @@ function renderPlan(plan) {
 
 async function handleUnifiedAgentStream(message) {
   const explicitMode = getExplicitRunMode();
-  const thinkingLabel = explicitMode === "plan"
-    ? "计划模式流式运行中…"
-    : "自动工作流流式运行中…";
+  const thinkingLabel = "正在处理…";
   const timelinePanel = createActivityTimelinePanel("准备中…");
   const panel = createAgentStreamPanel(thinkingLabel);
   const wrapper = document.createElement("div");
@@ -2652,7 +2797,13 @@ async function handleUnifiedAgentStream(message) {
   timelinePanel.finalize(doneResult);
   const meta = panel.finalize(doneResult);
   const metaEl = msgWrap.querySelector(".msg-meta");
-  if (metaEl) metaEl.textContent = meta + sessionMeta();
+  if (metaEl) {
+    const modelLabel =
+      panel.getModelLabel() ||
+      formatModelDisplayName(doneResult?.routerDecision) ||
+      defaultModelDisplayName();
+    metaEl.textContent = `${modelLabel} · ${formatDateTime(new Date().toISOString())}`;
+  }
   maybeShowPermissionRequest(doneResult);
   maybeShowPlanHandoff(doneResult);
   } catch (err) {
@@ -3168,7 +3319,7 @@ function renderAgentRun(result) {
       ? `\nlocation=${m.location.usedLocateSteps ?? 0} steps · found=${(m.location.locatedFiles || []).slice(0, 4).join(",") || "-"} · continue=${m.location.needsContinue ? "yes" : "no"}`
       : "";
     metaBox.innerHTML = `${workflowStatus}<strong>执行元信息</strong><br>${escapeHtml(
-      `mode=${m.mode}${m.modeSource ? `/${m.modeSource}` : ""} · intent=${m.intent ?? "-"} · workflow=${m.workflowType ?? "-"} · permissionPolicy=${m.permissionPolicy ?? "-"}${m.permissionPolicySource ? `/${m.permissionPolicySource}` : ""} · stop=${m.stopReason}${m.budgetExhausted ? `(${m.budgetExhausted})` : ""} · model=${u.modelTurns ?? m.usedModelTurns}/${b.maxModelTurns ?? "-"} · tools=${u.toolCalls ?? m.usedToolCalls}/${b.maxToolCalls ?? "-"} · read=${u.readCalls ?? m.usedReadCalls}/${b.maxReadCalls ?? "-"} · write=${u.writeCalls ?? m.usedWriteCalls}/${b.maxWriteCalls ?? "-"} · shell=${u.shellCalls ?? m.usedShellCalls}/${b.maxShellCalls ?? "-"} · runtime=${u.runtimeMs ?? 0}/${b.maxRuntimeMs ?? "-"}ms${
+      `mode=${m.mode}${m.modeSource ? `/${m.modeSource}` : ""} · intent=${m.intent ?? "-"} · workflow=${m.workflowType ?? "-"} · permissionPolicy=${m.permissionPolicy ?? "-"}${m.permissionPolicySource ? `/${m.permissionPolicySource}` : ""} · stop=${m.stopReason}${m.budgetExhausted ? `(${m.budgetExhausted})` : ""} · model=${u.modelTurns ?? m.usedModelTurns}/${b.maxModelTurns ?? "-"} · tools=${u.toolCalls ?? m.usedToolCalls}/${b.maxToolCalls ?? "-"} · read=${u.readCalls ?? m.usedReadCalls}/${b.maxReadCalls ?? "-"} · write=${u.writeCalls ?? m.usedWriteCalls}/${b.maxWriteCalls ?? "-"} · shell=${u.shellCalls ?? m.usedShellCalls}/${b.maxShellCalls ?? "-"} · runtime=${u.runtimeMs ?? 0}/${b.maxRuntimeMs ?? "-"}ms${u.toolObservationFailures != null ? ` · obsFail=${u.toolObservationFailures} execErr=${u.toolExecutionErrors ?? 0}` : ""}${
         m.needsMoreBudget && m.suggestedBudget
           ? ` · 建议预算=${formatBudget(m.suggestedBudget)}`
           : ""
@@ -3177,20 +3328,22 @@ function renderAgentRun(result) {
     card.appendChild(metaBox);
   }
 
-  const ans = document.createElement("div");
-  ans.className = "plan-goal";
-  ans.style.marginTop = result.steps && result.steps.length ? "12px" : "0";
-  ans.textContent = "最终回答";
-  card.appendChild(ans);
-  const answer = document.createElement("div");
-  answer.className = "plan-step-desc";
-  answer.style.whiteSpace = "pre-wrap";
-  answer.textContent = result.answer;
-  card.appendChild(answer);
+  if (result.answer?.trim()) {
+    const ans = document.createElement("div");
+    ans.className = "plan-goal";
+    ans.style.marginTop = result.steps && result.steps.length ? "12px" : "0";
+    ans.textContent = "最终回答";
+    card.appendChild(ans);
+    const answer = document.createElement("div");
+    answer.className = "plan-step-desc";
+    answer.style.whiteSpace = "pre-wrap";
+    answer.textContent = result.answer;
+    card.appendChild(answer);
+  }
 
-  const metaInfo = result.executionMeta;
-  const workflowLabel = metaInfo ? getWorkflowStatusLabel(metaInfo) : "";
-  const meta = `模型轮次 ${result.iterations} · 工具请求 ${result.steps ? result.steps.length : 0} 次${metaInfo ? ` · ${workflowLabel || metaInfo.mode}/${metaInfo.stopReason}` : ""}${result.reachedLimit ? " · 已达预算" : ""}${sessionMeta()}`;
+  const modelLabel =
+    formatModelDisplayName(result.routerDecision) || defaultModelDisplayName();
+  const meta = `${modelLabel} · ${formatDateTime(new Date().toISOString())}`;
   addMessage("assistant", card, meta);
   maybeShowPermissionRequest(result);
   maybeShowPlanHandoff(result);
@@ -3226,7 +3379,7 @@ function getWorkflowStatusLabel(meta) {
   if (meta.workflowTaskState && TASK_STATE_LABELS[meta.workflowTaskState]) {
     return TASK_STATE_LABELS[meta.workflowTaskState];
   }
-  return WORKFLOW_STATUS_LABELS[meta.workflowType] || meta.workflowType || meta.intent || meta.mode || "";
+  return "处理中";
 }
 
 function renderWorkflowStatus(meta, result) {
@@ -3235,21 +3388,28 @@ function renderWorkflowStatus(meta, result) {
   if (!label) return "";
   const waitingOp = resolveWaitingOperationLabel(meta, result);
   const policyLabel = formatPermissionPolicyLabel(meta.permissionPolicy);
-  const details = [
-    meta.workflowSwitch?.switched
-      ? `工作流切换：${meta.workflowSwitch.fromWorkflowType} → ${meta.workflowSwitch.toWorkflowType}`
-      : "",
-    meta.userFacingState ? `状态：${meta.userFacingState}` : "",
-    meta.workflowTaskState ? `任务状态：${TASK_STATE_LABELS[meta.workflowTaskState] || meta.workflowTaskState}` : "",
-    meta.intent ? `意图：${INTENT_STATUS_LABELS[meta.intent] || meta.intent}` : "",
-    meta.executionStage ? `阶段：${EXECUTION_STAGE_LABELS[meta.executionStage] || meta.executionStage}` : "",
-    meta.mode ? `模式（调试）：${meta.mode}` : "",
-    policyLabel ? `权限策略：${policyLabel}` : "",
-    waitingOp ? `等待：${waitingOp}` : "等待：无",
-    meta.modeSource ? `来源：${meta.modeSource === "explicit" ? "显式" : "自动"}` : "",
-  ]
-    .filter(Boolean)
-    .join(" · ");
+  const details = DEV_MODE
+    ? [
+        meta.workflowSwitch?.switched
+          ? `工作流切换：${meta.workflowSwitch.fromWorkflowType} → ${meta.workflowSwitch.toWorkflowType}`
+          : "",
+        meta.userFacingState ? `状态：${meta.userFacingState}` : "",
+        meta.workflowTaskState ? `任务状态：${TASK_STATE_LABELS[meta.workflowTaskState] || meta.workflowTaskState}` : "",
+        meta.intent ? `意图：${INTENT_STATUS_LABELS[meta.intent] || meta.intent}` : "",
+        meta.executionStage ? `阶段：${EXECUTION_STAGE_LABELS[meta.executionStage] || meta.executionStage}` : "",
+        meta.mode ? `mode：${meta.mode}` : "",
+        meta.intentDecisionSource ? `路由：${meta.intentDecisionSource}` : "",
+        policyLabel ? `权限策略：${policyLabel}` : "",
+        waitingOp ? `等待：${waitingOp}` : "等待：无",
+        meta.modeSource ? `来源：${meta.modeSource === "explicit" ? "显式" : "自动"}` : "",
+      ]
+        .filter(Boolean)
+        .join(" · ")
+    : waitingOp
+      ? `等待：${waitingOp}${policyLabel ? ` · 权限：${policyLabel}` : ""}`
+      : policyLabel
+        ? `权限：${policyLabel}`
+        : "";
   return `<div class="workflow-status"><span class="status status-running">${escapeHtml(label)}</span>${
     details ? `<span class="workflow-status-detail">${escapeHtml(details)}</span>` : ""
   }</div>`;
@@ -3267,7 +3427,8 @@ function formatBudget(budget) {
 }
 
 function truncate(s, n) {
-  return s.length > n ? s.slice(0, n) + "…" : s;
+  const text = s == null ? "" : String(s);
+  return text.length > n ? text.slice(0, n) + "…" : text;
 }
 
 async function handleBackground() {
@@ -3791,6 +3952,7 @@ async function handleContext() {
               {
                 phase: data.phase,
                 contextPackage: data.contextPackage,
+                contextTrust: data.contextPackage?.contextTrust,
                 renderedPrompt: data.renderedPrompt,
               },
               null,
@@ -4124,6 +4286,7 @@ messageInput.addEventListener("keydown", (e) => {
 });
 
 async function init() {
+  initDevModeUi();
   restorePermissionPolicy();
   permissionPolicySelect?.addEventListener("change", persistPermissionPolicy);
   bindAdvancedPanelPositioning();

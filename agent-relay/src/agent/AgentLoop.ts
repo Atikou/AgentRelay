@@ -12,21 +12,54 @@ import type { AgentStepPlan } from "../plan/types.js";
 import { assertWithinCostBudget, sumModelTurnCost } from "../util/costBudget.js";
 import { wrapUntrustedToolOutput } from "../util/injection.js";
 import { redactPreview } from "../util/redact.js";
+import { FailedActionMemory } from "./recovery/FailedActionMemory.js";
+import { RunToolResultCache } from "./recovery/RunToolResultCache.js";
+import {
+  cacheInvalidationPath,
+  planSystemRecovery,
+  renderCacheReuseContext,
+} from "./recovery/SystemToolRecovery.js";
+import type { ToolOutcome } from "../tools/toolOutcome.js";
+import { resolveToolOutcome } from "../tools/toolOutcome.js";
+import {
+  applyOutcomeToStep,
+  renderBlockedRecoveryMessage,
+  renderExecutionErrorMessage,
+  renderToolOutcomeMessage,
+  traceStatusForOutcome,
+} from "./recovery/renderToolOutcome.js";
 import { EditAutoVerificationWorkflow } from "./EditAutoVerificationWorkflow.js";
+import {
+  applyEscalationBudget,
+  formatCapabilityEscalationTimelineContent,
+  resolveEffectiveIntent,
+} from "./capabilityEscalationRuntime.js";
+import {
+  evaluateCapabilityEscalation,
+  expectedSideEffectsFromRoute,
+  renderCapabilityEscalationContext,
+  type CapabilityEscalation,
+  type CapabilityEscalationRecord,
+} from "./CapabilityEscalation.js";
+import { isSoftWorkflow, defaultWorkflowRouter } from "./WorkflowRouter.js";
+import { assessWorkflowToolAccess, type WorkflowCapabilityAssessment } from "./WorkflowCapability.js";
+import { extractSideEffectSummary } from "./sideEffectFromSteps.js";
+import { evaluateCompletionGuard, type CompletionGuardResult } from "./completion/CompletionFinalGuard.js";
 import { EditProposalWorkflow } from "./EditProposalWorkflow.js";
 import { MAX_WORKFLOW_CORRECTION_ATTEMPTS, WorkflowCorrectionWorkflow } from "./WorkflowCorrectionWorkflow.js";
 import { hasPlanningPhaseArtifacts, resolveWorkflowTaskState } from "./WorkflowTaskState.js";
 import { WorkflowExecutor } from "./WorkflowExecutor.js";
 import {
-  defaultWorkflowSessionStore,
   renderWorkflowSwitchContext,
   resolveWorkflowSwitch,
+  type WorkflowSessionSnapshot,
 } from "./WorkflowSessionSwitch.js";
 import { presentExecutionState } from "./presentation/ExecutionStatePresenter.js";
 import { defaultSessionTaskManager } from "./task/SessionTaskManager.js";
 import { buildWorkflowState } from "./WorkflowStateCenter.js";
 import { orchestrateWorkflowWrite } from "./workflowWriteOrchestrator.js";
 import { buildWorkflowFollowupContexts } from "./workflowFollowupContexts.js";
+import { ToolRecoveryWorkflow } from "./ToolRecoveryWorkflow.js";
 import {
   buildLocationMeta,
   buildWorkflowCorrections,
@@ -65,9 +98,9 @@ import {
 import type { PlanHandoffPayload } from "../policy/planHandoffTypes.js";
 import {
   planHandoffMessageForVariant,
-  planHandoffPanelTitle,
 } from "./planHandoffMessages.js";
 import type { AgentToolStep } from "./toolStep.js";
+import { countToolOutcomeUsage, isFailedToolStep, isSuccessfulToolStep, stepPlanTraceStatus } from "./toolStepOutcome.js";
 import {
   defaultPausedRunStore,
   type PausedRunSnapshot,
@@ -265,7 +298,12 @@ export class AgentLoop {
   private workflowWritePhases: AgentWorkflowWritePhase[] = [];
   private workflowDebugFixes: AgentWorkflowDebugFix[] = [];
   private workflowSwitch?: AgentWorkflowSwitch;
+  private capabilityEscalations: CapabilityEscalationRecord[] = [];
+  private reconciledWorkflowType?: import("./IntentTypes.js").AgentWorkflowType;
+  private reconciledIntent?: import("./IntentTypes.js").AgentIntentType;
   private pendingWritePhaseContext?: string;
+  private readonly toolResultCache = new RunToolResultCache();
+  private failedActionMemory: FailedActionMemory;
 
   constructor(private readonly options: AgentLoopOptions) {
     this.policy =
@@ -290,6 +328,7 @@ export class AgentLoop {
     });
     this.allowed = resolved.allowed;
     this.budgetManager = defaultRunPolicyManager.createBudgetManager(this.policy);
+    this.failedActionMemory = new FailedActionMemory(this.policy.budget.maxRepeatedToolFailures);
     this.scopedGrants = options.scopedGrants;
     this.permissionRequestStore = options.permissionRequestStore ?? defaultPermissionRequestStore;
     this.planHandoffStore = options.planHandoffStore ?? defaultPlanHandoffStore;
@@ -346,7 +385,12 @@ export class AgentLoop {
     this.workflowWritePhases = [];
     this.workflowDebugFixes = [];
     this.workflowSwitch = undefined;
+    this.capabilityEscalations = [];
+    this.reconciledWorkflowType = undefined;
+    this.reconciledIntent = undefined;
     this.pendingWritePhaseContext = undefined;
+    this.toolResultCache.invalidateAll();
+    this.failedActionMemory = new FailedActionMemory(this.policy.budget.maxRepeatedToolFailures);
     const pausedRun = this.options.pausedRun;
     if (pausedRun) {
       this.workflowProposals = [...(pausedRun.workflowProposals ?? [])];
@@ -388,7 +432,7 @@ export class AgentLoop {
       sessionId = ctx.createSession().id;
     }
     if (ctx && sessionId && !isResume && !pausedRun) {
-      ctx.saveUserMessage(sessionId, userMessage);
+      ctx.saveUserMessage(sessionId, userMessage, this.options.runId);
     }
 
     // 续跑：直接复用暂停时的对话快照，忠实从同一段对话继续（不重建上下文、不重跑预扫描工作流）。
@@ -428,8 +472,18 @@ export class AgentLoop {
     injectNotifications();
 
     if (!pausedRun && sessionId && !isResume && this.policy.intent && this.policy.workflowType) {
+      const prevCtx = defaultSessionTaskManager.getContext(sessionId);
+      const previous: WorkflowSessionSnapshot | undefined = prevCtx
+        ? {
+            sessionId,
+            intent: prevCtx.intent,
+            workflowType: prevCtx.workflowType,
+            updatedAt: prevCtx.updatedAt,
+            runId: prevCtx.lastRunId,
+          }
+        : undefined;
       this.workflowSwitch = resolveWorkflowSwitch({
-        previous: defaultWorkflowSessionStore.get(sessionId),
+        previous,
         current: {
           intent: this.policy.intent,
           workflowType: this.policy.workflowType,
@@ -452,6 +506,10 @@ export class AgentLoop {
       for (const step of workflowResult.steps) {
         steps.push(step);
         this.options.onStep?.(step);
+      }
+      const preflightCount = workflowResult.steps.filter((s) => s.preflight && !s.cached).length;
+      if (preflightCount > 0) {
+        this.budgetManager.recordPreflightTool(preflightCount);
       }
       for (const modelContext of workflowResult.modelContexts) {
         messages.push({ role: "system", content: modelContext });
@@ -519,7 +577,8 @@ export class AgentLoop {
       const runtimeExhausted = this.budgetManager.findRuntimeExhaustion();
       if (runtimeExhausted) {
         return await this.finishRun({
-          answer: this.buildPartialAnswer(steps, runtimeExhausted, effectiveGoal),
+          answer: "",
+          partialSummary: this.buildPartialAnswer(steps, runtimeExhausted, effectiveGoal),
           steps,
           iterations: modelTurns,
           reachedLimit: true,
@@ -606,8 +665,11 @@ export class AgentLoop {
         });
         continue;
       }
-      if (ctx && sessionId) {
-        ctx.saveAssistantMessage(sessionId, response.content);
+      if (ctx && sessionId && action.action !== "final") {
+        ctx.saveAssistantToolAction(sessionId, response.content, this.options.runId, {
+          clientName: response.clientName,
+          modelName: response.modelName,
+        });
       }
 
       if (action.action === "final") {
@@ -623,7 +685,7 @@ export class AgentLoop {
         this.writeAgentDecisionTrace({
           iteration,
           action: "final",
-          answerLength: action.answer.length,
+          answerLength: action.answer?.length ?? 0,
         });
         // 计划阶段完成：生成 planHandoff（与工具级 permissionRequest 分离），冻结快照等待用户选择是否执行。
         if (!pausedRun && this.shouldCreatePlanHandoff() && action.answer.trim()) {
@@ -645,8 +707,14 @@ export class AgentLoop {
             modelTurns: iteration,
             resumeMode: "implement",
           });
+          if (ctx && sessionId) {
+            ctx.saveTrustedModelFinalAnswer(sessionId, action.answer, this.options.runId, {
+              clientName: response.clientName,
+              modelName: response.modelName,
+            });
+          }
           return await this.finishRun({
-            answer: `${action.answer}\n\n---\n\n**${planHandoffPanelTitle()}** ${handoffMessage}`,
+            answer: action.answer,
             steps,
             iterations: iteration,
             reachedLimit: false,
@@ -658,6 +726,49 @@ export class AgentLoop {
             awaitingPlanHandoff: true,
           });
         }
+        const guard = evaluateCompletionGuard({
+          goal: effectiveGoal,
+          intent: this.policy.intent,
+          reconciledIntent: this.reconciledIntent,
+          capabilityEscalations: this.capabilityEscalations,
+          mode: this.policy.mode,
+          answer: action.answer,
+          steps,
+        });
+        if (!guard.accepted) {
+          this.writeAgentDecisionTrace({
+            iteration,
+            action: "final_guard_rejected",
+            rawPreview: redactPreview(action.answer, 400),
+            completionStatus: guard.status,
+          });
+          if (ctx && sessionId) {
+            ctx.saveRawModelFinal(sessionId, action.answer, this.options.runId, {
+              clientName: response.clientName,
+              modelName: response.modelName,
+            });
+            if (guard.guardedAnswer) {
+              ctx.saveGuardedFinalAnswer(sessionId, guard.guardedAnswer, this.options.runId);
+            }
+          }
+          return await this.finishRun({
+            answer: guard.guardedAnswer ?? "",
+            steps,
+            iterations: iteration,
+            reachedLimit: false,
+            consumedNotifications,
+            sessionId,
+            userMessage: effectiveGoal,
+            stopReason: guard.stopReason,
+            completionGuard: guard,
+          });
+        }
+        if (ctx && sessionId) {
+          ctx.saveTrustedModelFinalAnswer(sessionId, action.answer, this.options.runId, {
+            clientName: response.clientName,
+            modelName: response.modelName,
+          });
+        }
         return await this.finishRun({
           answer: action.answer,
           steps,
@@ -666,6 +777,7 @@ export class AgentLoop {
           consumedNotifications,
           sessionId,
           userMessage: effectiveGoal,
+          completionGuard: guard,
         });
       }
 
@@ -691,9 +803,100 @@ export class AgentLoop {
         inputPreview: redactPreview(action.input ?? {}, 500),
       });
       const tool = this.options.registry.get(action.tool);
+      const workflowRoute = defaultWorkflowRouter.routeIntent(this.policy.intent);
+      this.reconcileCapabilityBeforeTool({
+        action,
+        toolPermission: tool?.permission,
+        workflowRoute,
+        iteration,
+        messages,
+      });
+      const workflowBlock = assessWorkflowToolAccess({
+        mode: this.policy.mode,
+        workflowRoute,
+        toolPermission: tool?.permission,
+      });
+      if (workflowBlock.blocked) {
+        const step = this.buildWorkflowBlockedStep(action, iteration, workflowBlock, toolCallId);
+        steps.push(step);
+        this.options.onStep?.(step);
+        this.recordToolStepMessages({
+          messages,
+          step,
+          steps,
+          goal: effectiveGoal,
+          sessionId,
+        });
+        continue;
+      }
+
+      if (tool) {
+        const permissionDecision = evaluatePermissionGuard({
+          intent: this.policy.intent,
+          permissionPolicy: this.policy.permissionPolicy,
+          toolName: tool.name,
+          permission: tool.permission,
+          input: action.input ?? {},
+          allowedPermissions: this.allowed,
+          scopedGrants: this.resolveScopedGrants(),
+        });
+        if (permissionDecision.decision === "deny") {
+          const step = this.buildPermissionBlockedStep(
+            action,
+            iteration,
+            permissionDecision.reason ?? "权限拒绝",
+            toolCallId,
+            tool.permission,
+          );
+          steps.push(step);
+          this.options.onStep?.(step);
+          this.recordToolStepMessages({
+            messages,
+            step,
+            steps,
+            goal: effectiveGoal,
+            sessionId,
+          });
+          continue;
+        }
+        if (permissionDecision.decision === "needsConfirmation") {
+          const step = await this.runToolAction(action, iteration, toolCallId, {
+            steps,
+            goal: effectiveGoal,
+          });
+          steps.push(step);
+          this.options.onStep?.(step);
+          if (
+            step.blocked &&
+            step.confirmationRequest?.status === "waiting_confirmation" &&
+            this.pauseOnPermissionRequest
+          ) {
+            return await this.pauseForToolPermission({
+              step,
+              action,
+              messages,
+              steps,
+              modelTurns,
+              goal: effectiveGoal,
+              system,
+              sessionId,
+              consumedNotifications,
+            });
+          }
+          this.recordToolStepMessages({
+            messages,
+            step,
+            steps,
+            goal: effectiveGoal,
+            sessionId,
+          });
+          continue;
+        }
+      }
+
       const toolBudgetExhausted = this.budgetManager.findToolExhaustion({
         toolPermission: tool?.permission,
-        permissionAllowed: tool ? this.allowed.includes(tool.permission) : false,
+        permissionAllowed: Boolean(tool),
         steps,
       });
       if (toolBudgetExhausted) {
@@ -701,7 +904,8 @@ export class AgentLoop {
         steps.push(step);
         this.options.onStep?.(step);
         return await this.finishRun({
-          answer: this.buildPartialAnswer(steps, toolBudgetExhausted, effectiveGoal),
+          answer: "",
+          partialSummary: this.buildPartialAnswer(steps, toolBudgetExhausted, effectiveGoal),
           steps,
           iterations: modelTurns,
           reachedLimit: true,
@@ -741,6 +945,39 @@ export class AgentLoop {
         goal: effectiveGoal,
         sessionId,
       });
+      const invalidated = cacheInvalidationPath(step);
+      if (invalidated) this.toolResultCache.invalidatePath(invalidated);
+      await this.maybeRunSystemRecovery({
+        step,
+        messages,
+        steps,
+        goal: effectiveGoal,
+        sessionId,
+        iteration,
+      });
+      if (this.failedActionMemory.shouldForcePartialFinal(step)) {
+        const recoverySummary = this.failedActionMemory.buildSummaryContext();
+        if (recoverySummary) {
+          messages.push({ role: "system", content: recoverySummary });
+        }
+        return await this.finishRun({
+          answer: "",
+          partialSummary: [
+            this.finalizer.buildRecoveryExhaustedAnswer({ goal: effectiveGoal, steps }),
+            step.error ?? "",
+            recoverySummary ?? "",
+          ]
+            .filter(Boolean)
+            .join("\n\n"),
+          steps,
+          iterations: modelTurns,
+          reachedLimit: false,
+          stopReason: "error",
+          consumedNotifications,
+          sessionId,
+          userMessage: effectiveGoal,
+        });
+      }
       if (step.workflowPhaseBlocked && step.error) {
         messages.push({
           role: "system",
@@ -764,7 +1001,8 @@ export class AgentLoop {
       const postToolRuntimeExhausted = this.budgetManager.findRuntimeExhaustion();
       if (postToolRuntimeExhausted) {
         return await this.finishRun({
-          answer: this.buildPartialAnswer(steps, postToolRuntimeExhausted, effectiveGoal),
+          answer: "",
+          partialSummary: this.buildPartialAnswer(steps, postToolRuntimeExhausted, effectiveGoal),
           steps,
           iterations: modelTurns,
           reachedLimit: true,
@@ -777,7 +1015,8 @@ export class AgentLoop {
     }
 
     return await this.finishRun({
-      answer: this.buildPartialAnswer(steps, "maxModelTurns", effectiveGoal),
+      answer: "",
+      partialSummary: this.buildPartialAnswer(steps, "maxModelTurns", effectiveGoal),
       steps,
       iterations: modelTurns,
       reachedLimit: true,
@@ -789,14 +1028,14 @@ export class AgentLoop {
     } catch (err) {
       if (this.isCancelledError(err)) {
         return await this.finishRun({
-          answer: "（运行已取消）",
+          answer: "",
           steps,
           iterations: modelTurns,
           reachedLimit: false,
+          stopReason: "user_cancelled",
           consumedNotifications,
           sessionId,
           userMessage: effectiveGoal,
-          stopReason: "user_cancelled",
         });
       }
       throw err;
@@ -825,6 +1064,8 @@ export class AgentLoop {
     planHandoff?: PlanHandoffPayload;
     awaitingPermission?: boolean;
     awaitingPlanHandoff?: boolean;
+    completionGuard?: CompletionGuardResult;
+    partialSummary?: string;
   }): Promise<AgentRunResult> {
     const isResume = Boolean(this.options.resumeState);
     this.writeAgentStepPlanTrace(input.steps);
@@ -834,12 +1075,20 @@ export class AgentLoop {
       const result = await ctx.finalizeTurn(input.sessionId, input.userMessage);
       compressed = result.compressed !== null;
     }
+    const guard = input.completionGuard;
+    const stopReason =
+      guard?.stopReason ??
+      input.stopReason ??
+      (input.reachedLimit ? "budget_exhausted" : "completed");
+    const answer = input.answer;
     const executionMeta = this.buildExecutionMeta({
       steps: input.steps,
       iterations: input.iterations,
-      stopReason: input.stopReason ?? (input.reachedLimit ? "budget_exhausted" : "completed"),
+      stopReason,
       budgetExhausted: input.budgetExhausted,
       goal: input.userMessage,
+      completionGuard: guard,
+      partialSummary: input.partialSummary,
     });
     executionMeta.planVariant = this.policy.planVariant;
     this.writeRunUsageSummary(input.steps, executionMeta);
@@ -849,7 +1098,6 @@ export class AgentLoop {
     const planHandoff = input.planHandoff;
     const awaitingPermission = input.awaitingPermission === true;
     const awaitingPlanHandoff = input.awaitingPlanHandoff === true;
-    const answer = input.answer;
 
     if (
       input.sessionId &&
@@ -857,28 +1105,28 @@ export class AgentLoop {
       this.policy.intent &&
       this.policy.workflowType
     ) {
-      defaultWorkflowSessionStore.set({
-        sessionId: input.sessionId,
-        intent: this.policy.intent,
-        workflowType: this.policy.workflowType,
-        workflowTaskState: executionMeta.workflowTaskState,
-        runId: this.options.runId,
-        updatedAt: new Date().toISOString(),
-      });
       defaultSessionTaskManager.updateFromRun({
         sessionId: input.sessionId,
         taskId: this.options.taskId,
         goal: input.userMessage,
         intent: this.policy.intent,
         workflowType: this.policy.workflowType,
+        entryIntent: this.policy.intent,
+        entryWorkflowType: this.policy.workflowType,
+        reconciledIntent: this.reconciledIntent,
+        reconciledWorkflowType: this.reconciledWorkflowType,
         runId: this.options.runId,
-        stopReason: input.stopReason ?? (input.reachedLimit ? "budget_exhausted" : "completed"),
+        stopReason,
+        completionStatus: guard?.status,
+        sideEffectsMet: guard ? guard.status === "completed_success" : undefined,
+        sideEffectSummary: extractSideEffectSummary(input.steps),
         workflowTaskState: executionMeta.workflowTaskState,
         failed:
-          input.stopReason === "error" ||
+          stopReason === "error" ||
           executionMeta.workflowTaskState === "failed" ||
-          input.steps.some((step) => step.ok === false && !step.blocked),
-        failureSummary: input.steps.find((step) => step.ok === false && step.error)?.error,
+          input.steps.some((step) => isFailedToolStep(step)),
+        failureSummary: input.steps.find((step) => isFailedToolStep(step))?.error
+          ?? input.steps.find((step) => isFailedToolStep(step))?.outcomeMessage,
         relatedFiles: executionMeta.location?.locatedFiles,
       });
     }
@@ -907,7 +1155,12 @@ export class AgentLoop {
       }
     }
 
-    this.finalizeActivityTimeline(input);
+    this.finalizeActivityTimeline({
+      ...input,
+      answer,
+      stopReason,
+      partialSummary: input.partialSummary,
+    });
 
     return {
       answer,
@@ -978,12 +1231,47 @@ export class AgentLoop {
       thought: planned.thought,
     };
     const tool = this.options.registry.get(action.tool);
+    const toolCallId = this.makeToolCallId(iteration, `${action.tool}:auto-verify`);
+    const workflowRoute = defaultWorkflowRouter.routeIntent(this.policy.intent);
+    this.reconcileCapabilityBeforeTool({
+      action,
+      toolPermission: tool?.permission,
+      workflowRoute,
+      iteration,
+    });
+    const workflowBlock = assessWorkflowToolAccess({
+      mode: this.policy.mode,
+      workflowRoute,
+      toolPermission: tool?.permission,
+    });
+    if (workflowBlock.blocked) {
+      return this.buildWorkflowBlockedStep(action, iteration, workflowBlock, toolCallId);
+    }
+    if (tool) {
+      const permissionDecision = evaluatePermissionGuard({
+        intent: this.policy.intent,
+        permissionPolicy: this.policy.permissionPolicy,
+        toolName: tool.name,
+        permission: tool.permission,
+        input: action.input ?? {},
+        allowedPermissions: this.allowed,
+        scopedGrants: this.resolveScopedGrants(),
+      });
+      if (permissionDecision.decision !== "allow") {
+        return this.buildPermissionBlockedStep(
+          action,
+          iteration,
+          permissionDecision.reason ?? "权限未允许",
+          toolCallId,
+          tool.permission,
+        );
+      }
+    }
     const budgetExhausted = this.budgetManager.findToolExhaustion({
       toolPermission: tool?.permission,
-      permissionAllowed: tool ? this.allowed.includes(tool.permission) : false,
+      permissionAllowed: Boolean(tool),
       steps,
     });
-    const toolCallId = this.makeToolCallId(iteration, `${action.tool}:auto-verify`);
     if (budgetExhausted) {
       return this.buildBudgetBlockedStep(action, iteration, budgetExhausted, toolCallId);
     }
@@ -1012,6 +1300,15 @@ export class AgentLoop {
       toolCallId: input.step.toolCallId,
       content: toolText,
     });
+    if (input.step.cached) {
+      input.messages.push({
+        role: "system",
+        content: renderCacheReuseContext(
+          input.step.tool,
+          (input.step.input ?? {}) as Record<string, unknown>,
+        ),
+      });
+    }
     const followups = buildWorkflowFollowupContexts({
       intent: this.policy.intent,
       goal: input.goal,
@@ -1022,6 +1319,7 @@ export class AgentLoop {
     this.pendingWritePhaseContext = followups.pendingWritePhaseContext;
     for (const extra of [
       followups.blockedContext,
+      followups.toolRecoveryContext,
       followups.writePhaseContext,
       followups.editExecutionContext,
       followups.editVerificationContext,
@@ -1031,16 +1329,7 @@ export class AgentLoop {
     }
     const ctx = this.options.contextManager;
     if (ctx && input.sessionId) {
-      ctx.saveToolMessage(input.sessionId, toolText);
-      for (const extra of [
-        followups.blockedContext,
-        followups.writePhaseContext,
-        followups.editExecutionContext,
-        followups.editVerificationContext,
-        followups.workflowCorrectionContext,
-      ]) {
-        if (extra) ctx.saveSystemMessage(input.sessionId, extra);
-      }
+      ctx.saveToolMessage(input.sessionId, toolText, this.options.runId);
     }
   }
 
@@ -1049,6 +1338,8 @@ export class AgentLoop {
     reachedLimit: boolean;
     budgetExhausted?: RunBudgetKey;
     stopReason?: AgentStopReason;
+    completionGuard?: CompletionGuardResult;
+    partialSummary?: string;
   }): void {
     const tl = this.options.timeline;
     if (!tl) return;
@@ -1056,6 +1347,33 @@ export class AgentLoop {
     const stop = input.stopReason ?? (input.reachedLimit ? "budget_exhausted" : "completed");
     if (stop === "user_cancelled") {
       tl.cancelRun("用户取消");
+      return;
+    }
+    if (
+      stop === "completed_partial" ||
+      stop === "misleading_completion" ||
+      stop === "blocked_by_policy" ||
+      input.completionGuard?.status === "completed_partial" ||
+      input.completionGuard?.status === "misleading_completion" ||
+      input.completionGuard?.status === "blocked_by_policy"
+    ) {
+      const title =
+        stop === "misleading_completion" ? "检测到虚假完成" : "任务未完全完成";
+      const summary =
+        input.partialSummary ||
+        input.completionGuard?.reason ||
+        input.stopReason ||
+        "";
+      if (typeof tl.partialCompleteRun === "function") {
+        tl.partialCompleteRun(summary.slice(0, 800), title);
+      } else {
+        tl.failRun(title);
+      }
+      return;
+    }
+    if (stop === "awaiting_permission") {
+      const summary = input.partialSummary || input.completionGuard?.reason || "等待工具授权";
+      tl.partialCompleteRun(summary.slice(0, 800), "等待工具授权");
       return;
     }
     if (stop === "completed" && !input.reachedLimit) {
@@ -1076,11 +1394,80 @@ export class AgentLoop {
     tl.completeRun(input.answer.slice(0, 800));
   }
 
+  private async maybeRunSystemRecovery(input: {
+    step: AgentToolStep;
+    messages: ChatMessage[];
+    steps: AgentToolStep[];
+    goal: string;
+    sessionId?: string;
+    iteration: number;
+  }): Promise<void> {
+    if (input.step.ok || input.step.blocked || input.step.cached || input.step.systemRecovery) return;
+    if (!this.budgetManager.canRunRecovery()) return;
+    const plan = planSystemRecovery(input.step, input.goal);
+    if (!plan) return;
+
+    input.messages.push({ role: "system", content: plan.preamble });
+    for (const recovery of plan.actions) {
+      if (!this.budgetManager.canRunRecovery()) break;
+      this.budgetManager.recordRecoveryTurn();
+      const action: ToolAction = {
+        action: "tool",
+        tool: recovery.tool,
+        input: recovery.input,
+        thought: recovery.reason,
+      };
+      const toolCallId = this.makeToolCallId(input.iteration, `recovery:${recovery.tool}`);
+      const recoveryStep = await this.runToolAction(action, input.iteration, toolCallId, {
+        steps: input.steps,
+        goal: input.goal,
+        isRecovery: true,
+      });
+      recoveryStep.systemRecovery = true;
+      input.steps.push(recoveryStep);
+      this.options.onStep?.(recoveryStep);
+      this.recordToolStepMessages({
+        messages: input.messages,
+        step: recoveryStep,
+        steps: input.steps,
+        goal: input.goal,
+        sessionId: input.sessionId,
+      });
+      if (recoveryStep.ok) break;
+    }
+  }
+
+  private buildCachedToolStep(
+    base: AgentToolStep,
+    tool: NonNullable<ReturnType<ToolRegistry["get"]>>,
+    cachedOutput: unknown,
+    input: Record<string, unknown>,
+  ): AgentToolStep {
+    const layers = buildToolResultLayers(base.tool, cachedOutput, {
+      compact: this.options.contextManager
+        ? (t, out) => this.options.contextManager!.compactToolOutput(t, out)
+        : undefined,
+    });
+    const outcome = resolveToolOutcome(base.tool, cachedOutput);
+    this.budgetManager.recordCacheHit();
+    return applyOutcomeToStep(
+      { ...base, permission: tool.permission },
+      outcome,
+      {
+        executed: false,
+        cached: true,
+        output: layers.modelVisible,
+        resultLayers: layers,
+        toolCallId: base.toolCallId,
+      },
+    );
+  }
+
   private async runToolAction(
     action: ToolAction,
     iteration: number,
     toolCallId: string,
-    ctx: { steps: AgentToolStep[]; goal: string },
+    ctx: { steps: AgentToolStep[]; goal: string; isRecovery?: boolean; isPreflight?: boolean },
   ): Promise<AgentToolStep> {
     const base: AgentToolStep = {
       iteration,
@@ -1107,9 +1494,13 @@ export class AgentLoop {
         at: new Date().toISOString(),
       });
     };
-    const failActivity = (msg: string, extra?: { durationMs?: number }) => {
+    const failActivity = (msg: string, extra?: { durationMs?: number; outcomeKind?: string }) => {
       if (activityStepId && tl) {
-        tl.failStep(activityStepId, msg, { durationMs: extra?.durationMs });
+        tl.failStep(activityStepId, msg, {
+          durationMs: extra?.durationMs,
+          outcomeClass: "execution_error",
+          outcomeKind: extra?.outcomeKind,
+        });
       }
     };
     const okActivity = (msg: string, extra?: { durationMs?: number; changedFiles?: string[] }) => {
@@ -1118,6 +1509,22 @@ export class AgentLoop {
           durationMs: extra?.durationMs,
           resultSummary: msg,
           changedFiles: extra?.changedFiles,
+          outcomeClass: "observation_success",
+        });
+      }
+    };
+    const observeActivity = (
+      msg: string,
+      extra?: { durationMs?: number; outcomeKind?: string; exitCode?: number; command?: string },
+    ) => {
+      if (activityStepId && tl) {
+        tl.completeStep(activityStepId, msg, {
+          durationMs: extra?.durationMs,
+          resultSummary: msg,
+          outcomeClass: "observation_failure",
+          outcomeKind: extra?.outcomeKind,
+          exitCode: extra?.exitCode,
+          command: extra?.command,
         });
       }
     };
@@ -1139,6 +1546,15 @@ export class AgentLoop {
     }
     const withPermission = { ...base, permission: tool.permission };
 
+    const inputRecord = (action.input ?? {}) as Record<string, unknown>;
+    if (!ctx.isRecovery) {
+      const cached = this.toolResultCache.lookup(action.tool, inputRecord);
+      if (cached) {
+        okActivity("复用本 run 缓存结果");
+        return this.buildCachedToolStep(withPermission, tool, cached.entry.output, inputRecord);
+      }
+    }
+
     const subagentDispatchGuard = this.assessSubagentDispatchGuard(action, ctx.steps);
     if (subagentDispatchGuard) {
       failActivity(subagentDispatchGuard);
@@ -1157,6 +1573,20 @@ export class AgentLoop {
         blocked: true,
         error: subagentSideEffectGuard,
       };
+    }
+
+    const failedActionAssessment = this.failedActionMemory.assess(action);
+    if (failedActionAssessment) {
+      failActivity(failedActionAssessment.reason);
+      const blockedStep: AgentToolStep = {
+        ...withPermission,
+        blocked: true,
+        executed: false,
+        recoveryCircuitOpen: failedActionAssessment.circuitOpen,
+        error: failedActionAssessment.reason,
+      };
+      this.failedActionMemory.record(blockedStep);
+      return blockedStep;
     }
 
     const writeOrchestration = orchestrateWorkflowWrite({
@@ -1248,12 +1678,22 @@ export class AgentLoop {
       signal: this.options.signal,
     });
 
-    if (result.ok) {
+    if (result.executed) {
       const layers = buildToolResultLayers(action.tool, result.output, {
         compact: this.options.contextManager
           ? (t, out) => this.options.contextManager!.compactToolOutput(t, out)
           : undefined,
       });
+      const outcome: ToolOutcome = {
+        class: result.outcomeClass,
+        kind: result.outcomeKind as ToolOutcome["kind"],
+        message: result.message,
+        recoverable: result.recoverable,
+        path: result.outcomePath,
+        command: result.outcomeCommand,
+        exitCode: result.outcomeExitCode,
+        suggestedNextActions: result.suggestedNextActions,
+      };
       this.options.trace?.write({
         type: "agent_tool",
         tool: action.tool,
@@ -1262,7 +1702,9 @@ export class AgentLoop {
         runId: this.options.runId,
         sessionId: this.options.sessionId,
         taskId: this.options.taskId,
-        status: "ok",
+        status: traceStatusForOutcome(result.outcomeClass),
+        outcomeClass: result.outcomeClass,
+        outcomeKind: result.outcomeKind,
         rawJsonLength: layers.rawJsonLength,
         modelJsonLength: layers.modelJsonLength,
         userDisplay: layers.userDisplay,
@@ -1270,28 +1712,55 @@ export class AgentLoop {
       });
       const rawPath = action.input?.path;
       const path = typeof rawPath === "string" ? rawPath : undefined;
-      okActivity(layers.userDisplay.summary.slice(0, 200) || "执行成功", {
-        durationMs: result.durationMs,
-        changedFiles: path ? [path] : undefined,
-      });
-      return {
-        ...withPermission,
-        ok: true,
+      const summary = layers.userDisplay.summary.slice(0, 200) || result.message;
+      if (result.outcomeClass === "observation_failure") {
+        observeActivity(summary, {
+          durationMs: result.durationMs,
+          outcomeKind: result.outcomeKind,
+          exitCode: result.outcomeExitCode,
+          command: result.outcomeCommand,
+        });
+      } else if (result.outcomeClass === "execution_error") {
+        failActivity(summary, { durationMs: result.durationMs, outcomeKind: result.outcomeKind });
+      } else {
+        okActivity(summary, {
+          durationMs: result.durationMs,
+          changedFiles: path ? [path] : undefined,
+        });
+      }
+      const step = applyOutcomeToStep(withPermission, outcome, {
+        executed: true,
         output: layers.modelVisible,
         resultLayers: layers,
         durationMs: result.durationMs,
         toolCallId: result.toolCallId,
-      };
+        risk: result.risk,
+      });
+      if (!ctx.isRecovery && result.output !== undefined) {
+        this.toolResultCache.store(action.tool, inputRecord, result.output);
+      }
+      this.failedActionMemory.record(step);
+      return step;
     }
-    const errMsg = `[${result.code}] ${result.error}`;
-    failActivity(errMsg, { durationMs: result.durationMs });
-    return {
-      ...withPermission,
-      error: `[${result.code}] ${result.error}`,
-      durationMs: result.durationMs,
-      toolCallId: result.toolCallId,
-      risk: result.ok ? undefined : result.risk,
-    };
+    const errMsg = result.error ?? result.message;
+    failActivity(errMsg, { durationMs: result.durationMs, outcomeKind: result.outcomeKind });
+    const failedStep = applyOutcomeToStep(
+      withPermission,
+      {
+        class: "execution_error",
+        kind: result.outcomeKind as ToolOutcome["kind"],
+        message: errMsg,
+        recoverable: false,
+      },
+      {
+        executed: false,
+        durationMs: result.durationMs,
+        toolCallId: result.toolCallId,
+        risk: result.risk,
+      },
+    );
+    this.failedActionMemory.record(failedStep);
+    return failedStep;
   }
 
   private buildBudgetBlockedStep(
@@ -1310,15 +1779,162 @@ export class AgentLoop {
       thought: action.thought,
       ok: false,
       blocked: true,
+      executed: false,
+      blockedReasonKind: "budget",
+      outcomeClass: "execution_error",
+      outcomeKind: "budget_exhausted",
       error: `运行预算已耗尽：${budgetExhausted}`,
+    };
+  }
+
+  private reconcileCapabilityBeforeTool(input: {
+    action: ToolAction;
+    toolPermission?: ToolPermission;
+    workflowRoute: ReturnType<typeof defaultWorkflowRouter.routeIntent>;
+    iteration: number;
+    messages?: ChatMessage[];
+  }): void {
+    const escalation = evaluateCapabilityEscalation({
+      workflowRoute: input.workflowRoute,
+      toolName: input.action.tool,
+      toolPermission: input.toolPermission,
+    });
+    if (!escalation?.canEscalate) return;
+
+    const alreadyRecorded = this.capabilityEscalations.some(
+      (e) =>
+        e.requestedTool === escalation.requestedTool &&
+        e.requestedPermission === escalation.requestedPermission &&
+        e.fromWorkflow === escalation.fromWorkflow,
+    );
+    if (alreadyRecorded) return;
+
+    this.capabilityEscalations.push({
+      ...escalation,
+      iteration: input.iteration,
+      applied: true,
+    });
+    this.reconciledWorkflowType = escalation.toWorkflow;
+    this.reconciledIntent = escalation.toIntent;
+    applyEscalationBudget(this.budgetManager, escalation.targetSideEffects);
+    this.recordCapabilityEscalationTimeline(escalation, input.action);
+
+    if (input.messages) {
+      input.messages.push({
+        role: "system",
+        content: renderCapabilityEscalationContext(escalation),
+      });
+    }
+  }
+
+  private getEffectiveIntent(): import("./IntentTypes.js").AgentIntentType {
+    return resolveEffectiveIntent(this.policy.intent, this.reconciledIntent);
+  }
+
+  private recordCapabilityEscalationTimeline(
+    escalation: CapabilityEscalation,
+    action: ToolAction,
+  ): void {
+    const tl = this.options.timeline;
+    const runId = this.options.runId;
+    if (!tl || !runId) return;
+    const targetPath = (action.input as { path?: string } | undefined)?.path;
+    const autoApproved =
+      this.policy.permissionPolicy === "autoRun" || this.policy.permissionPolicy === "autoEdit";
+    tl.recordCapabilityEscalation({
+      runId,
+      title: `能力升级：${escalation.fromWorkflow} → ${escalation.toWorkflow}`,
+      content: formatCapabilityEscalationTimelineContent({
+        escalation: { ...escalation, iteration: 0, applied: true },
+        permissionPolicy: this.policy.permissionPolicy,
+        targetPath,
+        autoApproved,
+      }),
+      metadata: {
+        toolName: escalation.requestedTool,
+        filePath: targetPath,
+      },
+    });
+  }
+
+  private buildWorkflowCapabilityHint(): string {
+    const intent = this.getEffectiveIntent();
+    const route = defaultWorkflowRouter.routeIntent(intent);
+    if (!isSoftWorkflow(route)) return "";
+    const expected = expectedSideEffectsFromRoute(route).join(", ") || "read";
+    const lines = [
+      "【工作流能力】本任务为可执行类工作流（soft workflow）。",
+      `默认预期侧重：${expected}。`,
+      "若完成任务必须写入文件或执行命令，可调用相应工具；系统将动态升级任务能力，并由 PermissionGuard 与用户权限策略决定是否执行。",
+    ];
+    if (this.reconciledWorkflowType && this.reconciledIntent) {
+      lines.push(
+        `本轮已升级为：${this.reconciledWorkflowType}（${this.reconciledIntent}）。后续步骤与续写将按升级后的工作流理解任务。`,
+      );
+    }
+    return lines.join("\n");
+  }
+
+  private buildWorkflowBlockedStep(
+    action: ToolAction,
+    iteration: number,
+    block: WorkflowCapabilityAssessment,
+    toolCallId?: string,
+  ): AgentToolStep {
+    const tool = this.options.registry.get(action.tool);
+    return {
+      iteration,
+      toolCallId,
+      tool: action.tool,
+      input: action.input ?? {},
+      permission: tool?.permission,
+      thought: action.thought,
+      ok: false,
+      blocked: true,
+      executed: false,
+      blockedReasonKind: "workflow",
+      outcomeClass: "execution_error",
+      outcomeKind: block.outcomeKind ?? "policy_blocked",
+      error: block.reason,
+    };
+  }
+
+  private buildPermissionBlockedStep(
+    action: ToolAction,
+    iteration: number,
+    reason: string,
+    toolCallId: string | undefined,
+    permission: ToolPermission | undefined,
+  ): AgentToolStep {
+    return {
+      iteration,
+      toolCallId,
+      tool: action.tool,
+      input: action.input ?? {},
+      permission,
+      thought: action.thought,
+      ok: false,
+      blocked: true,
+      executed: false,
+      blockedReasonKind: "permission",
+      outcomeClass: "execution_error",
+      outcomeKind: "permission_denied",
+      error: reason,
     };
   }
 
   private renderToolResult(step: AgentToolStep, steps?: AgentToolStep[]): string {
     if (step.blocked) {
-      return `工具「${step.tool}」未执行：${step.error}。请改用其它只读工具，或直接给出 final 答案。`;
+      return renderBlockedRecoveryMessage(step);
+    }
+    if (step.outcomeClass === "observation_failure") {
+      const observationText = renderToolOutcomeMessage(step);
+      if (observationText) return observationText;
     }
     if (!step.ok) {
+      if (step.outcomeClass === "execution_error") {
+        return renderExecutionErrorMessage(step);
+      }
       if (step.tool === DISPATCH_SUBAGENT_TOOL_NAME) {
         return this.renderDispatchSubagentFailure(step);
       }
@@ -1396,7 +2012,7 @@ export class AgentLoop {
   }
 
   private countSuccessfulSubagentDispatches(steps: AgentToolStep[]): number {
-    return steps.filter((step) => step.tool === DISPATCH_SUBAGENT_TOOL_NAME && step.ok).length;
+    return steps.filter((step) => step.tool === DISPATCH_SUBAGENT_TOOL_NAME && isSuccessfulToolStep(step)).length;
   }
 
   private renderDispatchSubagentFailure(step: AgentToolStep): string {
@@ -1448,6 +2064,7 @@ export class AgentLoop {
       "10. 需要查找相关文件时，优先使用 project_scan / symbol_search / locate_relevant_files / context_pack；写入文件后可用 project_index_update 增量刷新索引；避免连续用 list_files、search_text、read_file 逐个试探。",
       "11. 已知类名/函数名时优先 symbol_search；locate_relevant_files 已返回 primaryFiles 时，优先用 context_pack 打包这些文件，再分析或修改。",
       this.policy.systemHint,
+      this.buildWorkflowCapabilityHint(),
       extra ? `\n补充要求：${extra}` : "",
     ].join("\n");
   }
@@ -1468,6 +2085,8 @@ export class AgentLoop {
     stopReason: AgentStopReason;
     budgetExhausted?: RunBudgetKey;
     goal: string;
+    completionGuard?: CompletionGuardResult;
+    partialSummary?: string;
   }): AgentExecutionMeta {
     const usage = this.budgetManager.buildUsage(input.steps, input.iterations);
     const needsMoreBudget = input.stopReason === "budget_exhausted";
@@ -1476,7 +2095,7 @@ export class AgentLoop {
     const workflowVerifications = buildWorkflowVerifications(this.policy.intent, input.steps);
     const workflowCorrections = buildWorkflowCorrections(this.policy.intent, input.steps);
     const workflowState = buildWorkflowState({
-      intent: this.policy.intent,
+      intent: this.getEffectiveIntent(),
       steps: input.steps,
       hasProposal: this.workflowProposals.length > 0,
       hasDebugAnalysis: this.workflowDebugAnalyses.length > 0,
@@ -1497,20 +2116,28 @@ export class AgentLoop {
       mode: this.policy.mode,
       executionStage: this.policy.executionStage,
       modeSource: this.policy.modeSource,
-      intent: this.policy.intent,
-      workflowType: this.policy.workflowType,
+      intent: this.getEffectiveIntent(),
+      workflowType: this.reconciledWorkflowType ?? this.policy.workflowType,
       permissionPolicy: this.policy.permissionPolicy,
       permissionPolicySource: this.policy.permissionPolicySource,
       intentDecisionSource: this.policy.intentDecisionSource,
       isContinuation: this.policy.isContinuation,
       intentDecisionReason: this.policy.intentDecisionReason,
       intentDecisionConfidence: this.policy.intentDecisionConfidence,
+      inheritedTaskId: this.policy.inheritedTaskId,
+      previousWorkflowType: this.policy.previousWorkflowType,
+      currentWorkflowType: this.reconciledWorkflowType ?? this.policy.workflowType,
+      continuationScore: this.policy.continuationScore,
+      continuationSignals: this.policy.continuationSignals,
       workflowProposals: this.workflowProposals.length ? this.workflowProposals : undefined,
       workflowDebugAnalyses: this.workflowDebugAnalyses.length ? this.workflowDebugAnalyses : undefined,
       workflowRefactorPlans: this.workflowRefactorPlans.length ? this.workflowRefactorPlans : undefined,
       workflowInternalPlans: this.workflowInternalPlans.length ? this.workflowInternalPlans : undefined,
       workflowTaskState,
       workflowSwitch: this.workflowSwitch,
+      capabilityEscalations: this.capabilityEscalations.length ? this.capabilityEscalations : undefined,
+      reconciledWorkflowType: this.reconciledWorkflowType,
+      reconciledIntent: this.reconciledIntent,
       workflowState,
       workflowDiffs: workflowDiffs.length ? workflowDiffs : undefined,
       workflowVerifications: workflowVerifications.length ? workflowVerifications : undefined,
@@ -1529,6 +2156,21 @@ export class AgentLoop {
       stopReason: input.stopReason,
       needsMoreBudget,
       location,
+      completionStatus: input.completionGuard?.status,
+      completionGuardReason: input.completionGuard?.reason,
+      guardedAnswer: input.completionGuard?.guardedAnswer,
+      rawModelAnswer: input.completionGuard?.rawModelAnswer,
+      partialSummary: input.partialSummary,
+      toolLedger: input.completionGuard?.ledger
+        ? {
+            attemptedShellCalls: input.completionGuard.ledger.attemptedShellCalls,
+            blockedShellCalls: input.completionGuard.ledger.blockedShellCalls,
+            successfulShellCalls: input.completionGuard.ledger.successfulShellCalls,
+            attemptedWriteCalls: input.completionGuard.ledger.attemptedWriteCalls,
+            blockedWriteCalls: input.completionGuard.ledger.blockedWriteCalls,
+            successfulWriteCalls: input.completionGuard.ledger.successfulWriteCalls,
+          }
+        : undefined,
       suggestedBudget: needsMoreBudget && input.budgetExhausted
         ? this.budgetManager.buildSuggestedBudget(input.budgetExhausted)
         : undefined,
@@ -1644,7 +2286,7 @@ export class AgentLoop {
       pendingAction: { tool: input.action.tool, input: input.action.input },
     });
     return await this.finishRun({
-      answer: "等待权限确认后继续执行。",
+      answer: "",
       steps: input.steps,
       iterations: input.modelTurns,
       reachedLimit: false,
@@ -1729,13 +2371,14 @@ export class AgentLoop {
 
   private writeAgentDecisionTrace(event: {
     iteration: number;
-    action: "tool" | "final" | "parse_error";
+    action: "tool" | "final" | "parse_error" | "final_guard_rejected";
     tool?: string;
     toolCallId?: string;
     thought?: string;
     inputPreview?: string;
     rawPreview?: string;
     answerLength?: number;
+    completionStatus?: string;
   }): void {
     this.options.trace?.write({
       type: "agent_decision",
@@ -1765,7 +2408,8 @@ export class AgentLoop {
     const costUsd = sumOptional(this.modelTurnMetrics.map((m) => m.costUsd));
     const modelLatencyMs = this.modelTurnMetrics.reduce((sum, m) => sum + m.latencyMs, 0);
     const modelErrors = this.modelTurnMetrics.filter((m) => !m.success);
-    const failedTools = steps.filter((s) => !s.ok && !s.blocked);
+    const outcomeUsage = countToolOutcomeUsage(steps);
+    const failedTools = steps.filter((s) => isFailedToolStep(s));
     this.options.trace?.write({
       type: "run_usage_summary",
       runId: this.options.runId,
@@ -1788,6 +2432,9 @@ export class AgentLoop {
       modelLatencyMs,
       costUsd,
       toolCalls: steps.length,
+      toolFailures: outcomeUsage.toolFailures,
+      toolObservationFailures: outcomeUsage.toolObservationFailures,
+      toolExecutionErrors: outcomeUsage.toolExecutionErrors,
       failedTools: failedTools.length,
       blockedTools: steps.filter((s) => s.blocked).length,
       errors: [
@@ -1814,7 +2461,7 @@ export class AgentLoop {
         intent: step.tool,
         tool: step.tool,
         reason: step.thought ?? `模型请求调用 ${step.tool}`,
-        status: step.ok ? "done" : step.blocked ? "skipped" : "failed",
+        status: stepPlanTraceStatus(step),
       })),
     };
     this.options.trace.write({

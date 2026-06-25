@@ -290,7 +290,7 @@ test("contextPackage.messages 含 id 与 createdAt", async () => {
   });
   const session = mgr.createSession();
   mgr.saveUserMessage(session.id, "带元数据");
-  mgr.saveAssistantMessage(session.id, "回复");
+  mgr.saveTrustedModelFinalAnswer(session.id, "回复", undefined);
   const pkg = await mgr.restoreContextPackage(session.id);
   assert.ok(pkg.messages.length >= 2);
   for (const m of pkg.messages) {
@@ -469,7 +469,7 @@ test("post_call 在 saveAssistantMessage 后包含 assistant", async () => {
   });
   const session = mgr.createSession();
   mgr.saveUserMessage(session.id, "你好");
-  mgr.saveAssistantMessage(session.id, "你好呀");
+  mgr.saveTrustedModelFinalAnswer(session.id, "你好呀", undefined);
   const snap = await mgr.buildContextSnapshot(session.id, { phase: "post_call" });
   assert.equal(snap.phase, "post_call");
   assert.ok(snap.renderedPrompt.finalMessages.some((m) => m.role === "assistant"));

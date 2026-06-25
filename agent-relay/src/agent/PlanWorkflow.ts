@@ -3,6 +3,7 @@ import type { TraceLogger } from "../trace/TraceLogger.js";
 import type { ToolRegistry } from "../tools/ToolRegistry.js";
 import type { ToolPermission } from "../core/permissions.js";
 import type { AgentToolStep } from "./toolStep.js";
+import { toolStepPayloadForContext } from "./toolStepOutcome.js";
 import type { AgentRunMode, RunBudget } from "./RunPolicyTypes.js";
 import type { BudgetManager } from "./BudgetManager.js";
 import { countSuccessfulPermissionUsage } from "./BudgetManager.js";
@@ -197,18 +198,32 @@ export class PlanWorkflow {
       requestId: this.options.requestId,
     });
 
-    if (result.ok) {
+    if (result.outcomeClass !== "execution_error") {
       const output =
         this.options.contextManager?.compactToolOutput(toolName, result.output) ?? result.output;
       this.saveToolMessage(toolName, output);
-      return { ...step, ok: true, output, durationMs: result.durationMs };
+      return {
+        ...step,
+        preflight: true,
+        executed: result.executed,
+        ok: result.outcomeClass === "observation_success",
+        output,
+        durationMs: result.durationMs,
+        error: result.outcomeClass === "observation_failure" ? result.message : undefined,
+        outcomeClass: result.outcomeClass,
+        outcomeKind: result.outcomeKind,
+        outcomeMessage: result.message,
+      };
     }
 
     const failed = {
       ...step,
-      error: `[${result.code}] ${result.error}`,
+      preflight: true,
+      error: result.error ?? result.message,
       blocked: result.code === "permission_denied",
       durationMs: result.durationMs,
+      outcomeClass: result.outcomeClass,
+      outcomeKind: result.outcomeKind,
     };
     this.saveToolMessage(toolName, { error: failed.error, code: result.code });
     return failed;
@@ -234,7 +249,7 @@ function buildResult(steps: AgentToolStep[], workflowPlan: WorkflowPlan): PlanWo
 
 function renderPlanWorkflowContext(steps: AgentToolStep[], workflowPlan: WorkflowPlan): string {
   const blocks = steps.map((step, index) => {
-    const payload = step.ok ? step.output : { error: step.error, blocked: step.blocked };
+    const payload = toolStepPayloadForContext(step);
     return [
       `## ${index + 1}. ${step.tool}`,
       `thought: ${step.thought ?? ""}`,

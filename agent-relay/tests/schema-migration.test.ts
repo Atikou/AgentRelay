@@ -43,7 +43,7 @@ function removeTempDir(dir: string): void {
   }
 }
 
-test("v1–v17 全新 memory.db 应用迁移", () => {
+test("v1–v21 全新 memory.db 应用迁移", () => {
   const dataDir = tempDataDir();
   let dbm: DatabaseManager | undefined;
   try {
@@ -52,7 +52,13 @@ test("v1–v17 全新 memory.db 应用迁移", () => {
     assert.equal(dbm.schemaInfo.userVersion, MEMORY_DB_SCHEMA_VERSION);
     assert.equal(dbm.schemaInfo.migrations.length, MEMORY_DB_MIGRATIONS.length);
     assert.equal(dbm.schemaInfo.migrations[0]?.name, "core_sessions_messages_memories");
-    assert.equal(dbm.schemaInfo.migrations.at(-1)?.name, "session_task_contexts");
+    assert.equal(dbm.schemaInfo.migrations.at(-1)?.name, "messages_envelope_backfill");
+
+    const messageCols = dbm.connection
+      .prepare(`PRAGMA table_info(messages)`)
+      .all() as Array<{ name: string }>;
+    assert.ok(messageCols.some((c) => c.name === "client_name"));
+    assert.ok(messageCols.some((c) => c.name === "model_name"));
 
     const runStatesTable = dbm.connection
       .prepare(`SELECT name FROM sqlite_master WHERE type='table' AND name='run_states'`)
@@ -103,6 +109,11 @@ test("v1–v17 全新 memory.db 应用迁移", () => {
       .prepare(`SELECT name FROM sqlite_master WHERE type='table' AND name='session_task_contexts'`)
       .get() as { name: string };
     assert.equal(sessionTaskTable.name, "session_task_contexts");
+
+    const sideEffectCol = dbm.connection
+      .prepare(`PRAGMA table_info(session_task_contexts)`)
+      .all() as Array<{ name: string }>;
+    assert.ok(sideEffectCol.some((c) => c.name === "side_effect_summary_json"));
   } finally {
     dbm?.close();
     removeTempDir(dataDir);

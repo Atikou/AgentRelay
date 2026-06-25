@@ -96,7 +96,7 @@ export class SemanticRetriever {
   }
 
   async indexItem(item: Omit<SemanticItem, "id" | "createdAt" | "updatedAt">): Promise<SemanticItem> {
-    const vector = item.vector.length
+    const vector = item.vector?.length
       ? item.vector
       : await this.embeddings.embedText(item.summary ?? item.content);
     const full: SemanticItem = {

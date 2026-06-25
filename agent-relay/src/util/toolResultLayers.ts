@@ -8,6 +8,11 @@
 export const DEFAULT_LARGE_TOOL_CHARS = 4000;
 export const MODEL_TOOL_RESULT_MAX_CHARS = 4000;
 
+/** JSON.stringify(undefined) 返回 undefined，不能直接读 .length。 */
+export function jsonSerializedLength(value: unknown): number {
+  return (JSON.stringify(value) ?? "null").length;
+}
+
 export interface ToolUserDisplay {
   tool: string;
   truncated: boolean;
@@ -29,7 +34,7 @@ export function compactToolOutputForModel(
   output: unknown,
   largeToolChars = DEFAULT_LARGE_TOOL_CHARS,
 ): { modelVisible: unknown; truncated: boolean } {
-  const json = JSON.stringify(output);
+  const json = JSON.stringify(output) ?? "null";
   if (json.length <= largeToolChars) {
     return { modelVisible: output, truncated: false };
   }
@@ -67,7 +72,7 @@ export function buildUserToolDisplay(
   const record = asRecord(raw);
   const toolTruncated = record?.truncated === true;
   const truncated = toolTruncated || modelTruncated;
-  const originalBytes = JSON.stringify(raw).length;
+  const originalBytes = jsonSerializedLength(raw);
 
   if (tool === "list_files" && Array.isArray(record?.files)) {
     const count = record.files.length;
@@ -99,6 +104,16 @@ export function buildUserToolDisplay(
 
   if (tool === "read_file" && typeof record?.path === "string") {
     const path = record.path;
+    if (record.found === false) {
+      const obs = asRecord(record.outcome);
+      const kind = typeof obs?.kind === "string" ? obs.kind : "not_found";
+      return {
+        tool,
+        truncated: false,
+        originalBytes: jsonSerializedLength(raw),
+        summary: `观察失败：${kind} — ${path}（${typeof obs?.message === "string" ? obs.message : "目标状态不满足"}）`,
+      };
+    }
     const contentLen = typeof record.content === "string" ? record.content.length : 0;
     return {
       tool,
@@ -141,8 +156,8 @@ export function buildToolResultLayers(
     modelTruncated = compacted.truncated;
   }
 
-  const rawJsonLength = JSON.stringify(raw).length;
-  const modelJsonLength = JSON.stringify(modelVisible).length;
+  const rawJsonLength = jsonSerializedLength(raw);
+  const modelJsonLength = jsonSerializedLength(modelVisible);
 
   return {
     raw,
@@ -154,7 +169,7 @@ export function buildToolResultLayers(
 }
 
 export function clipModelToolJson(modelVisible: unknown, maxChars = MODEL_TOOL_RESULT_MAX_CHARS): string {
-  const json = JSON.stringify(modelVisible);
+  const json = JSON.stringify(modelVisible) ?? "null";
   if (json.length <= maxChars) return json;
   return `${json.slice(0, maxChars)}…(已截断)`;
 }

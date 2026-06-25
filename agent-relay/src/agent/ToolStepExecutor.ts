@@ -57,9 +57,9 @@ export class ToolStepExecutor implements StepExecutor {
       allowedPermissions: this.allowed,
     });
 
-    if (!result.ok) {
+    if (result.outcomeClass === "execution_error") {
       throw new StepExecutionError(
-        `[${result.tool}] ${result.code}/${result.category}: ${result.error}`,
+        `[${result.tool}] ${result.code}/${result.category}: ${result.error ?? result.message}`,
         result.toolCallId,
       );
     }

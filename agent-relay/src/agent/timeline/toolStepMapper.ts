@@ -128,4 +128,5 @@ export const ACTIVITY_STEP_ICONS: Record<ActivityStepType, string> = {
   summary: "✅",
   error: "⚠️",
   retry: "↻",
+  escalation: "⬆️",
 };

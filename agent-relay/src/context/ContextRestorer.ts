@@ -1,11 +1,17 @@
 import { extractFileSnippetsFromToolMessages } from "./fileSnippets.js";
 import { flattenTaggedFragments } from "./contextTags.js";
+import {
+  buildContextCorrections,
+  evaluateContextMessageTrust,
+  toContextCorrectionMessage,
+} from "./contextTrust.js";
 import type { MemoryManager } from "./MemoryManager.js";
 import type { MemoryRetriever } from "./MemoryRetriever.js";
 import type { SemanticRetriever } from "./SemanticRetriever.js";
+import type { RunFactsLookup } from "./runFactsLookup.js";
 import type { SystemSectionBuilder } from "./SystemSectionBuilder.js";
 import type { MessageStore, ProjectStore, SessionStore, SummaryStore, TaskStore } from "./stores.js";
-import type { ContextMessage, ContextPackage, RestoreContextInput } from "./types.js";
+import type { ContextMessage, ContextPackage, ContextTrustExcludedMessage, RestoreContextInput } from "./types.js";
 
 export interface ContextRestorerOptions {
   recentMessageCount?: number;
@@ -13,6 +19,7 @@ export interface ContextRestorerOptions {
 
 /**
  * 收集上下文数据并返回 ContextPackage；不写死 system 文本。
+ * 历史消息经 contextTrust 过滤，虚假完成注入纠偏摘要。
  */
 export class ContextRestorer {
   private readonly recentCount: number;
@@ -27,6 +34,7 @@ export class ContextRestorer {
     private readonly semanticRetriever: SemanticRetriever,
     private readonly sectionBuilder: SystemSectionBuilder,
     private readonly memoryManager: MemoryManager,
+    private readonly runFactsLookup: RunFactsLookup,
     options: ContextRestorerOptions = {},
   ) {
     this.recentCount = options.recentMessageCount ?? 10;
@@ -44,12 +52,57 @@ export class ContextRestorer {
       .slice(-3);
 
     const recent = this.messages.getRecentUnsummarized(input.sessionId, this.recentCount);
-    const chatMessages: ContextMessage[] = recent.map((m) => ({
-      id: m.id,
-      role: normalizeMessageRole(m.role),
-      content: m.content,
-      createdAt: m.createdAt,
-    }));
+    const excluded: Array<{
+      message: (typeof recent)[number];
+      decision: ReturnType<typeof evaluateContextMessageTrust>;
+    }> = [];
+    const chatMessages: ContextMessage[] = [];
+    const trustExcluded: ContextTrustExcludedMessage[] = [];
+    let includedFromHistory = 0;
+
+    for (const m of recent) {
+      const decision = evaluateContextMessageTrust(m, this.runFactsLookup);
+      if (decision.include) {
+        includedFromHistory += 1;
+        chatMessages.push({
+          id: m.id,
+          role: normalizeMessageRole(m.role),
+          content: m.content,
+          createdAt: m.createdAt,
+          messageKind: decision.envelope.messageKind,
+          uiVisible: decision.envelope.uiVisible,
+          trusted: decision.envelope.trusted,
+          source: decision.envelope.source,
+          runId: decision.envelope.runId ?? m.runId,
+        });
+      } else {
+        excluded.push({ message: m, decision });
+        trustExcluded.push({
+          messageId: m.id,
+          role: m.role,
+          reason: decision.reason,
+          preview: previewMessage(m.content),
+        });
+      }
+    }
+
+    const correctionTexts = buildContextCorrections(
+      excluded.map((e) => ({ message: e.message, decision: e.decision })),
+    );
+    for (let i = 0; i < correctionTexts.length; i += 1) {
+      const correction = toContextCorrectionMessage(correctionTexts[i]!, i);
+      chatMessages.push({
+        id: correction.id,
+        role: "system",
+        content: correction.content,
+        createdAt: correction.createdAt,
+        messageKind: correction.messageKind,
+        uiVisible: correction.uiVisible,
+        trusted: correction.trusted,
+        source: correction.source,
+        runId: correction.runId,
+      });
+    }
 
     const userInput = input.userInput ?? "";
     const retrievedMemories = userInput
@@ -98,6 +151,7 @@ export class ContextRestorer {
       planSteps,
       fileSnippets,
       recentToolSummaries,
+      contextCorrections: correctionTexts,
     });
 
     return {
@@ -112,8 +166,20 @@ export class ContextRestorer {
       semanticHits,
       projectContext: project ?? undefined,
       activeTask: activeTask ?? undefined,
+      contextTrust: {
+        includedCount: includedFromHistory,
+        excludedCount: trustExcluded.length,
+        excluded: trustExcluded,
+        corrections: correctionTexts,
+      },
     };
   }
+}
+
+function previewMessage(content: string | null | undefined): string {
+  const trimmed = (content ?? "").trim();
+  if (trimmed.length <= 120) return trimmed;
+  return `${trimmed.slice(0, 120)}…`;
 }
 
 function normalizeMessageRole(role: string): ContextMessage["role"] {

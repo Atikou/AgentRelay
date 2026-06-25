@@ -5,6 +5,9 @@ import type { WorkflowPlan } from "../WorkflowPlanner.js";
 export type IntentDecisionSource =
   | "explicit_mode"
   | "session_continuation"
+  | "task_continuation"
+  | "task_boundary"
+  | "intent_adjudicator"
   | "ai_classifier"
   | "legacy_fallback";
 
@@ -21,4 +24,9 @@ export interface IntentDecision {
   confidence: number;
   reason: string;
   source: IntentDecisionSource;
+  inheritedTaskId?: string;
+  previousWorkflowType?: AgentWorkflowType;
+  continuationScore?: number;
+  continuationSignals?: Record<string, number | boolean>;
+  aiOverridden?: boolean;
 }

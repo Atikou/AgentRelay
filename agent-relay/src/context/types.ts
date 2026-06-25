@@ -1,4 +1,5 @@
 import type { ChatMessage } from "../model/types.js";
+import type { ContextTrustDecisionReason } from "./contextTrust.js";
 
 /** 摘要类型：chunk / session / daily / task。 */
 export type SummaryType = "chunk_summary" | "session_summary" | "daily_summary" | "task_summary";
@@ -59,6 +60,13 @@ export interface MessageRecord {
   tokenEstimate: number;
   isSummarized: boolean;
   summaryId?: string;
+  clientName?: string;
+  modelName?: string;
+  messageKind?: import("./messageEnvelope.js").MessageKind;
+  uiVisible?: boolean;
+  trusted?: boolean;
+  source?: import("./messageEnvelope.js").MessageSource;
+  runId?: string;
   createdAt: string;
 }
 
@@ -182,11 +190,17 @@ export interface RetrievedMemory {
   memory: MemoryRecord;
   score: number;
   reason: MemoryRetrieveReason;
+  /** 记忆可信度：verified=工具/账本事实，inferred=摘要推断，unverified=未验证完成声明等。 */
+  trustLevel?: MemoryTrustLevel;
+  sourceKind?: string;
 }
+
+export type MemoryTrustLevel = "verified" | "inferred" | "unverified";
 
 export type SystemSectionType =
   | "user_preferences"
   | "session_summary"
+  | "context_corrections"
   | "task_state"
   | "current_plan"
   | "file_snippets"
@@ -227,6 +241,26 @@ export interface ContextMessage {
   role: "user" | "assistant" | "tool" | "system";
   content: string;
   createdAt: string;
+  messageKind?: import("./messageEnvelope.js").MessageKind;
+  uiVisible?: boolean;
+  trusted?: boolean;
+  source?: import("./messageEnvelope.js").MessageSource;
+  runId?: string;
+}
+
+export interface ContextTrustExcludedMessage {
+  messageId: string;
+  role: string;
+  reason: ContextTrustDecisionReason;
+  preview: string;
+}
+
+/** ContextRestorer 去污审计：被排除消息与纠偏摘要（debug / API 预览）。 */
+export interface ContextTrustReport {
+  includedCount: number;
+  excludedCount: number;
+  excluded: ContextTrustExcludedMessage[];
+  corrections: string[];
 }
 
 /** ContextRestorer 返回的结构化上下文包（唯一结构化上下文主对象）。 */
@@ -243,6 +277,8 @@ export interface ContextPackage {
   semanticHits: SemanticHit[];
   projectContext?: ProjectRecord;
   activeTask?: TaskRecord;
+  /** 上下文去污报告（恢复阶段 debug，不写入模型 user 气泡）。 */
+  contextTrust?: ContextTrustReport;
 }
 
 export type ContextPhase = "pre_call" | "post_call";

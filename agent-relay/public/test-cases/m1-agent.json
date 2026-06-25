@@ -617,6 +617,87 @@
       }
     },
     {
+      "id": "m1-agent-budget-layering-doc",
+      "title": "文档：运行预算分层与系统恢复",
+      "purpose": "确认执行流程文档约定 maxPreflightTools / maxRecoveryTurns / RunToolResultCache / SystemToolRecovery，避免预扫描与失败恢复吃光主 maxModelTurns。",
+      "method": "GET",
+      "path": "/api/docs/content?slug=执行流程",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyContains": ["maxPreflightTools", "maxRecoveryTurns", "RunToolResultCache", "SystemToolRecovery", "FailedActionMemory"]
+      }
+    },
+    {
+      "id": "m1-agent-budget-fields",
+      "title": "RunBudget 分层字段默认值",
+      "purpose": "确认 resolveRunPolicy 返回的 budget 含 preflight/recovery/repeat 分层字段，主 chat 模式有合理默认。",
+      "method": "POST",
+      "path": "/api/agent",
+      "input": {
+        "message": "列出当前目录",
+        "mode": "chat",
+        "permissionPolicy": "readOnly",
+        "budget": { "maxModelTurns": 1, "maxToolCalls": 1 },
+        "persist": false
+      },
+      "expect": {
+        "status": 200,
+        "bodyHasKeys": ["executionMeta"],
+        "bodyPaths": {
+          "executionMeta.budget.maxPreflightTools": 3,
+          "executionMeta.budget.maxRecoveryTurns": 3,
+          "executionMeta.budget.maxRepeatedToolFailures": 1
+        }
+      }
+    },
+      "title": "文档：能力策略优先于预算检查",
+      "purpose": "确认执行流程文档约定 workflow 安全边界、capability_disabled 与 budget_exhausted 分离，review 模式不得因 maxShellCalls=0 误报预算耗尽。",
+      "method": "GET",
+      "path": "/api/docs/content?slug=执行流程",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyContains": ["WorkflowCapability", "CapabilityEscalation", "hard workflow", "soft workflow", "readonly_mode_blocked", "budget_exhausted"]
+      }
+    },
+    {
+      "id": "m1-agent-capability-escalation-doc",
+      "title": "文档：soft workflow 动态 capability escalation",
+      "purpose": "确认执行流程文档约定 run/edit/debug 等 soft workflow 超出默认能力时不 workflow_capability_denied，而由 CapabilityEscalation reconcile 后交 PermissionGuard。",
+      "method": "GET",
+      "path": "/api/docs/content?slug=执行流程",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyContains": ["CapabilityEscalation", "capabilityEscalations", "runWorkflow", "PermissionGuard"]
+      }
+    },
+    {
+      "id": "m1-agent-hard-workflow-block-doc",
+      "title": "文档：hard workflow 继续硬阻断 plan/review",
+      "purpose": "确认 plan/review 等 hard workflow 仍硬阻断 shell/write，不允许 capability escalation 绕过只读/只计划语义。",
+      "method": "GET",
+      "path": "/api/docs/content?slug=执行流程",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyContains": ["hard", "plan", "review", "硬阻断"]
+      }
+    },
+    {
+      "id": "m1-agent-visual-continuation-doc",
+      "title": "文档：视觉续写短句继承 implement",
+      "purpose": "确认执行流程文档登记「再好看壮观一点」类短句应 task_continuation 继承 edit/implement，避免误判 review。",
+      "method": "GET",
+      "path": "/api/docs/content?slug=执行流程",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyContains": ["再好看壮观一点", "task_continuation", "edit/implement"]
+      }
+    },
+    {
       "id": "m1-agent-plan-no-shortphrase-bypass-doc",
       "title": "文档：plan 短句不得绕过权限批准",
       "purpose": "确认 Plan-Approval-Execute 文档约定：计划→执行必须走权限弹窗与 resume-permission，普通 /api/agent 短句不得替代续跑。",
@@ -676,6 +757,8 @@
         "bodyContains": ["planHandoff", "resume-plan-handoff", "permissionRequest"]
       }
     },
+    {
+      "id": "m1-permission-requests-pending",
       "title": "查询待处理权限申请列表",
       "purpose": "确认 GET /api/permission-requests/pending 返回固定 schemaVersion=1 的 permissionRequests 数组，供网页右侧弹窗轮询或初始化。",
       "method": "GET",
@@ -1889,6 +1972,189 @@
       "expect": {
         "status": 404,
         "bodyHasKeys": ["error"]
+      }
+    },
+    {
+      "id": "m1-agent-completion-guard-qa",
+      "title": "问答 final 经 CompletionFinalGuard 标记 completed_success",
+      "purpose": "确认无副作用问答任务输出 final 时 executionMeta 含 completionStatus，证明 Final Guard 已接入 finishRun。",
+      "method": "POST",
+      "path": "/api/agent",
+      "input": {
+        "message": "用一句话说明什么是 HTTP",
+        "mode": "chat",
+        "budget": { "maxModelTurns": 2, "maxToolCalls": 0 }
+      },
+      "expect": {
+        "status": 200,
+        "bodyHasKeys": ["answer", "executionMeta"],
+        "bodyPaths": {
+          "executionMeta.completionStatus": "completed_success",
+          "executionMeta.stopReason": "completed"
+        }
+      }
+    },
+    {
+      "id": "m1-agent-completion-guard-side-effect-meta",
+      "title": "副作用任务 final 暴露 completionStatus 与 toolLedger",
+      "purpose": "确认 implement 副作用类请求在 finishRun 后 executionMeta 含 completionStatus 与 toolLedger，便于测试台区分真实完成与口头完成。",
+      "method": "POST",
+      "path": "/api/agent",
+      "input": {
+        "message": "在项目根目录执行 npm install 安装全部依赖",
+        "mode": "implement",
+        "permissionPolicy": "readOnly",
+        "budget": { "maxModelTurns": 4, "maxShellCalls": 2, "maxWriteCalls": 0 }
+      },
+      "expect": {
+        "status": 200,
+        "bodyHasKeys": ["answer", "executionMeta"],
+        "bodyPaths": {
+          "executionMeta.completionStatus": "string",
+          "executionMeta.toolLedger": "object"
+        }
+      }
+    },
+    {
+      "id": "m1-agent-docs-task-boundary",
+      "title": "执行流程文档登记 TaskBoundary 路由",
+      "purpose": "确认任务边界（requiredSideEffects 与 workflow 兼容性）已写入执行流程文档，避免安装依赖类 shell 任务被错误继承到 generateFileWorkflow。",
+      "method": "GET",
+      "path": "/api/docs/content?slug=%E6%89%A7%E8%A1%8C%E6%B5%81%E7%A8%8B",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyPaths": {
+          "markdown": "string"
+        },
+        "bodyContains": ["TaskBoundary", "requiredSideEffects", "task_boundary", "runWorkflow"]
+      }
+    },
+    {
+      "id": "m1-agent-docs-final-guard",
+      "title": "执行流程文档登记 CompletionFinalGuard",
+      "purpose": "确认 Final Guard 与 Tool Ledger 已写入执行流程文档，与副作用虚假完成修复可追溯。",
+      "method": "GET",
+      "path": "/api/docs/content?slug=%E6%89%A7%E8%A1%8C%E6%B5%81%E7%A8%8B",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyPaths": {
+          "markdown": "string"
+        },
+        "bodyContains": ["CompletionFinalGuard", "ToolLedger", "messageKind", "guardedAnswer", "raw_model_final"]
+      }
+    },
+    {
+      "id": "m1-agent-docs-message-envelope",
+      "title": "执行流程文档登记消息 envelope 边界",
+      "purpose": "确认 role/messageKind/trusted/uiVisible 组合模型已写入执行流程文档，避免仅靠 role 决定 UI 与上下文。",
+      "method": "GET",
+      "path": "/api/docs/content?slug=%E6%89%A7%E8%A1%8C%E6%B5%81%E7%A8%8B",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyPaths": {
+          "markdown": "string"
+        },
+        "bodyContains": ["messageKind", "uiVisible", "trusted", "tool_action", "final_answer"]
+      }
+    },
+    {
+      "id": "m1-agent-schema-messages-envelope",
+      "title": "memory.db messages envelope 列存在",
+      "purpose": "确认 messages 表已迁移 message_kind/ui_visible/trusted/source/run_id，支持消息语义与 UI 边界落库。",
+      "method": "GET",
+      "path": "/api/config.schemaVersions",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyPaths": {
+          "schemaVersions.memory.version": "number"
+        },
+        "bodyMin": {
+          "schemaVersions.memory.version": 21
+        }
+      }
+    },
+    {
+      "id": "m1-agent-docs-context-decontamination",
+      "title": "执行流程文档登记上下文去污",
+      "purpose": "确认跨轮 context_pack 去污规则（过滤 raw_model_final、纠偏摘要、trustLevel）已写入执行流程文档。",
+      "method": "GET",
+      "path": "/api/docs/content?slug=%E6%89%A7%E8%A1%8C%E6%B5%81%E7%A8%8B",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyContains": ["上下文去污", "context_corrections", "raw_model_final", "contextPackage.contextTrust"]
+      }
+    },
+    {
+      "id": "m1-agent-session-continuity-paste-failure-doc",
+      "title": "文档：粘贴工具失败日志应延续副作用任务",
+      "purpose": "确认 P0 会话连续性：上轮 edit/implement 粘贴工具失败输出后应 task_continuation，不得因 answer fallback 只读化。",
+      "method": "GET",
+      "path": "/api/docs/content?slug=%E6%89%A7%E8%A1%8C%E6%B5%81%E7%A8%8B",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyContains": ["TaskContinuationEngine", "task_continuation", "observation_failure"]
+      }
+    },
+    {
+      "id": "m1-agent-context-trust-restore-meta",
+      "title": "恢复预览含 contextTrust 去污报告",
+      "purpose": "在 M6 上下文页对已有会话点「恢复预览」，确认响应 contextPackage.contextTrust 含 excluded/corrections（虚假完成被过滤时有记录）。",
+      "method": "GET",
+      "path": "/api/context/sessions/PASTE_SESSION_ID/restore?q=安装依赖",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyPaths": {
+          "contextPackage.contextTrust.excluded": "array",
+          "contextPackage.contextTrust.corrections": "array"
+        }
+      }
+    },
+    {
+      "id": "m1-agent-intent-adjudicator-visual-edit-doc",
+      "title": "执行流程文档登记意图路由分层",
+      "purpose": "确认 AI 主判 + 代码裁决分层（MessageSignalExtractor → WorkflowResolver → IntentSemanticAdjudicator）已写入执行流程文档。",
+      "method": "GET",
+      "path": "/api/docs/content?slug=%E6%89%A7%E8%A1%8C%E6%B5%81%E7%A8%8B",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyContains": ["意图路由分层", "IntentSemanticAdjudicator", "WorkflowResolver", "intent_adjudicator"]
+      }
+    },
+    {
+      "id": "m1-agent-intent-adjudicator-visual-edit",
+      "title": "视觉效果不满诉求纠偏为 edit",
+      "purpose": "确认无「修改」关键词时，项目内视觉效果改进诉求经 intent_adjudicator 进入 edit/implement/editWorkflow，而非 answer/chat 只读。",
+      "method": "POST",
+      "path": "/api/agent",
+      "input": {
+        "message": "testTs项目这个星空看起来有点假，我需要那种漫天星空的感觉，就是星云那样",
+        "permissionPolicy": "autoEdit",
+        "persist": false,
+        "budget": {
+          "maxModelTurns": 1,
+          "maxToolCalls": 2,
+          "maxReadCalls": 2,
+          "maxWriteCalls": 0,
+          "maxShellCalls": 0,
+          "maxRuntimeMs": 60000
+        }
+      },
+      "expect": {
+        "status": 200,
+        "bodyPaths": {
+          "executionMeta.intent": "edit",
+          "executionMeta.mode": "implement",
+          "executionMeta.workflowType": "editWorkflow",
+          "executionMeta.intentDecisionSource": "intent_adjudicator"
+        }
       }
     }
   ]

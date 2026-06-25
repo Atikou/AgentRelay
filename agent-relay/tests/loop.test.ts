@@ -10,7 +10,7 @@ import path from "node:path";
 import { AgentLoop, parseAction, type LoopChatFn } from "../src/agent/AgentLoop.js";
 import { shouldRunPlanWorkflow } from "../src/agent/PlanWorkflow.js";
 import { resolveRunPolicy } from "../src/agent/RunPolicy.js";
-import { defaultWorkflowSessionStore } from "../src/agent/WorkflowSessionSwitch.js";
+import { defaultSessionTaskManager } from "../src/agent/task/SessionTaskManager.js";
 import type { NotificationQueue } from "../src/background/NotificationQueue.js";
 import type { ContextManager } from "../src/context/ContextManager.js";
 import type { ChatMessage, ModelResponse } from "../src/model/types.js";
@@ -750,7 +750,7 @@ test("complex editWorkflow injects implicit internal plan and task state", async
 
 test("session auto-switches workflow from answer to edit on follow-up message", async () => {
   const sessionId = "loop-session-workflow-switch";
-  defaultWorkflowSessionStore.clear(sessionId);
+  defaultSessionTaskManager.markInactive(sessionId);
 
   const answerChat = scriptedChat(['{"action":"final","answer":"本地编排后端"}']);
   const answerLoop = new AgentLoop({

@@ -139,7 +139,11 @@ export function evaluatePermissionGuard(input: PermissionGuardInput): Permission
     if (input.permissionPolicy === "autoRun") {
       return { decision: "allow", risk };
     }
-    if (input.permissionPolicy === "confirmBeforeRun") {
+    if (
+      input.permissionPolicy === "confirmBeforeRun" ||
+      input.permissionPolicy === "confirmBeforeEdit" ||
+      input.permissionPolicy === "autoEdit"
+    ) {
       return {
         decision: "needsConfirmation",
         reason: `权限策略 ${input.permissionPolicy} 要求确认执行操作`,

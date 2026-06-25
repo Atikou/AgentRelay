@@ -41,7 +41,7 @@ test("confirmBeforeEdit 对写入返回 needsConfirmation", () => {
   assert.deepEqual(decision.confirmationRequest?.affects.files, ["a.txt"]);
 });
 
-test("autoEdit 允许写入但不允许 shell", () => {
+test("autoEdit 允许写入；shell 需确认", () => {
   const write = evaluatePermissionGuard({
     intent: "edit",
     permissionPolicy: "autoEdit",
@@ -60,7 +60,21 @@ test("autoEdit 允许写入但不允许 shell", () => {
     input: { command: "npm test" },
     allowedPermissions: ALL_PERMISSIONS,
   });
-  assert.equal(shell.decision, "deny");
+  assert.equal(shell.decision, "needsConfirmation");
+  assert.equal(shell.confirmationRequest?.status, "waiting_confirmation");
+});
+
+test("confirmBeforeEdit 对 shell 返回 needsConfirmation", () => {
+  const decision = evaluatePermissionGuard({
+    intent: "run",
+    permissionPolicy: "confirmBeforeEdit",
+    toolName: "shell_run",
+    permission: "shell",
+    input: { command: "npm install" },
+    allowedPermissions: ALL_PERMISSIONS,
+  });
+  assert.equal(decision.decision, "needsConfirmation");
+  assert.match(decision.reason ?? "", /确认执行/);
 });
 
 test("confirmBeforeRun 对 shell 返回 needsConfirmation", () => {

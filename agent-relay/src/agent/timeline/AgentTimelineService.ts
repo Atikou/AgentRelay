@@ -100,7 +100,8 @@ export class AgentTimelineService {
     const step = this.stepIndex.get(stepId);
     if (!step) return;
     const now = Date.now();
-    step.status = "success";
+    const outcomeClass = metadata?.outcomeClass;
+    step.status = outcomeClass === "observation_failure" ? "warning" : "success";
     step.endedAt = now;
     if (result) step.content = result;
     if (metadata) step.metadata = { ...step.metadata, ...metadata };
@@ -150,6 +151,24 @@ export class AgentTimelineService {
     this.store.saveSummary(run.id, buildSummaryMarkdown(run, summary));
   }
 
+  partialCompleteRun(summary: string, title = "任务未完全完成"): void {
+    const run = this.requireRun();
+    const now = Date.now();
+    run.status = "partial";
+    run.endedAt = now;
+    run.updatedAt = now;
+    this.persistRun();
+    const summaryStep = this.startStep({
+      runId: run.id,
+      type: "summary",
+      title,
+      content: summary.slice(0, 400),
+    });
+    this.completeStep(summaryStep.id, summary.slice(0, 500));
+    this.emit({ type: "run_completed", runId: run.id, summary });
+    this.store.saveSummary(run.id, buildSummaryMarkdown(run, summary));
+  }
+
   failRun(error: string): void {
     const run = this.requireRun();
     const now = Date.now();
@@ -174,6 +193,23 @@ export class AgentTimelineService {
   recordRawToolCall(record: Record<string, unknown>): void {
     const run = this.requireRun();
     this.store.appendRawToolCall(run.id, record);
+  }
+
+  recordCapabilityEscalation(input: {
+    runId: string;
+    title: string;
+    content: string;
+    metadata?: ActivityStepMetadata;
+  }): ActivityAgentStep {
+    const step = this.startStep({
+      runId: input.runId,
+      type: "escalation",
+      title: input.title,
+      content: input.content,
+      metadata: input.metadata,
+    });
+    this.completeStep(step.id, input.content.slice(0, 500), input.metadata);
+    return step;
   }
 
   private requireRun(): ActivityAgentRun {

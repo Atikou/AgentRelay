@@ -16,3 +16,17 @@ export function isAgentStepFailureFeedback(message?: string): boolean {
 
   return (hasStepHeader && (hasToolError || hasStepMeta)) || (hasToolError && hasStepMeta);
 }
+
+/** 浏览器/终端/构建工具输出的运行诊断信息（非独立问答）。 */
+export function isRuntimeDiagnosticFeedback(message?: string): boolean {
+  const text = (message ?? "").trim();
+  if (!text) return false;
+  return (
+    /localhost|127\.0\.0\.1/i.test(text) ||
+    /\bPort \d+ is in use\b/i.test(text) ||
+    /\bVITE v[\d.]+/i.test(text) ||
+    /Could not auto-determine entry point/i.test(text) ||
+    /找不到.*网页|无法访问此网站|ERR_CONNECTION_REFUSED/i.test(text) ||
+    /npm ERR!|error TS\d+|Traceback|stack trace/i.test(text)
+  );
+}

@@ -56,6 +56,10 @@ import {
 } from "../policy/PlanHandoffStore.js";
 import { wireSessionTaskManager } from "../agent/task/SessionTaskManager.js";
 import { wireEntryIntentRouter } from "../agent/routing/EntryIntentRouter.js";
+import {
+  createIntentClassifierChatFn,
+  wireAIIntentClassifier,
+} from "../agent/routing/AIIntentClassifier.js";
 import { defaultPausedRunStore, PausedRunStore } from "../agent/PausedRunStore.js";
 import { ModelOrchestrator } from "../model-orchestrator/index.js";
 import {
@@ -594,6 +598,7 @@ export function createAppContext(): AppContext {
     runtimeStatsFeedback,
   );
   const modelChatFn = createModelChatFn(clientMap, modelCallLogStore, trace, modelAvailability);
+  wireAIIntentClassifier(createIntentClassifierChatFn({ smartRouter: smartModelRouter, modelChatFn }));
   const defaultAgentChat = createAgentChatFn({ smartRouter: smartModelRouter, modelChatFn });
   const createChatForDelegatedTask = createDelegatedTaskChatFn({
     smartRouter: smartModelRouter,

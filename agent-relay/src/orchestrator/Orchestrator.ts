@@ -730,7 +730,7 @@ export class Orchestrator {
     const handoffResume = await this.tryPlanHandoffFollowUpResume(body, makeChat);
     if (handoffResume) return handoffResume;
 
-    const prepared = this.prepareAgentRun(body, makeChat, {
+    const prepared = await this.prepareAgentRun(body, makeChat, {
       registerForCancel: true,
       enableTimeline: true,
     });
@@ -1230,7 +1230,7 @@ export class Orchestrator {
     // activity_event，因此先缓冲这些事件，待 run_start 发出后再按序补发，避免乱序。
     let runStarted = false;
     const activityBuffer: AgentActivityEvent[] = [];
-    const prepared = this.prepareAgentRun(body, makeChat, {
+    const prepared = await this.prepareAgentRun(body, makeChat, {
       onStep: (step) => emit({ type: "step", step }),
       onModelTurn: (turn) => {
         activeIteration = turn.iteration;
@@ -1620,7 +1620,7 @@ export class Orchestrator {
 
   }
 
-  private prepareAgentRun(
+  private async prepareAgentRun(
     body: unknown,
     makeChat?: LoopChatFn,
     callbacks?: {
@@ -1631,7 +1631,7 @@ export class Orchestrator {
       enableTimeline?: boolean;
       onActivityEvent?: (event: AgentActivityEvent) => void;
     },
-  ):
+  ): Promise<
     | { error: ApiResult }
     | {
         ctx: {
@@ -1642,7 +1642,8 @@ export class Orchestrator {
           run: { id: string };
           loop: AgentLoop;
         };
-      } {
+      }
+  > {
     const payload = (body ?? {}) as {
       message?: string;
       system?: string;
@@ -1677,7 +1678,7 @@ export class Orchestrator {
         },
       };
     }
-    const policy = defaultRunPolicyManager.resolve({
+    const policy = await defaultRunPolicyManager.resolveAsync({
       requestedMode: payload.mode,
       forceMode: payload.forceMode === true,
       sessionId: payload.sessionId,

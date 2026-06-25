@@ -7,6 +7,9 @@ export type AgentExecutionStage = "analyze" | "plan" | "execute" | "verify";
 
 export type AgentStopReason =
   | "completed"
+  | "completed_partial"
+  | "misleading_completion"
+  | "blocked_by_policy"
   | "budget_exhausted"
   | "error"
   | "user_cancelled"
@@ -27,12 +30,19 @@ export type UserPermissionPolicy =
 export type UserPermissionPolicySource = "explicit" | "inferred";
 
 export interface RunBudget {
+  /** 主执行阶段模型轮次（不含系统恢复注入） */
   maxModelTurns: number;
   maxToolCalls: number;
   maxReadCalls: number;
   maxWriteCalls: number;
   maxShellCalls: number;
   maxRuntimeMs: number;
+  /** 工作流预扫描只读工具上限（与主 toolCalls 分层计数） */
+  maxPreflightTools: number;
+  /** 系统工具恢复动作上限（不消耗主 model turn） */
+  maxRecoveryTurns: number;
+  /** 相同 tool+input 允许失败次数，达到后熔断 */
+  maxRepeatedToolFailures: number;
 }
 
 export interface RunBudgetUsage {
@@ -42,6 +52,14 @@ export interface RunBudgetUsage {
   writeCalls: number;
   shellCalls: number;
   runtimeMs: number;
+  mainModelTurns?: number;
+  preflightTools?: number;
+  recoveryTurns?: number;
+  cachedToolHits?: number;
+  /** 观察失败 + 执行错误（不含 blocked） */
+  toolFailures?: number;
+  toolObservationFailures?: number;
+  toolExecutionErrors?: number;
 }
 
 export type RunBudgetKey = keyof RunBudget;
@@ -221,6 +239,21 @@ export interface AgentWorkflowSwitch {
   sequence: number;
 }
 
+export interface AgentCapabilityEscalation {
+  fromWorkflow: AgentWorkflowType;
+  fromIntent: AgentIntentType;
+  toWorkflow: AgentWorkflowType;
+  toIntent: AgentIntentType;
+  requestedTool: string;
+  requestedPermission: ToolPermission;
+  currentExpectedSideEffects: ToolPermission[];
+  targetSideEffects: ToolPermission[];
+  canEscalate: boolean;
+  reason: string;
+  iteration: number;
+  applied: boolean;
+}
+
 export interface AgentExecutionMeta {
   mode: AgentRunMode;
   executionStage?: AgentExecutionStage;
@@ -241,6 +274,9 @@ export interface AgentExecutionMeta {
   workflowInternalPlans?: AgentWorkflowInternalPlan[];
   workflowTaskState?: AgentWorkflowTaskState;
   workflowSwitch?: AgentWorkflowSwitch;
+  capabilityEscalations?: AgentCapabilityEscalation[];
+  reconciledWorkflowType?: AgentWorkflowType;
+  reconciledIntent?: AgentIntentType;
   workflowState?: import("./WorkflowStateCenter.js").WorkflowStateSnapshot;
   budget: RunBudget;
   usage: RunBudgetUsage;
@@ -258,11 +294,16 @@ export interface AgentExecutionMeta {
   /** 用户可读执行状态（非 mode）。 */
   userFacingState?: import("./presentation/ExecutionStatePresenter.js").UserFacingExecutionState;
   userFacingLabel?: string;
-  /** 入口意图决策来源（session_continuation / ai_classifier / legacy_fallback）。 */
+  /** 入口意图决策来源（task_continuation / session_continuation / ai_classifier / legacy_fallback）。 */
   intentDecisionSource?: import("./routing/IntentDecision.js").IntentDecisionSource;
   isContinuation?: boolean;
   intentDecisionReason?: string;
   intentDecisionConfidence?: number;
+  inheritedTaskId?: string;
+  previousWorkflowType?: AgentWorkflowType;
+  currentWorkflowType?: AgentWorkflowType;
+  continuationScore?: number;
+  continuationSignals?: Record<string, number | boolean>;
   /** 按任务复杂度估算的建议工具调用次数（预算耗尽时返回）。 */
   suggestedToolCalls?: number;
   complexityTier?: "low" | "medium" | "high";
@@ -272,6 +313,21 @@ export interface AgentExecutionMeta {
   missingSteps?: string[];
   /** 定位不足或预算耗尽时的结构化继续动作。 */
   suggestedAction?: AgentSuggestedAction;
+  /** Final Guard 结论（副作用任务真实性校验）。 */
+  completionStatus?: import("./completion/CompletionFinalGuard.js").CompletionStatus;
+  completionGuardReason?: string;
+  guardedAnswer?: string;
+  rawModelAnswer?: string;
+  /** 系统侧运行摘要（预算耗尽/权限暂停等），禁止作为用户可见 answer。 */
+  partialSummary?: string;
+  toolLedger?: {
+    attemptedShellCalls: number;
+    blockedShellCalls: number;
+    successfulShellCalls: number;
+    attemptedWriteCalls: number;
+    blockedWriteCalls: number;
+    successfulWriteCalls: number;
+  };
 }
 
 export interface RunPolicy {
@@ -294,6 +350,10 @@ export interface RunPolicy {
   isContinuation?: boolean;
   intentDecisionReason?: string;
   intentDecisionConfidence?: number;
+  inheritedTaskId?: string;
+  previousWorkflowType?: AgentWorkflowType;
+  continuationScore?: number;
+  continuationSignals?: Record<string, number | boolean>;
 }
 
 export interface ResolveRunPolicyInput {

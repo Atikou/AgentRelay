@@ -70,6 +70,16 @@ test("mapTraceEventToTimelineEntry 分类 tool 与 task", () => {
   });
   assert.equal(tool?.category, "tool");
 
+  const obsFail = mapTraceEventToTimelineEntry({
+    type: "tool_audit",
+    time: "t2",
+    tool: "read_file",
+    outcomeClass: "observation_failure",
+    outcomeKind: "not_found",
+  });
+  assert.equal(obsFail?.status, "observation_failure");
+  assert.equal(obsFail?.refs?.outcomeKind, "not_found");
+
   const task = mapTraceEventToTimelineEntry({
     type: "task_status_change",
     time: "t2",
@@ -119,6 +129,41 @@ test("enrichRunTimeline 合并 routing 与 fallback", () => {
   assert.equal(enriched.length, 3);
   assert.equal(enriched[1]!.category, "routing");
   assert.equal(enriched[2]!.category, "fallback");
+});
+
+test("accumulateUsage 区分 observation_failure 与 execution_error", async () => {
+  const tmp = await mkdtemp(path.join(os.tmpdir(), "run-report-outcome-"));
+  const traceFile = path.join(tmp, "trace.jsonl");
+  const runId = "run-outcome";
+  await writeFile(
+    traceFile,
+    [
+      JSON.stringify({
+        type: "tool_audit",
+        runId,
+        time: "t1",
+        tool: "read_file",
+        outcomeClass: "observation_failure",
+        outcomeKind: "not_found",
+      }),
+      JSON.stringify({
+        type: "tool_audit",
+        runId,
+        time: "t2",
+        tool: "write_file",
+        outcomeClass: "execution_error",
+        outcomeKind: "permission_denied",
+      }),
+    ].join("\n"),
+    "utf-8",
+  );
+  const report = await buildRunReport(traceFile, runId);
+  assert.ok(report);
+  assert.equal(report!.usage.toolCalls, 2);
+  assert.equal(report!.usage.toolObservationFailures, 1);
+  assert.equal(report!.usage.toolExecutionErrors, 1);
+  assert.equal(report!.usage.toolFailures, 2);
+  await rm(tmp, { recursive: true, force: true });
 });
 
 test("assertWithinCostBudget 超出上限抛错", () => {

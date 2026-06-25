@@ -1,5 +1,6 @@
 import type { AgentIntentType } from "./IntentTypes.js";
 import type { AgentToolStep } from "./toolStep.js";
+import { isEffectiveWriteStep } from "./toolStepOutcome.js";
 
 export interface EditExecutionWorkflowInput {
   goal: string;
@@ -27,7 +28,7 @@ export class EditExecutionWorkflow {
     ) {
       return undefined;
     }
-    if (!input.step.ok || (input.step.tool !== "write_file" && input.step.tool !== "apply_patch")) {
+    if (!isEffectiveWriteStep(input.step)) {
       return undefined;
     }
 
@@ -43,7 +44,7 @@ export class EditExecutionWorkflow {
               : input.intent === "refactor"
                 ? "refactorWorkflow"
                 : "editWorkflow",
-        tool: input.step.tool,
+        tool: input.step.tool as "write_file" | "apply_patch",
         toolCallId: input.step.toolCallId,
         path: readString(raw.path),
         changeId: readString(raw.changeId),

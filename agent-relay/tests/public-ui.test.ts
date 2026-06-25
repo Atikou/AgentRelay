@@ -40,21 +40,30 @@ test("M2 网页用例覆盖路由日志面板", async () => {
   }
 });
 
-test("模型路由文档标记测试台面板已落地", async () => {
-  const md = await readFile(path.join(docsDir, "模型路由与协作.md"), "utf-8");
-  assert.ok(md.includes("测试台「模型路由日志」"));
-  assert.ok(!md.includes("测试台面板待做"));
+test("架构文档登记入口路由", async () => {
+  const md = await readFile(path.join(docsDir, "执行流程.md"), "utf-8");
+  assert.ok(md.includes("AIIntentClassifier"));
+  assert.ok(md.includes("intentDecisionSource"));
 });
 
-test("Agent 结果卡展示自动工作流状态", async () => {
+test("Agent 结果卡展示自然状态标签", async () => {
   const js = await readFile(path.join(publicDir, "app.js"), "utf-8");
-  assert.ok(js.includes("WORKFLOW_STATUS_LABELS"));
+  assert.ok(js.includes("userFacingLabel"));
   assert.ok(js.includes("renderWorkflowStatus"));
-  assert.ok(js.includes("verifyWorkflow: \"正在验证结果\""));
-  assert.ok(js.includes("intent=${m.intent"));
-  assert.ok(js.includes("workflow=${m.workflowType"));
-  assert.ok(js.includes("permissionPolicy=${m.permissionPolicy"));
+  assert.ok(js.includes("getWorkflowStatusLabel"));
+  assert.ok(js.includes("DEV_MODE"));
   assert.ok(js.includes("renderConfirmationRequest"));
+});
+
+test("显式 mode 默认隐藏，仅 dev 模式可用", async () => {
+  const html = await readFile(path.join(publicDir, "index.html"), "utf-8");
+  const js = await readFile(path.join(publicDir, "app.js"), "utf-8");
+  const css = await readFile(path.join(publicDir, "styles.css"), "utf-8");
+  assert.ok(html.includes('id="explicit-mode-select"'));
+  assert.ok(html.includes("dev-only-tools"));
+  assert.ok(css.includes(".dev-only-tools"));
+  assert.ok(js.includes("initDevModeUi"));
+  assert.ok(js.includes("if (!DEV_MODE) return undefined"));
 });
 
 test("测试台默认自动工作流入口与权限策略", async () => {
@@ -63,16 +72,9 @@ test("测试台默认自动工作流入口与权限策略", async () => {
   const css = await readFile(path.join(publicDir, "styles.css"), "utf-8");
   assert.ok(html.includes('id="permission-policy-select"'));
   assert.ok(!html.includes('id="mode-select"'));
-  assert.ok(!html.includes("autoconfirm-input"));
-  assert.ok(html.includes('id="explicit-mode-select"'));
   assert.ok(html.includes('class="advanced-panel"'));
   assert.ok(css.includes(".advanced-panel"));
-  assert.ok(css.includes("--advanced-panel-left"));
-  assert.ok(css.includes("flex-direction: column"));
-  assert.ok(js.includes("positionAdvancedPanel"));
-  assert.ok(js.includes("bindAdvancedPanelPositioning"));
   assert.ok(js.includes("handleUnifiedAgent"));
-  assert.ok(js.includes("attachWorkflowBadgeToLastUserMessage"));
   assert.ok(js.includes("PERMISSION_POLICY_KEY"));
 });
 

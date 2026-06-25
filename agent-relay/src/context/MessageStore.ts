@@ -2,32 +2,72 @@ import { randomUUID } from "node:crypto";
 
 import type { DatabaseManager } from "./DatabaseManager.js";
 import { estimateTokens } from "./DatabaseManager.js";
+import {
+  inferEnvelopeFromLegacy,
+  resolveMessageEnvelope,
+  type MessageEnvelope,
+  type MessageEnvelopeInput,
+} from "./messageEnvelope.js";
 import { mapMessage, nowIso } from "./storeMappers.js";
 import type { MessageRecord } from "./types.js";
+
+export interface MessageAppendMeta {
+  clientName?: string;
+  modelName?: string;
+  envelope?: MessageEnvelopeInput;
+}
 
 export class MessageStore {
   constructor(private readonly db: DatabaseManager) {}
 
-  append(sessionId: string, role: string, content: string): MessageRecord {
+  append(
+    sessionId: string,
+    role: string,
+    content: string,
+    meta?: MessageAppendMeta,
+  ): MessageRecord {
     const id = randomUUID();
     const ts = nowIso();
     const tokens = estimateTokens(content);
+    const envelope = resolveMessageEnvelope({
+      role,
+      content,
+      ...meta?.envelope,
+    });
     this.db.connection
       .prepare(
-        `INSERT INTO messages(id, session_id, role, content, token_estimate, created_at)
-         VALUES (?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO messages(
+           id, session_id, role, content, token_estimate,
+           client_name, model_name, message_kind, ui_visible, trusted, source, run_id, created_at
+         )
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
-      .run(id, sessionId, role, content, tokens, ts);
+      .run(
+        id,
+        sessionId,
+        role,
+        content,
+        tokens,
+        meta?.clientName ?? null,
+        meta?.modelName ?? null,
+        envelope.messageKind,
+        envelope.uiVisible ? 1 : 0,
+        envelope.trusted ? 1 : 0,
+        envelope.source,
+        envelope.runId ?? null,
+        ts,
+      );
     this.db.upsertFts("messages_fts", id, content);
-    return {
+    return toMessageRecord({
       id,
       sessionId,
       role,
       content,
-      tokenEstimate: tokens,
-      isSummarized: false,
-      createdAt: ts,
-    };
+      tokens,
+      meta,
+      envelope,
+      ts,
+    });
   }
 
   markSummarized(messageIds: string[], summaryId: string): void {
@@ -117,4 +157,53 @@ export class MessageStore {
       .all(sessionId, role, limit) as Record<string, unknown>[];
     return rows.map(mapMessage);
   }
+}
+
+function toMessageRecord(input: {
+  id: string;
+  sessionId: string;
+  role: string;
+  content: string;
+  tokens: number;
+  meta?: MessageAppendMeta;
+  envelope: MessageEnvelope;
+  ts: string;
+}): MessageRecord {
+  return {
+    id: input.id,
+    sessionId: input.sessionId,
+    role: input.role,
+    content: input.content,
+    tokenEstimate: input.tokens,
+    isSummarized: false,
+    clientName: input.meta?.clientName,
+    modelName: input.meta?.modelName,
+    messageKind: input.envelope.messageKind,
+    uiVisible: input.envelope.uiVisible,
+    trusted: input.envelope.trusted,
+    source: input.envelope.source,
+    runId: input.envelope.runId,
+    createdAt: input.ts,
+  };
+}
+
+export function enrichMessageRecord(record: MessageRecord): MessageRecord & { envelope: MessageEnvelope } {
+  const envelope = record.messageKind
+    ? {
+        messageKind: record.messageKind,
+        uiVisible: record.uiVisible ?? false,
+        trusted: record.trusted ?? false,
+        source: record.source ?? inferEnvelopeFromLegacy(record.role, record.content).source,
+        runId: record.runId,
+      }
+    : inferEnvelopeFromLegacy(record.role, record.content);
+  return {
+    ...record,
+    messageKind: envelope.messageKind,
+    uiVisible: envelope.uiVisible,
+    trusted: envelope.trusted,
+    source: envelope.source,
+    runId: envelope.runId,
+    envelope,
+  };
 }

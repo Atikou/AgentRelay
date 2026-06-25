@@ -3,8 +3,10 @@ import { EditExecutionWorkflow } from "./EditExecutionWorkflow.js";
 import { EditVerificationWorkflow } from "./EditVerificationWorkflow.js";
 import { EditWriteWorkflow } from "./EditWriteWorkflow.js";
 import type { AgentIntentType } from "./IntentTypes.js";
+import { ToolRecoveryWorkflow } from "./ToolRecoveryWorkflow.js";
 import { WorkflowCorrectionWorkflow } from "./WorkflowCorrectionWorkflow.js";
 import type { AgentToolStep } from "./toolStep.js";
+import { isSuccessfulToolStep } from "./toolStepOutcome.js";
 
 export interface WorkflowFollowupContextsInput {
   intent: AgentIntentType | undefined;
@@ -20,6 +22,7 @@ export interface WorkflowFollowupContextsResult {
   editExecutionContext?: string;
   editVerificationContext?: string;
   workflowCorrectionContext?: string;
+  toolRecoveryContext?: string;
   pendingWritePhaseContext?: string;
 }
 
@@ -34,7 +37,7 @@ export function buildWorkflowFollowupContexts(
       input.step.error ?? "workflow write gate blocked",
     )
     : undefined;
-  const writePhaseContext = input.pendingWritePhaseContext && input.step.ok
+  const writePhaseContext = input.pendingWritePhaseContext && isSuccessfulToolStep(input.step)
     ? input.pendingWritePhaseContext
     : undefined;
   const editExecutionContext = new EditExecutionWorkflow()
@@ -57,12 +60,19 @@ export function buildWorkflowFollowupContexts(
       steps: input.steps,
       currentStep: input.step,
     })?.modelContext;
+  const toolRecoveryContext = new ToolRecoveryWorkflow()
+    .run({
+      intent,
+      goal: input.goal,
+      step: input.step,
+    })?.modelContext;
   return {
     blockedContext,
     writePhaseContext,
     editExecutionContext,
     editVerificationContext,
     workflowCorrectionContext,
+    toolRecoveryContext,
     pendingWritePhaseContext: writePhaseContext ? undefined : input.pendingWritePhaseContext,
   };
 }

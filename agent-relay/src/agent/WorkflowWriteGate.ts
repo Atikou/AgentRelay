@@ -8,6 +8,7 @@ import {
 } from "./WorkflowStateCenter.js";
 import { MAX_WORKFLOW_CORRECTION_ATTEMPTS } from "./WorkflowCorrectionWorkflow.js";
 import type { AgentToolStep } from "./toolStep.js";
+import { isSuccessfulToolStep } from "./toolStepOutcome.js";
 
 export type WorkflowWriteGatePhase = "write" | "fix";
 
@@ -175,9 +176,9 @@ export function requiresReadBeforeWrite(intent: AgentIntentType, goal: string): 
 }
 
 export function countSuccessfulReadTools(steps: AgentToolStep[]): number {
-  return steps.filter((step) => step.ok && isWorkflowReadTool(step.tool)).length;
+  return steps.filter((step) => isSuccessfulToolStep(step) && isWorkflowReadTool(step.tool)).length;
 }
 
 export function countSuccessfulWrites(steps: AgentToolStep[]): number {
-  return steps.filter((step) => step.ok && isWorkflowWriteTool(step.tool)).length;
+  return steps.filter((step) => isSuccessfulToolStep(step) && isWorkflowWriteTool(step.tool)).length;
 }

@@ -5,6 +5,7 @@ import type { AgentIntentType } from "./IntentTypes.js";
 import type { ToolPermission } from "../core/permissions.js";
 import type { RunBudget } from "./RunPolicyTypes.js";
 import type { AgentToolStep } from "./toolStep.js";
+import { toolStepPayloadForContext } from "./toolStepOutcome.js";
 
 export interface RunVerifyWorkflowOptions {
   registry: ToolRegistry;
@@ -84,14 +85,27 @@ export class RunVerifyWorkflow {
       requestId: this.options.requestId,
     });
 
-    const finalStep: AgentToolStep = result.ok
-      ? { ...step, ok: true, output: result.output, durationMs: result.durationMs }
-      : {
-          ...step,
-          error: `[${result.code}] ${result.error}`,
-          blocked: result.code === "permission_denied",
-          durationMs: result.durationMs,
-        };
+    const finalStep: AgentToolStep =
+      result.outcomeClass === "execution_error"
+        ? {
+            ...step,
+            error: result.error ?? result.message,
+            blocked: result.code === "permission_denied",
+            durationMs: result.durationMs,
+            outcomeClass: result.outcomeClass,
+            outcomeKind: result.outcomeKind,
+          }
+        : {
+            ...step,
+            executed: result.executed,
+            ok: result.outcomeClass === "observation_success",
+            output: result.output,
+            durationMs: result.durationMs,
+            error: result.outcomeClass === "observation_failure" ? result.message : undefined,
+            outcomeClass: result.outcomeClass,
+            outcomeKind: result.outcomeKind,
+            outcomeMessage: result.message,
+          };
 
     this.saveToolMessage(finalStep);
     return {
@@ -145,7 +159,7 @@ function quoteCommand(command: string): string {
 
 function renderRunVerifyContext(steps: AgentToolStep[], intent: AgentIntentType): string {
   const blocks = steps.map((step, index) => {
-    const payload = step.ok ? step.output : { error: step.error, blocked: step.blocked };
+    const payload = toolStepPayloadForContext(step);
     return [
       `## ${index + 1}. ${step.tool}`,
       `thought: ${step.thought ?? ""}`,

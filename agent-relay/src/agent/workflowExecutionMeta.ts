@@ -8,10 +8,11 @@ import type {
   LocationExecutionMeta,
 } from "./RunPolicyTypes.js";
 import type { AgentToolStep } from "./toolStep.js";
+import { isEffectiveWriteStep } from "./toolStepOutcome.js";
 
 export function buildWorkflowDiffs(steps: AgentToolStep[]): AgentWorkflowDiffRecord[] {
   return steps
-    .filter((step) => step.ok && (step.tool === "write_file" || step.tool === "apply_patch"))
+    .filter((step) => isEffectiveWriteStep(step))
     .map((step) => {
       const raw = asRecord(step.resultLayers?.raw) ?? asRecord(step.output) ?? {};
       const diff = typeof raw.diff === "string" ? truncateWorkflowDiff(raw.diff) : undefined;

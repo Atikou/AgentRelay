@@ -1,4 +1,5 @@
 import type { FileSnippetItem } from "./fileSnippets.js";
+import { isUntrustedCompletionMemoryText } from "./contextTrust.js";
 import {
   inferMemoryTags,
   inferPlanStepTags,
@@ -34,6 +35,7 @@ export interface BuildSystemSectionsInput {
   planSteps?: TaskStepRecord[];
   fileSnippets?: FileSnippetItem[];
   recentToolSummaries?: string[];
+  contextCorrections?: string[];
 }
 
 /** 将结构化上下文格式化为可注入模型的 systemSections。 */
@@ -53,6 +55,20 @@ export class SystemSectionBuilder {
         title: "用户偏好",
         priority: 100,
         items: prefs,
+      });
+    }
+
+    if (input.contextCorrections?.length) {
+      sections.push({
+        type: "context_corrections",
+        title: "上下文事实纠偏",
+        priority: 98,
+        items: input.contextCorrections.map((text, i) => ({
+          sourceType: "memory" as const,
+          sourceId: `correction-${i}`,
+          text,
+          tags: ["context_correction", "guard_notice"],
+        })),
       });
     }
 
@@ -156,7 +172,7 @@ export class SystemSectionBuilder {
           {
             sourceType: "semantic" as const,
             sourceId: h.item.sourceId,
-            text: h.item.summary ?? h.item.content.slice(0, 300),
+            text: h.item.summary ?? (h.item.content ?? "").slice(0, 300),
             score: h.score,
           },
           "semantic_results",
@@ -276,6 +292,8 @@ function buildProjectItems(
     items.push({ sourceType: "project", sourceId: project.id, text: parts.join("；") });
   }
   for (const m of memories) {
+    const text = m.summary ?? m.value;
+    if (isUntrustedCompletionMemoryText(text)) continue;
     items.push({
       sourceType: "memory",
       sourceId: m.id,
@@ -305,14 +323,14 @@ function appendJoin(parts: string[], label: string, items?: string[]): void {
 function formatPlanStepLine(step: TaskStepRecord): string {
   const idx = step.position + 1;
   const confirm = step.needsConfirmation ? "需确认" : "";
-  const deps = step.dependsOn.length ? `依赖:${step.dependsOn.join(",")}` : "";
+  const deps = step.dependsOn?.length ? `依赖:${step.dependsOn.join(",")}` : "";
   const prio = step.priority !== 100 ? `P${step.priority}` : "";
   const tail = [step.status, prio, confirm, deps].filter(Boolean).join("；");
   const goal = step.objective ?? step.description ?? "";
   const desc = goal ? ` — ${goal.slice(0, 100)}` : "";
   const artifacts =
-    step.expectedArtifacts.length > 0
-      ? `；产物:${step.expectedArtifacts.slice(0, 2).join("、")}`
+    (step.expectedArtifacts?.length ?? 0) > 0
+      ? `；产物:${(step.expectedArtifacts ?? []).slice(0, 2).join("、")}`
       : "";
   return `${idx}. ${step.title}（${tail}）${desc}${artifacts}`;
 }

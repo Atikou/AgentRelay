@@ -89,7 +89,12 @@ export class SummaryManager {
 async function defaultSummarize(messages: MessageRecord[]): Promise<StructuredSummary> {
   const userLines = messages.filter((m) => m.role === "user").map((m) => m.content.slice(0, 200));
   const assistantLines = messages
-    .filter((m) => m.role === "assistant")
+    .filter((m) => {
+      if (m.role !== "assistant") return false;
+      if (m.messageKind === "final_answer") return m.trusted === true;
+      if (m.messageKind === "tool_action" || m.messageKind === "raw_model_final") return false;
+      return !m.content.trim().startsWith("{");
+    })
     .map((m) => m.content.slice(0, 200));
   const toolLines = messages
     .filter((m) => m.role === "tool" || m.content.includes("工具"))

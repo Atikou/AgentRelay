@@ -74,14 +74,71 @@ test("remainingWorkflowSteps 扣除已用 tool/read 配额", () => {
   assert.equal(mgr.remainingWorkflowSteps(steps, 3), 1);
 });
 
-test("countSuccessfulPermissionUsage 只统计 ok 步骤", () => {
+test("countSuccessfulPermissionUsage 只统计成功步骤", () => {
   const usage = countSuccessfulPermissionUsage([
     readStep(1),
-    { iteration: 2, tool: "write_file", input: {}, permission: "write", ok: false },
-    { iteration: 3, tool: "write_file", input: {}, permission: "write", ok: true },
+    { iteration: 2, tool: "write_file", input: {}, permission: "write", ok: false, outcomeClass: "observation_failure" },
+    { iteration: 3, tool: "write_file", input: {}, permission: "write", ok: true, outcomeClass: "observation_success", executed: true },
   ]);
   assert.equal(usage.readCalls, 1);
   assert.equal(usage.writeCalls, 1);
+});
+
+test("buildUsage 统计 outcome 失败分项", () => {
+  const policy = resolveRunPolicy({ requestedMode: "chat", forceMode: true, message: "x" });
+  const mgr = new BudgetManager(policy.budget, policy.suggestedBudget);
+  mgr.markRunStarted();
+  const usage = mgr.buildUsage(
+    [
+      { iteration: 1, tool: "read_file", input: {}, ok: false, outcomeClass: "observation_failure", executed: true },
+      { iteration: 2, tool: "x", input: {}, blocked: true, ok: false },
+    ],
+    1,
+  );
+  assert.equal(usage.toolObservationFailures, 1);
+  assert.equal(usage.toolExecutionErrors, 0);
+  assert.equal(usage.toolFailures, 1);
+});
+
+test("零配额 shell 不视为预算耗尽", () => {
+  const policy = resolveRunPolicy({
+    requestedMode: "review",
+    forceMode: true,
+    message: "x",
+  });
+  const mgr = new BudgetManager(policy.budget, policy.suggestedBudget);
+  assert.equal(
+    mgr.findToolExhaustion({ toolPermission: "shell", permissionAllowed: true, steps: [] }),
+    undefined,
+  );
+});
+
+test("shell 预算在第三次调用时耗尽", () => {
+  const policy = resolveRunPolicy({
+    requestedMode: "implement",
+    forceMode: true,
+    budget: { maxShellCalls: 2 },
+    message: "x",
+  });
+  const mgr = new BudgetManager(policy.budget, policy.suggestedBudget);
+  const shellStep = (n: number): AgentToolStep => ({
+    iteration: n,
+    tool: "shell_run",
+    input: {},
+    permission: "shell",
+    ok: true,
+    executed: true,
+    outcomeClass: "observation_success",
+  });
+  const two = [shellStep(1), shellStep(2)];
+  assert.equal(
+    mgr.findToolExhaustion({ toolPermission: "shell", permissionAllowed: true, steps: [shellStep(1)] }),
+    undefined,
+  );
+  assert.equal(
+    mgr.findToolExhaustion({ toolPermission: "shell", permissionAllowed: true, steps: two }),
+    "maxShellCalls",
+  );
 });
 
 let passed = 0;

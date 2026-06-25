@@ -45,6 +45,9 @@ test("tracks correction limit as termination", () => {
     input: { command: "npm test" },
     permission: "shell",
     ok: false,
+    executed: true,
+    outcomeClass: "observation_failure",
+    outcomeKind: "command_failed",
     error: "failed",
   };
   const state = buildWorkflowState({
@@ -58,6 +61,34 @@ test("tracks correction limit as termination", () => {
   assert.equal(state.correctionLimitReached, true);
   assert.equal(state.taskState, "failed");
   assert.equal(state.events.at(-1)?.type, "correction_limit_reached");
+});
+
+test("outcomeClass observation_success 计入写入与验证", () => {
+  const writeWithOutcome: AgentToolStep = {
+    ...writeStep,
+    executed: true,
+    outcomeClass: "observation_success",
+    outcomeKind: "ok",
+  };
+  const verifyRead: AgentToolStep = {
+    iteration: 2,
+    toolCallId: "verify-read",
+    tool: "read_file",
+    input: { path: "src/a.ts" },
+    permission: "read",
+    ok: true,
+    executed: true,
+    outcomeClass: "observation_success",
+    outcomeKind: "ok",
+  };
+  const state = buildWorkflowState({
+    intent: "edit",
+    steps: [writeWithOutcome, verifyRead],
+    hasProposal: true,
+    maxCorrectionAttempts: 2,
+  });
+  assert.equal(state.phase, "verification_passed");
+  assert.equal(state.lastVerificationOk, true);
 });
 
 let failed = 0;

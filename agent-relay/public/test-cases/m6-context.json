@@ -425,6 +425,53 @@
           "contextPackage.messages": "array"
         }
       }
+    },
+    {
+      "id": "m6-memory-unverified-completion-filter",
+      "title": "未验证完成声明记忆不入检索",
+      "purpose": "验证 MemoryRetriever 过滤「增强方案已完成」类未验证完成声明，防止工作区记忆长期污染 context_pack。",
+      "method": "POST",
+      "path": "/api/context/memories",
+      "input": {
+        "scope": "global",
+        "memoryType": "fact",
+        "value": "增强方案已完成，所有文件已写入",
+        "summary": "虚假完成记忆",
+        "importance": 0.9
+      },
+      "expect": {
+        "status": 200,
+        "bodyHasKeys": ["memory"]
+      }
+    },
+    {
+      "id": "m6-memory-search-no-false-completion",
+      "title": "检索结果不含未验证完成声明",
+      "purpose": "先运行「未验证完成声明记忆不入检索」写入虚假完成记忆，再执行本用例；期望 GET /api/context/search 的 hits 中不出现「增强方案已完成」（MemoryRetriever trustLevel 过滤）。",
+      "method": "GET",
+      "path": "/api/context/search?q=增强方案&scope=global",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyHasKeys": ["hits"],
+        "bodyPaths": { "hits": "array" }
+      }
+    },
+    {
+      "id": "m6-context-trust-restore-structure",
+      "title": "恢复接口支持 context_corrections 段",
+      "purpose": "确认 GET restore 返回的 contextPackage.systemSections 为数组，去污后可在其中出现 type=context_corrections（虚假完成纠偏）；与 npm run test:context-trust 单元测试互补。",
+      "method": "GET",
+      "path": "/api/context/sessions/PASTE_SESSION_ID/restore?q=安装依赖",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyHasKeys": ["contextPackage", "renderedPrompt"],
+        "bodyPaths": {
+          "contextPackage.systemSections": "array",
+          "contextPackage.messages": "array"
+        }
+      }
     }
   ]
 }

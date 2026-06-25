@@ -35,6 +35,7 @@ export const shellRunTool: Tool<
     timedOut: boolean;
     truncated: boolean;
     riskLevel: "low" | "medium" | "high";
+    spawnFailed?: boolean;
   }
 > = {
   name: "shell_run",
@@ -81,6 +82,7 @@ export const shellRunTool: Tool<
         timedOut: false,
         truncated: out.truncated || errOut.truncated,
         riskLevel,
+        spawnFailed: false,
       };
     } catch (err) {
       const e = err as {
@@ -90,7 +92,16 @@ export const shellRunTool: Tool<
         message?: string;
         killed?: boolean;
       };
-      const timedOut = e.code === "ERR_CHILD_PROCESS_STDIO_MAXBUFFER" || e.killed === true;
+      // 执行器无法启动（非命令退出码）→ 抛给 Registry 记为 execution_error
+      const spawnFailedString =
+        typeof e.code === "string" && e.code !== "ERR_CHILD_PROCESS_STDIO_MAXBUFFER";
+      if (spawnFailedString || (e.code == null && !e.stdout && !e.stderr?.trim())) {
+        throw err;
+      }
+      const timedOut =
+        e.code === "ERR_CHILD_PROCESS_STDIO_MAXBUFFER" ||
+        e.killed === true ||
+        /timed out|ETIMEDOUT/i.test(e.message ?? "");
       const out = clipOutput(e.stdout ?? "", input.maxOutputBytes);
       const errOut = clipOutput(e.stderr ?? e.message ?? String(err), input.maxOutputBytes);
       return {
@@ -102,6 +113,7 @@ export const shellRunTool: Tool<
         timedOut,
         truncated: out.truncated || errOut.truncated,
         riskLevel,
+        spawnFailed: false,
       };
     }
   },

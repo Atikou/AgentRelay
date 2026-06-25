@@ -5,7 +5,7 @@
 import assert from "node:assert/strict";
 
 import { defaultRunPolicyManager, RunPolicyManager } from "../src/agent/RunPolicy.js";
-import { defaultWorkflowSessionStore } from "../src/agent/WorkflowSessionSwitch.js";
+import { defaultSessionTaskManager } from "../src/agent/task/SessionTaskManager.js";
 
 const tests: Array<{ name: string; fn: () => void }> = [];
 function test(name: string, fn: () => void) {
@@ -57,7 +57,7 @@ test("resolve 的允许权限由 permissionPolicy 决定而不是 mode", () => {
   });
   assert.equal(planAutoRun.mode, "plan");
   assert.equal(planAutoRun.permissionPolicy, "autoRun");
-  assert.deepEqual(planAutoRun.allowedPermissions, ["read", "write", "shell", "network", "dangerous"]);
+  assert.deepEqual(planAutoRun.allowedPermissions, ["read"]);
 
   const debugReadOnly = defaultRunPolicyManager.resolve({
     requestedMode: "debug",
@@ -68,6 +68,17 @@ test("resolve 的允许权限由 permissionPolicy 决定而不是 mode", () => {
   assert.equal(debugReadOnly.mode, "debug");
   assert.equal(debugReadOnly.permissionPolicy, "readOnly");
   assert.deepEqual(debugReadOnly.allowedPermissions, ["read"]);
+});
+
+test("review 模式即使用户 autoRun 也不得 shell/write", () => {
+  const review = defaultRunPolicyManager.resolve({
+    requestedMode: "review",
+    forceMode: true,
+    requestedPermissionPolicy: "autoRun",
+    message: "审阅代码",
+  });
+  assert.equal(review.mode, "review");
+  assert.deepEqual(review.allowedPermissions, ["read"]);
 });
 
 test("answer/summarize/search 工作流即使显式自动策略也保持只读工具上限", () => {
@@ -146,11 +157,13 @@ test("plan_then_execute 复合意图进入权限申请后续", () => {
 
 test("短句续写会沿用同会话上轮工作流", () => {
   const sessionId = "session-carry-over";
-  defaultWorkflowSessionStore.set({
+  const manager = defaultSessionTaskManager;
+  manager.updateFromRun({
     sessionId,
+    goal: "修改文件",
     intent: "edit",
     workflowType: "editWorkflow",
-    updatedAt: new Date().toISOString(),
+    stopReason: "completed",
   });
   const policy = defaultRunPolicyManager.resolve({
     sessionId,
@@ -160,16 +173,38 @@ test("短句续写会沿用同会话上轮工作流", () => {
   assert.equal(policy.workflowType, "editWorkflow");
   assert.equal(policy.mode, "implement");
   assert.equal(policy.executionStage, "execute");
-  defaultWorkflowSessionStore.clear(sessionId);
+});
+
+test("视觉续写短句沿用同会话 implement 工作流", () => {
+  const sessionId = "session-visual-refine";
+  const manager = defaultSessionTaskManager;
+  manager.updateFromRun({
+    sessionId,
+    goal: "修复 3D 星系图",
+    intent: "edit",
+    workflowType: "editWorkflow",
+    stopReason: "completed",
+    sideEffectSummary: { wroteFiles: ["testTS/src/index.ts"], ranShell: false },
+  });
+  const policy = defaultRunPolicyManager.resolve({
+    sessionId,
+    message: "再好看壮观一点",
+  });
+  assert.equal(policy.intent, "edit");
+  assert.equal(policy.workflowType, "editWorkflow");
+  assert.equal(policy.mode, "implement");
+  assert.equal(policy.intentDecisionSource, "task_continuation");
 });
 
 test("plan 会话收到执行短句时不跃迁绕过权限批准", () => {
   const sessionId = "session-plan-no-bypass";
-  defaultWorkflowSessionStore.set({
+  const manager = defaultSessionTaskManager;
+  manager.updateFromRun({
     sessionId,
+    goal: "制定计划",
     intent: "plan",
     workflowType: "planWorkflow",
-    updatedAt: new Date().toISOString(),
+    stopReason: "completed",
   });
   const policy = defaultRunPolicyManager.resolve({
     sessionId,
@@ -178,16 +213,17 @@ test("plan 会话收到执行短句时不跃迁绕过权限批准", () => {
   assert.notEqual(policy.intent, "edit");
   assert.notEqual(policy.mode, "implement");
   assert.notEqual(policy.workflowType, "editWorkflow");
-  defaultWorkflowSessionStore.clear(sessionId);
 });
 
 test("粘贴工具失败步骤输出沿用同会话上轮 implement 工作流", () => {
   const sessionId = "session-failure-feedback";
-  defaultWorkflowSessionStore.set({
+  const manager = defaultSessionTaskManager;
+  manager.updateFromRun({
     sessionId,
+    goal: "修改 vite",
     intent: "edit",
     workflowType: "editWorkflow",
-    updatedAt: new Date().toISOString(),
+    stopReason: "completed",
   });
   const pasted = [
     "#2 read_file",
@@ -204,8 +240,27 @@ test("粘贴工具失败步骤输出沿用同会话上轮 implement 工作流", 
   assert.equal(policy.workflowType, "editWorkflow");
   assert.equal(policy.mode, "implement");
   assert.notEqual(policy.intent, "answer");
-  assert.equal(policy.intentDecisionSource, "session_continuation");
-  defaultWorkflowSessionStore.clear(sessionId);
+  assert.equal(policy.intentDecisionSource, "task_continuation");
+});
+
+test("粘贴浏览器 localhost 报错延续 run/debug 任务", () => {
+  const sessionId = "session-localhost-error";
+  const manager = defaultSessionTaskManager;
+  manager.updateFromRun({
+    sessionId,
+    goal: "启动 testTS dev server",
+    intent: "run",
+    workflowType: "runWorkflow",
+    stopReason: "completed",
+  });
+  const policy = defaultRunPolicyManager.resolve({
+    sessionId,
+    message: "找不到 localhost 的网页\n找不到与以下网址对应的网页：http://localhost:36970/",
+  });
+  assert.equal(policy.intent, "run");
+  assert.equal(policy.workflowType, "runWorkflow");
+  assert.equal(policy.mode, "debug");
+  assert.equal(policy.intentDecisionSource, "task_continuation");
 });
 
 let passed = 0;

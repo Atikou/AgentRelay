@@ -67,7 +67,7 @@ function renderSections(sections: SystemSection[], tokenBudget?: number): string
   let used = 0;
   for (const section of sorted) {
     const lines = [`## ${section.title}`];
-    for (const item of section.items) {
+    for (const item of section.items ?? []) {
       lines.push(`- ${item.text}`);
     }
     const block = lines.join("\n");

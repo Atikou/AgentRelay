@@ -1,8 +1,8 @@
 /** Agent Activity Timeline 类型（公开执行摘要，非模型 CoT）。 */
 
-export type ActivityRunStatus = "pending" | "running" | "success" | "failed" | "cancelled";
+export type ActivityRunStatus = "pending" | "running" | "success" | "partial" | "failed" | "cancelled";
 
-export type ActivityStepStatus = "pending" | "running" | "success" | "failed" | "skipped";
+export type ActivityStepStatus = "pending" | "running" | "success" | "warning" | "failed" | "skipped";
 
 export type ActivityStepType =
   | "analysis"
@@ -18,7 +18,8 @@ export type ActivityStepType =
   | "validation"
   | "summary"
   | "error"
-  | "retry";
+  | "retry"
+  | "escalation";
 
 export interface ActivityRunMetadata {
   userInput?: string;
@@ -40,6 +41,8 @@ export interface ActivityStepMetadata {
   stdoutPreview?: string;
   stderrPreview?: string;
   errorMessage?: string;
+  outcomeClass?: string;
+  outcomeKind?: string;
   retryCount?: number;
   collapsible?: boolean;
   durationMs?: number;

@@ -98,9 +98,9 @@
               <select id="permission-policy-select" title="控制写文件与执行命令的默认边界">
                 <option value="readOnly">只读</option>
                 <option value="confirmBeforeEdit" selected>修改前确认</option>
-                <option value="autoEdit">自动修改</option>
+                <option value="autoEdit">自动修改（仅写文件）</option>
                 <option value="confirmBeforeRun">命令前确认</option>
-                <option value="autoRun">自动执行</option>
+                <option value="autoRun" title="自动允许写文件与执行命令（read+write+shell）">自动执行（写文件+命令）</option>
               </select>
             </label>
             <label class="field">
@@ -117,8 +117,8 @@
             <details class="advanced-entry field">
               <summary>高级选项</summary>
               <div class="advanced-panel">
-                <label class="field advanced-mode-field">
-                  <span>显式模式</span>
+                <label class="field advanced-mode-field dev-only-tools">
+                  <span>显式模式（仅 ?dev=1）</span>
                   <select id="explicit-mode-select" title="覆盖自动意图推断；留空则完全自动">
                     <option value="">自动推断（推荐）</option>
                     <option value="chat">强制对话</option>

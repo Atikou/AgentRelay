@@ -10,8 +10,10 @@ import path from "node:path";
 import { AgentLoop, type LoopChatFn } from "../src/agent/AgentLoop.js";
 import {
   buildToolResultLayers,
+  clipModelToolJson,
   compactToolOutputForModel,
   isModelCompactTruncated,
+  jsonSerializedLength,
 } from "../src/util/toolResultLayers.js";
 import type { ModelResponse } from "../src/model/types.js";
 import { readRecentTraceEvents } from "../src/trace/traceReader.js";
@@ -47,6 +49,13 @@ test("compactToolOutputForModel 大 JSON 返回 _truncated 摘要", async () => 
   const { modelVisible, truncated } = compactToolOutputForModel("list_files", raw, 2000);
   assert.equal(truncated, true);
   assert.ok(isModelCompactTruncated(modelVisible));
+});
+
+test("clipModelToolJson 对 undefined 安全", async () => {
+  assert.equal(clipModelToolJson(undefined), "null");
+  assert.equal(compactToolOutputForModel("read_file", undefined).truncated, false);
+  assert.equal(jsonSerializedLength(undefined), 4);
+  assert.doesNotThrow(() => buildToolResultLayers("project_scan", undefined));
 });
 
 test("buildToolResultLayers list_files userDisplay 标记 truncated", async () => {

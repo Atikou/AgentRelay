@@ -1,5 +1,19 @@
 import type { AgentIntentType, AgentWorkflowType } from "./IntentTypes.js";
 
+export type WorkflowKind = "hard" | "soft";
+
+export function isHardWorkflow(
+  route: Pick<WorkflowRouteResult, "workflowKind">,
+): boolean {
+  return route.workflowKind === "hard";
+}
+
+export function isSoftWorkflow(
+  route: Pick<WorkflowRouteResult, "workflowKind">,
+): boolean {
+  return route.workflowKind === "soft";
+}
+
 export type AgentWorkflowExecutor =
   | "answerExecutor"
   | "planExecutor"
@@ -21,6 +35,8 @@ export interface WorkflowRouteResult {
   intent: AgentIntentType;
   workflowType: AgentWorkflowType;
   executor: AgentWorkflowExecutor;
+  /** hard：只读/计划/审阅等可硬阻断副作用；soft：执行类可动态 capability escalation。 */
+  workflowKind: WorkflowKind;
   readonlyOnly: boolean;
   enforceReadOnlyTools: boolean;
   sideEffectKind: "none" | "write" | "shell" | "mixed";
@@ -30,6 +46,7 @@ const WORKFLOW_ROUTES: Record<AgentIntentType, Omit<WorkflowRouteResult, "intent
   answer: {
     workflowType: "answerWorkflow",
     executor: "answerExecutor",
+    workflowKind: "hard",
     readonlyOnly: true,
     enforceReadOnlyTools: true,
     sideEffectKind: "none",
@@ -37,6 +54,7 @@ const WORKFLOW_ROUTES: Record<AgentIntentType, Omit<WorkflowRouteResult, "intent
   plan: {
     workflowType: "planWorkflow",
     executor: "planExecutor",
+    workflowKind: "hard",
     readonlyOnly: true,
     enforceReadOnlyTools: false,
     sideEffectKind: "none",
@@ -44,6 +62,7 @@ const WORKFLOW_ROUTES: Record<AgentIntentType, Omit<WorkflowRouteResult, "intent
   edit: {
     workflowType: "editWorkflow",
     executor: "editExecutor",
+    workflowKind: "soft",
     readonlyOnly: false,
     enforceReadOnlyTools: false,
     sideEffectKind: "write",
@@ -51,6 +70,7 @@ const WORKFLOW_ROUTES: Record<AgentIntentType, Omit<WorkflowRouteResult, "intent
   run: {
     workflowType: "runWorkflow",
     executor: "runExecutor",
+    workflowKind: "soft",
     readonlyOnly: false,
     enforceReadOnlyTools: false,
     sideEffectKind: "shell",
@@ -58,6 +78,7 @@ const WORKFLOW_ROUTES: Record<AgentIntentType, Omit<WorkflowRouteResult, "intent
   debug: {
     workflowType: "debugWorkflow",
     executor: "debugExecutor",
+    workflowKind: "soft",
     readonlyOnly: false,
     enforceReadOnlyTools: false,
     sideEffectKind: "mixed",
@@ -65,6 +86,7 @@ const WORKFLOW_ROUTES: Record<AgentIntentType, Omit<WorkflowRouteResult, "intent
   review: {
     workflowType: "reviewWorkflow",
     executor: "reviewExecutor",
+    workflowKind: "hard",
     readonlyOnly: true,
     enforceReadOnlyTools: false,
     sideEffectKind: "none",
@@ -72,6 +94,7 @@ const WORKFLOW_ROUTES: Record<AgentIntentType, Omit<WorkflowRouteResult, "intent
   verify: {
     workflowType: "verifyWorkflow",
     executor: "verifyExecutor",
+    workflowKind: "soft",
     readonlyOnly: false,
     enforceReadOnlyTools: false,
     sideEffectKind: "shell",
@@ -79,6 +102,7 @@ const WORKFLOW_ROUTES: Record<AgentIntentType, Omit<WorkflowRouteResult, "intent
   summarize: {
     workflowType: "summarizeWorkflow",
     executor: "summarizeExecutor",
+    workflowKind: "hard",
     readonlyOnly: true,
     enforceReadOnlyTools: true,
     sideEffectKind: "none",
@@ -86,6 +110,7 @@ const WORKFLOW_ROUTES: Record<AgentIntentType, Omit<WorkflowRouteResult, "intent
   search: {
     workflowType: "searchWorkflow",
     executor: "searchExecutor",
+    workflowKind: "hard",
     readonlyOnly: true,
     enforceReadOnlyTools: true,
     sideEffectKind: "none",
@@ -93,6 +118,7 @@ const WORKFLOW_ROUTES: Record<AgentIntentType, Omit<WorkflowRouteResult, "intent
   refactor: {
     workflowType: "refactorWorkflow",
     executor: "refactorExecutor",
+    workflowKind: "soft",
     readonlyOnly: false,
     enforceReadOnlyTools: false,
     sideEffectKind: "write",
@@ -100,6 +126,7 @@ const WORKFLOW_ROUTES: Record<AgentIntentType, Omit<WorkflowRouteResult, "intent
   generate_file: {
     workflowType: "generateFileWorkflow",
     executor: "generateFileExecutor",
+    workflowKind: "soft",
     readonlyOnly: false,
     enforceReadOnlyTools: false,
     sideEffectKind: "write",
@@ -114,6 +141,17 @@ export class WorkflowRouter {
   routeIntent(intent: AgentIntentType): WorkflowRouteResult {
     const route = WORKFLOW_ROUTES[intent];
     return { intent, ...route };
+  }
+
+  routeWorkflowType(workflowType: AgentWorkflowType): WorkflowRouteResult | undefined {
+    for (const [intent, route] of Object.entries(WORKFLOW_ROUTES) as Array<
+      [AgentIntentType, Omit<WorkflowRouteResult, "intent">]
+    >) {
+      if (route.workflowType === workflowType) {
+        return { intent, ...route };
+      }
+    }
+    return undefined;
   }
 }
 

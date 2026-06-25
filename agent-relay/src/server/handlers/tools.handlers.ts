@@ -171,5 +171,5 @@ export async function handleToolRun(app: AppContext, body: unknown): Promise<Api
     workspaceRoot: app.workspaceRoot,
     allowedPermissions: allowed,
   });
-  return { status: result.ok ? 200 : 400, body: result };
+  return { status: result.outcomeClass === "execution_error" ? 400 : 200, body: result };
 }

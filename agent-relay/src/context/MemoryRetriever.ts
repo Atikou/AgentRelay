@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 
 import type { DatabaseManager } from "./DatabaseManager.js";
+import { filterTrustedMemories, isUntrustedCompletionMemoryText } from "./contextTrust.js";
 import { inferMemoryTags, inferSummaryTags, matchesTagFilter } from "./contextTags.js";
 import type { EmbeddingService } from "./EmbeddingService.js";
 import type { MemoryManager } from "./MemoryManager.js";
@@ -12,6 +13,7 @@ import type {
   MemoryRetrieveReason,
   MemoryScope,
   MemoryType,
+  MemoryTrustLevel,
   RetrievedMemory,
   SearchHit,
   SemanticItem,
@@ -44,9 +46,16 @@ export class MemoryRetriever {
 
     const add = (memory: MemoryRecord, relevance: number, reason: MemoryRetrieveReason) => {
       const score = computeScore(memory, relevance);
+      const trust = inferMemoryTrust(memory);
       const existing = merged.get(memory.id);
       if (!existing || score > existing.score) {
-        merged.set(memory.id, { memory, score, reason });
+        merged.set(memory.id, {
+          memory,
+          score,
+          reason,
+          trustLevel: trust.trustLevel,
+          sourceKind: trust.sourceKind,
+        });
       } else if (existing && score > 0) {
         existing.score = Math.max(existing.score, score);
       }
@@ -100,7 +109,7 @@ export class MemoryRetriever {
       }
     }
 
-    const results = [...merged.values()]
+    const results = filterTrustedMemories([...merged.values()])
       .sort((a, b) => b.score - a.score)
       .slice(0, limit);
 
@@ -200,4 +209,21 @@ function recencyScore(iso: string): number {
   const ageMs = Date.now() - new Date(iso).getTime();
   const days = ageMs / (1000 * 60 * 60 * 24);
   return Math.max(0, 1 - days / 30);
+}
+
+function inferMemoryTrust(memory: MemoryRecord): {
+  trustLevel: MemoryTrustLevel;
+  sourceKind: string;
+} {
+  if (memory.source === "tool_ledger") {
+    return { trustLevel: "verified", sourceKind: "tool_ledger" };
+  }
+  const text = `${memory.value}\n${memory.summary ?? ""}`;
+  if (isUntrustedCompletionMemoryText(text)) {
+    return { trustLevel: "unverified", sourceKind: memory.memoryType };
+  }
+  if (memory.confidence >= 0.8 && memory.importance >= 0.7) {
+    return { trustLevel: "inferred", sourceKind: memory.memoryType };
+  }
+  return { trustLevel: "inferred", sourceKind: memory.memoryType };
 }

@@ -13,9 +13,12 @@ import { MemoryExtractor, type IMemoryExtractor } from "./MemoryExtractor.js";
 import { MemoryManager } from "./MemoryManager.js";
 import { MemoryRetriever } from "./MemoryRetriever.js";
 import { PromptBuilder } from "./PromptBuilder.js";
+import { RunFactsLookup } from "./runFactsLookup.js";
 import { SemanticRetriever } from "./SemanticRetriever.js";
 import { SummaryManager } from "./SummaryManager.js";
 import { SystemSectionBuilder } from "./SystemSectionBuilder.js";
+import type { MessageAppendMeta } from "./MessageStore.js";
+import type { MessageEnvelopeInput } from "./messageEnvelope.js";
 import {
   MemoryStore,
   MessageStore,
@@ -116,6 +119,7 @@ export class ContextManager {
       this.semanticRetriever,
       this.sectionBuilder,
       this.memoryManager,
+      new RunFactsLookup(this.db),
       { recentMessageCount: options.recentMessageCount },
     );
     this.largeToolChars = options.largeToolOutputChars ?? 4000;
@@ -207,24 +211,119 @@ export class ContextManager {
     return this.saveMessage(sessionId, role, content);
   }
 
-  saveUserMessage(sessionId: string, content: string): MessageRecord {
-    return this.saveMessage(sessionId, "user", content);
+  saveUserMessage(sessionId: string, content: string, runId?: string): MessageRecord {
+    return this.saveMessage(sessionId, "user", content, undefined, {
+      messageKind: "user_input",
+      uiVisible: true,
+      trusted: true,
+      source: "user",
+      runId,
+    });
   }
 
-  saveAssistantMessage(sessionId: string, content: string): MessageRecord {
-    return this.saveMessage(sessionId, "assistant", content);
+  saveAssistantToolAction(
+    sessionId: string,
+    content: string,
+    runId: string | undefined,
+    model?: { clientName?: string; modelName?: string },
+  ): MessageRecord {
+    return this.saveMessage(sessionId, "assistant", content, model, {
+      messageKind: "tool_action",
+      uiVisible: false,
+      trusted: false,
+      source: "model",
+      runId,
+    });
   }
 
-  saveSystemMessage(sessionId: string, content: string): MessageRecord {
-    return this.saveMessage(sessionId, "system", content);
+  saveRawModelFinal(
+    sessionId: string,
+    answer: string,
+    runId: string | undefined,
+    model?: { clientName?: string; modelName?: string },
+  ): MessageRecord {
+    const content = JSON.stringify({ action: "final", answer });
+    return this.saveMessage(sessionId, "assistant", content, model, {
+      messageKind: "raw_model_final",
+      uiVisible: false,
+      trusted: false,
+      source: "model",
+      runId,
+    });
   }
 
-  saveToolMessage(sessionId: string, content: string): MessageRecord {
-    return this.saveMessage(sessionId, "tool", content);
+  saveGuardedFinalAnswer(
+    sessionId: string,
+    answer: string,
+    runId: string | undefined,
+  ): MessageRecord {
+    return this.saveMessage(sessionId, "assistant", answer, undefined, {
+      messageKind: "final_answer",
+      uiVisible: true,
+      trusted: true,
+      source: "guard",
+      runId,
+    });
   }
 
-  private saveMessage(sessionId: string, role: string, content: string): MessageRecord {
-    const msg = this.messages.append(sessionId, role, content);
+  saveTrustedModelFinalAnswer(
+    sessionId: string,
+    answer: string,
+    runId: string | undefined,
+    model?: { clientName?: string; modelName?: string },
+  ): MessageRecord {
+    return this.saveMessage(sessionId, "assistant", answer, model, {
+      messageKind: "final_answer",
+      uiVisible: true,
+      trusted: true,
+      source: "model",
+      runId,
+    });
+  }
+
+  /** @deprecated 请使用语义化 save* 方法 */
+  saveAssistantMessage(
+    sessionId: string,
+    content: string,
+    model?: { clientName?: string; modelName?: string },
+  ): MessageRecord {
+    return this.saveMessage(sessionId, "assistant", content, model);
+  }
+
+  /** 运行态 system；默认不入 trusted 上下文。 */
+  saveSystemMessage(sessionId: string, content: string, runId?: string): MessageRecord {
+    return this.saveMessage(sessionId, "system", content, undefined, {
+      messageKind: "workflow_event",
+      uiVisible: false,
+      trusted: false,
+      source: "workflow",
+      runId,
+    });
+  }
+
+  saveToolMessage(sessionId: string, content: string, runId?: string): MessageRecord {
+    return this.saveMessage(sessionId, "tool", content, undefined, {
+      messageKind: "tool_result",
+      uiVisible: false,
+      trusted: true,
+      source: "tool",
+      runId,
+    });
+  }
+
+  private saveMessage(
+    sessionId: string,
+    role: string,
+    content: string,
+    model?: { clientName?: string; modelName?: string },
+    envelope?: MessageEnvelopeInput,
+  ): MessageRecord {
+    const meta: MessageAppendMeta = {
+      clientName: model?.clientName,
+      modelName: model?.modelName,
+      envelope,
+    };
+    const msg = this.messages.append(sessionId, role, content, meta);
     this.sessions.touch(sessionId, msg.id);
     this.appendMessageLog(sessionId, msg);
     return msg;

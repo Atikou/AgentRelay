@@ -1,5 +1,6 @@
 import type { AgentIntentType } from "./IntentTypes.js";
 import type { AgentToolStep } from "./toolStep.js";
+import { isEffectiveWriteStep } from "./toolStepOutcome.js";
 
 export interface EditAutoVerificationWorkflowInput {
   intent: AgentIntentType;
@@ -24,7 +25,7 @@ export class EditAutoVerificationWorkflow {
     if (input.intent !== "edit" && input.intent !== "generate_file" && input.intent !== "debug" && input.intent !== "refactor") {
       return undefined;
     }
-    if (!input.step.ok || (input.step.tool !== "write_file" && input.step.tool !== "apply_patch")) {
+    if (!isEffectiveWriteStep(input.step)) {
       return undefined;
     }
     const raw = asRecord(input.step.resultLayers?.raw) ?? asRecord(input.step.output) ?? {};

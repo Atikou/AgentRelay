@@ -5,7 +5,6 @@
 import assert from "node:assert/strict";
 
 import {
-  WorkflowSessionStore,
   renderWorkflowSwitchContext,
   resolveWorkflowSwitch,
 } from "../src/agent/WorkflowSessionSwitch.js";
@@ -68,23 +67,6 @@ test("renderWorkflowSwitchContext mentions previous and current workflow", () =>
   assert.match(text, /Workflow switched within session/);
   assert.match(text, /planWorkflow \(plan\)/);
   assert.match(text, /editWorkflow \(edit\)/);
-});
-
-test("WorkflowSessionStore persists snapshot per session", () => {
-  const store = new WorkflowSessionStore();
-  store.set({
-    sessionId: "s2",
-    intent: "verify",
-    workflowType: "verifyWorkflow",
-    workflowTaskState: "completed",
-    updatedAt: "2026-06-13T10:00:00.000Z",
-  });
-  const snap = store.get("s2");
-  assert.ok(snap);
-  assert.equal(snap.intent, "verify");
-  assert.equal(snap.workflowType, "verifyWorkflow");
-  store.clear("s2");
-  assert.equal(store.get("s2"), undefined);
 });
 
 let failed = 0;

@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { execFile } from "node:child_process";
 import { promises as fs, statSync } from "node:fs";
+import { stat } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
 import { z } from "zod";
@@ -21,6 +22,15 @@ import {
   resolveInsideWorkspaceAsync,
   shouldIgnoreDir,
 } from "./pathSafe.js";
+import {
+  attachOutcome,
+  buildListDirNotFoundOutcome,
+  buildNotFoundOutcome,
+  buildNoResultsOutcome,
+  observationFailure,
+  observationSuccess,
+  type ToolOutcome,
+} from "./toolOutcome.js";
 import type { ToolStorage } from "./storage/ToolStorage.js";
 import type { Tool, ToolContext } from "./types.js";
 
@@ -79,24 +89,23 @@ async function recordChange(
   });
 }
 
+function normalizeReadFileEncoding(value: string): "utf8" | "base64" {
+  const lower = value.toLowerCase();
+  if (lower === "utf-8" || lower === "utf_8" || lower === "utf8") return "utf8";
+  if (lower === "base64") return "base64";
+  return value as "utf8" | "base64";
+}
+
 /** read_file：读取工作区内文本文件。 */
 export const readFileTool: Tool<
   z.ZodObject<{
     path: z.ZodString;
-    encoding: z.ZodDefault<z.ZodEnum<["utf8", "base64"]>>;
+    encoding: z.ZodDefault<z.ZodEnum<["utf8", "base64", "utf-8"]>>;
     startLine: z.ZodOptional<z.ZodNumber>;
     endLine: z.ZodOptional<z.ZodNumber>;
     maxBytes: z.ZodOptional<z.ZodNumber>;
   }>,
-  {
-    path: string;
-    content: string;
-    sizeBytes: number;
-    encoding: string;
-    truncated: boolean;
-    lineCount?: number;
-    sha256: string;
-  }
+  Record<string, unknown> & { outcome: ToolOutcome }
 > = {
   name: "read_file",
   description: "读取工作区内的文本文件；返回 sha256 供写入时并发校验。",
@@ -104,14 +113,30 @@ export const readFileTool: Tool<
   hasSideEffect: false,
   inputSchema: z.object({
     path: z.string().min(1),
-    encoding: z.enum(["utf8", "base64"]).default("utf8"),
+    encoding: z.enum(["utf8", "base64", "utf-8"]).default("utf8"),
     startLine: z.number().int().positive().optional(),
     endLine: z.number().int().positive().optional(),
     maxBytes: z.number().int().positive().optional(),
   }),
   async execute(input, ctx) {
+    const encoding = normalizeReadFileEncoding(input.encoding);
+    const displayPath = input.path.replace(/\\/g, "/");
     const full = await resolveInsideWorkspaceAsync(ctx.workspaceRoot, input.path);
-    await assertIsFile(full, input.path);
+    let fileStat;
+    try {
+      fileStat = await stat(full);
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+        return attachOutcome({ found: false, path: displayPath }, buildNotFoundOutcome(displayPath));
+      }
+      throw err;
+    }
+    if (!fileStat.isFile()) {
+      return attachOutcome(
+        { found: false, path: displayPath },
+        observationFailure("not_a_file", `不是文件：${displayPath}`, { path: displayPath }),
+      );
+    }
     const buf = await fs.readFile(full);
     const sizeBytes = buf.byteLength;
     const sha256 = hashContent(buf.toString("utf-8"));
@@ -127,17 +152,21 @@ export const readFileTool: Tool<
     const limit = input.maxBytes ?? DEFAULT_READ_MAX_BYTES;
     const { text: clipped, truncated } = truncateOutput(text, limit);
     const content =
-      input.encoding === "base64" ? Buffer.from(clipped, "utf-8").toString("base64") : clipped;
+      encoding === "base64" ? Buffer.from(clipped, "utf-8").toString("base64") : clipped;
 
-    return {
-      path: input.path,
-      content,
-      sizeBytes,
-      encoding: input.encoding,
-      truncated,
-      lineCount: text.split(/\r?\n/).length,
-      sha256,
-    };
+    return attachOutcome(
+      {
+        found: true,
+        path: input.path,
+        content,
+        sizeBytes,
+        encoding,
+        truncated,
+        lineCount: text.split(/\r?\n/).length,
+        sha256,
+      },
+      observationSuccess(`已读取 ${input.path.replace(/\\/g, "/")}`),
+    );
   },
 };
 
@@ -214,8 +243,24 @@ export const listFilesTool: Tool<
       }
     };
 
-    await walk(rootAbs, 1);
-    return { root: input.root, files, truncated };
+    try {
+      await walk(rootAbs, 1);
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+        return attachOutcome(
+          { root: input.root, files: [], truncated: false, found: false },
+          buildListDirNotFoundOutcome(input.root),
+        );
+      }
+      throw err;
+    }
+    const outcome =
+      files.length === 0 && !truncated
+        ? observationFailure("no_results", `目录「${input.root}」为空`, {
+            path: input.root.replace(/\\/g, "/"),
+          })
+        : observationSuccess(`列出 ${files.length} 个条目（root=${input.root}）`);
+    return attachOutcome({ root: input.root, files, truncated }, outcome);
   },
 };
 
@@ -325,7 +370,12 @@ export const searchTextTool: Tool<
     };
 
     await walk(searchRoot);
-    return { query: input.query, results, truncated };
+    const root = input.dir ?? input.root;
+    const outcome =
+      results.length === 0
+        ? buildNoResultsOutcome(input.query, root)
+        : observationSuccess(`搜索「${input.query}」命中 ${results.length} 条`);
+    return attachOutcome({ query: input.query, root, results, truncated }, outcome);
   },
 };
 

@@ -20,9 +20,22 @@ export {
 export {
   WorkflowRouter,
   defaultWorkflowRouter,
+  isHardWorkflow,
+  isSoftWorkflow,
   type AgentWorkflowExecutor,
+  type WorkflowKind,
   type WorkflowRouteResult,
 } from "./WorkflowRouter.js";
+export {
+  evaluateCapabilityEscalation,
+  expectedSideEffectsFromRoute,
+  permissionWithinExpected,
+  renderCapabilityEscalationContext,
+  resolveEscalationTarget,
+  softWorkflowCanSatisfySideEffects,
+  type CapabilityEscalation,
+  type CapabilityEscalationRecord,
+} from "./CapabilityEscalation.js";
 export {
   ImplicitPlanWorkflow,
   assessTaskComplexity,
@@ -49,13 +62,23 @@ export {
   type ResolveWorkflowTaskStateInput,
 } from "./WorkflowTaskState.js";
 export {
-  WorkflowSessionStore,
-  defaultWorkflowSessionStore,
   resolveWorkflowSwitch,
   renderWorkflowSwitchContext,
   type WorkflowSessionSnapshot,
   type ResolveWorkflowSwitchInput,
 } from "./WorkflowSessionSwitch.js";
+export {
+  EntryIntentRouter,
+  defaultEntryIntentRouter,
+  wireEntryIntentRouter,
+  type EntryIntentRouteInput,
+} from "./routing/EntryIntentRouter.js";
+export {
+  SessionTaskManager,
+  defaultSessionTaskManager,
+  wireSessionTaskManager,
+} from "./task/SessionTaskManager.js";
+export type { TaskContext, TaskPhase } from "./task/TaskContext.js";
 export {
   assessWorkflowWriteGate,
   countSuccessfulReadTools,
@@ -133,7 +156,6 @@ export {
   type TaskExecutionWorkflowResumeInput,
   type TaskResumeAction,
 } from "./TaskExecutionWorkflow.js";
-export { IntentRouter, defaultIntentRouter, type IntentRouteResult } from "./IntentRouter.js";
 export { finalizePlan, sortSubtasksByPriority } from "./taskGraph.js";
 export {
   TaskRunner,

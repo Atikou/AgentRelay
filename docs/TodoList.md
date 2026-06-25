@@ -12,9 +12,9 @@
 | --- | --- | --- |
 | P0 | 会话连续性：`TaskContext`、`SessionTaskManager`、`EntryIntentRouter` | [x] |
 | P1 | `planHandoff` 与 `permissionRequest` 分离 | [x] |
-| P2 | `AIIntentClassifier` 结构化意图 + 双轨 diff 日志 | [ ] |
-| P3 | `LegacyIntentFallback` 仅兜底，缩小关键词主路径 | [~] |
-| P4 | UI 完全隐藏 mode，仅 `userFacingLabel` + 权限策略 | [~] |
+| P2 | `AIIntentClassifier` 结构化意图 + 双轨 diff 日志 | [x] |
+| P3 | `LegacyIntentFallback` 仅兜底，缩小关键词主路径 | [x] |
+| P4 | UI 完全隐藏 mode，仅 `userFacingLabel` + 权限策略 | [x] |
 | P5 | 收敛 `mode` / `intent` / `workflowType` 词汇 | [ ] |
 | P6 | 清理遗留路由规则与重复正则 | [ ] |
 
@@ -25,21 +25,22 @@
 | 上轮 edit，粘贴工具失败输出 | 继续 edit，不掉 chat |
 | 上轮失败，补充日志 | 延续原任务 |
 | 上轮 plan，「继续」 | 走 planHandoff，不自动 execute |
+| 上轮 implement，「再好看壮观一点」 | task_continuation → edit |
 | 「换个问题」 | 新任务 |
 | 活跃任务 + 模糊输入 | 不因 answer fallback 只读化 |
 
 ### P2 待办（AI 意图）
 
-- [ ] 模型输出 JSON：`intent`、`isContinuation`、`isNewTask`、`confidence`
-- [ ] 与 legacy 并行记录差异（trace 或专用表）
-- [ ] 超时/低置信 → fallback
-- [ ] **禁止** AI 输出权限授权结论
+- [x] 模型输出 JSON：`intent`、`isContinuation`、`isNewTask`、`confidence`
+- [x] 与 legacy 并行记录差异（`recordIntentClassifierDiff` / `getLastIntentClassifierDiff`）
+- [x] 超时/低置信 → fallback
+- [x] **禁止** AI 输出权限授权结论
 
 ### P4 待办（UI）
 
-- [ ] 默认隐藏 `explicit-mode-select`
-- [ ] 详情区折叠内部字段
-- [ ] `m1-agent.json` 增补连续性用例
+- [x] 默认隐藏 `explicit-mode-select`（`?dev=1` 可见）
+- [x] 详情区折叠内部字段（非 dev 仅显示等待/权限）
+- [x] `m1-agent.json` 增补连续性用例（文档 + contextTrust 恢复预览）
 
 ---
 
@@ -93,6 +94,7 @@
 
 - [x] `ContextManager` + FTS5 + LanceDB
 - [x] `ProjectIndex` / 语义召回 / `RunState.location`
+- [x] 上下文去污：`contextTrust` + `RunFactsLookup` + `ContextRestorer` 过滤/纠偏 + 记忆 `trustLevel`
 - [ ] 上下文层与 agent 格式化彻底解耦
 
 ### M7 安全与审计

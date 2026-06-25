@@ -625,14 +625,15 @@ test("resolveInsideWorkspace 拒绝越界路径", async () => {
   assert.throws(() => resolveInsideWorkspace(sandbox, "../outside.txt"));
 });
 
-test("read_file 不存在时不泄露工作区绝对路径", async () => {
+test("read_file 不存在时返回 observation_failure（工具已执行）", async () => {
   const r = reg();
   const res = await r.run("read_file", { path: "testTS/vite.config.ts" }, await ctx());
+  assert.equal(res.executed, true);
+  assert.equal(res.outcomeClass, "observation_failure");
+  assert.equal(res.outcomeKind, "not_found");
   assert.equal(res.ok, false);
-  const err = (res as { error: string }).error;
-  assert.match(err, /文件不存在：testTS\/vite\.config\.ts/);
-  assert.doesNotMatch(err, /ENOENT.*stat/i);
-  assert.doesNotMatch(err, new RegExp(sandbox.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  assert.match(res.message, /文件不存在：testTS\/vite\.config\.ts/);
+  assert.ok(Array.isArray(res.suggestedNextActions));
 });
 
 test("sanitizeWorkspacePathsInError 剥离 workspaceRoot", async () => {

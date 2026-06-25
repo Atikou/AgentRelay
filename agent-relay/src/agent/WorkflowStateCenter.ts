@@ -1,6 +1,7 @@
 import type { AgentIntentType, AgentWorkflowType } from "./IntentTypes.js";
 import type { AgentWorkflowTaskState } from "./RunPolicyTypes.js";
 import type { AgentToolStep } from "./toolStep.js";
+import { isSuccessfulToolStep } from "./toolStepOutcome.js";
 
 export type WorkflowPhaseState =
   | "idle"
@@ -90,8 +91,8 @@ export function buildWorkflowState(input: WorkflowStateInput): WorkflowStateSnap
   let failedVerificationAttempts = 0;
 
   for (const [index, step] of input.steps.entries()) {
-    if (step.ok && READ_WORKFLOW_TOOLS.has(step.tool) && priorWrites === 0) readToolsBeforeWrite += 1;
-    if (step.ok && WRITE_WORKFLOW_TOOLS.has(step.tool)) {
+    if (isSuccessfulToolStep(step) && READ_WORKFLOW_TOOLS.has(step.tool) && priorWrites === 0) readToolsBeforeWrite += 1;
+    if (isSuccessfulToolStep(step) && WRITE_WORKFLOW_TOOLS.has(step.tool)) {
       priorWrites += 1;
       lastWriteIndex = index;
       lastWriteToolCallId = step.toolCallId;
@@ -106,8 +107,8 @@ export function buildWorkflowState(input: WorkflowStateInput): WorkflowStateSnap
       continue;
     }
     if (lastWriteIndex >= 0 && index > lastWriteIndex && VERIFICATION_TOOLS.has(step.tool)) {
-      lastVerificationOk = step.ok;
-      if (step.ok) {
+      lastVerificationOk = isSuccessfulToolStep(step);
+      if (isSuccessfulToolStep(step)) {
         events.push({ type: "verification_succeeded", tool: step.tool, toolCallId: step.toolCallId });
       } else {
         failedVerificationAttempts += 1;

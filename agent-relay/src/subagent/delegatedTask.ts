@@ -1,4 +1,5 @@
 import type { RunBudget } from "../agent/RunPolicyTypes.js";
+import { mergeRunBudget, MODE_BASE_BUDGETS } from "../agent/runBudgetDefaults.js";
 
 /** 模型能力需求标签（供 SmartModelRouter / DecisionEngine 提示）。 */
 export type ModelCapability =
@@ -156,14 +157,14 @@ export const DEFAULT_OUTPUT_CONTRACT: OutputContract = {
 
 /** 将 TaskLimits 转为 AgentLoop RunBudget。 */
 export function limitsToRunBudget(limits: TaskLimits, writeAllowed = false): RunBudget {
-  return {
+  return mergeRunBudget(MODE_BASE_BUDGETS.chat, {
     maxModelTurns: limits.maxModelTurns ?? 16,
     maxToolCalls: limits.maxToolCalls ?? 20,
     maxReadCalls: limits.maxReadCalls ?? 20,
     maxWriteCalls: writeAllowed ? Math.min(limits.maxWriteCalls ?? limits.maxToolCalls ?? 6, 6) : 0,
     maxShellCalls: limits.maxShellCalls ?? 0,
     maxRuntimeMs: limits.maxRuntimeMs ?? 180_000,
-  };
+  });
 }
 
 /** 合并部分 DelegatedTask 字段为完整任务（填充默认策略）。 */
