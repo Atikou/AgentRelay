@@ -42,7 +42,7 @@ export function backfillMessageEnvelopes(db: DatabaseSync): number {
   `);
   db.exec(`
     UPDATE messages
-    SET message_kind = 'final_answer', trusted = 0, source = 'model', ui_visible = 1
+    SET message_kind = 'final_answer', trusted = 0, source = 'model', ui_visible = 0
     WHERE role = 'assistant' AND (message_kind IS NULL OR message_kind = '');
   `);
 

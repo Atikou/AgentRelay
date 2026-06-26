@@ -397,5 +397,87 @@
         "bodyHasKeys": ["error"]
       }
     }
+    ,
+    {
+      "id": "m7-multi-workspace-sandbox-capability",
+      "title": "配置暴露多工作区授权沙箱能力",
+      "purpose": "确认服务端声明已启用多工作区授权沙箱，外部 root 访问需要经过 PathPolicy 与 JIT 授权。",
+      "method": "GET",
+      "path": "/api/config",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyHasKeys": ["capabilities"],
+        "bodyPaths": {
+          "capabilities.multiWorkspaceSandbox": true
+        }
+      }
+    },
+    {
+      "id": "m7-path-access-trace-contract",
+      "title": "审计回放可承载路径访问决策",
+      "purpose": "确认 trace replay 仍返回事件数组，用于展示 path_access_decision、crossWorkspace 与 matchedRoot 等审计事实。",
+      "method": "GET",
+      "path": "/api/trace/replay?limit=30",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyHasKeys": ["events", "count", "replay", "redacted"],
+        "bodyPaths": {
+          "events": "array",
+          "replay": true,
+          "redacted": true
+        }
+      }
+    },
+    {
+      "id": "m7-workspace-scopes-list",
+      "title": "列出当前授权工作区 scope",
+      "purpose": "确认测试台可查询 primary/config/granted workspace scope，用于展示多工作区授权沙箱状态。",
+      "method": "GET",
+      "path": "/api/workspace-scopes",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyHasKeys": ["primaryRoot", "scopes"],
+        "bodyPaths": {
+          "scopes": "array"
+        }
+      }
+    },
+    {
+      "id": "m7-workspace-scope-create",
+      "title": "创建工作区授权 scope",
+      "purpose": "确认服务端支持显式创建 session/project/workspace 授权，供 UI 管理外部 root 访问范围。",
+      "method": "POST",
+      "path": "/api/workspace-scopes",
+      "input": {
+        "rootPath": ".",
+        "permissions": ["read"],
+        "scope": "session"
+      },
+      "expect": {
+        "status": 200,
+        "bodyHasKeys": ["grant"],
+        "bodyPaths": {
+          "grant.permissions": "array"
+        }
+      }
+    },
+    {
+      "id": "m7-workspace-scope-audit",
+      "title": "查询工作区访问审计",
+      "purpose": "确认跨工作区 PathPolicy 决策能落到独立审计查询接口，供 Run report 与测试台复盘。",
+      "method": "GET",
+      "path": "/api/workspace-scopes/audit?limit=20",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyHasKeys": ["audit", "count"],
+        "bodyPaths": {
+          "audit": "array"
+        }
+      }
+    }
   ]
 }

@@ -5,6 +5,8 @@ import type { PlanExecutionMode } from "../plan/PlanActivationWorkflow.js";
 import { DryRunExecutor, TaskRunner, type StepExecutor } from "./TaskRunner.js";
 import { PlanStepAgentExecutor, type AgentLoopRunFn } from "./PlanStepAgentExecutor.js";
 import { ToolStepExecutor } from "./ToolStepExecutor.js";
+import { BudgetManager } from "./BudgetManager.js";
+import { MODE_BASE_BUDGETS, MODE_SUGGESTED_BUDGETS } from "./runBudgetDefaults.js";
 import type { Plan, PlanStep } from "./types.js";
 import type { StepResult } from "./TaskRunner.js";
 
@@ -53,6 +55,8 @@ export interface TaskExecutionWorkflowResumeInput extends TaskExecutionWorkflowR
  * owns the TaskRunner wiring so execution and resume share one path.
  */
 export class TaskExecutionWorkflow {
+  private taskBudgetManager?: BudgetManager;
+
   constructor(private readonly options: TaskExecutionWorkflowOptions) {}
 
   async run(input: TaskExecutionWorkflowRunInput): Promise<Plan> {
@@ -95,6 +99,7 @@ export class TaskExecutionWorkflow {
         autoConfirm: input.autoConfirm,
       });
     }
+    const budgetManager = this.getOrCreateTaskBudgetManager();
     return new ToolStepExecutor({
       registry: this.options.registry,
       workspaceRoot: this.options.workspaceRoot,
@@ -103,7 +108,20 @@ export class TaskExecutionWorkflow {
       requestId: input.runId,
       projectAllowedPermissions: this.options.projectAllowedPermissions,
       requireToolBinding: input.requireToolBinding,
+      budgetManager,
+      budgetBucket: "main",
+      permissionPolicy: input.autoConfirm ? "autoEdit" : "confirmBeforeRun",
     });
+  }
+
+  /** 任务执行共享 BudgetManager，与 PlanWorkflow preflight 分层语义一致。 */
+  getOrCreateTaskBudgetManager(): BudgetManager {
+    if (!this.taskBudgetManager) {
+      const base = MODE_BASE_BUDGETS.implement;
+      this.taskBudgetManager = new BudgetManager(base, MODE_SUGGESTED_BUDGETS.implement);
+      this.taskBudgetManager.markRunStarted();
+    }
+    return this.taskBudgetManager;
   }
 }
 

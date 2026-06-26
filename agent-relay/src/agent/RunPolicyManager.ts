@@ -58,7 +58,11 @@ export class RunPolicyManager {
       intent: decision.intent,
       autoConfirm: input.autoConfirm === true,
     });
-    const workflowRoute = defaultWorkflowRouter.routeIntent(decision.intent);
+    const decisionWorkflowRoute = defaultWorkflowRouter.routeWorkflowType(decision.workflowType);
+    const workflowRoute =
+      decisionWorkflowRoute?.intent === decision.intent
+        ? decisionWorkflowRoute
+        : defaultWorkflowRouter.routeIntent(decision.intent);
     const allowedPermissions = resolveAllowedPermissions(workflowRoute, permissionPolicy);
 
     const planVariant = resolvePlanVariant(decision.intent, input.message);
@@ -69,7 +73,7 @@ export class RunPolicyManager {
       executionStage: stageForIntent(decision.intent),
       modeSource: decision.modeSource,
       intent: decision.intent,
-      workflowType: decision.workflowType,
+      workflowType: workflowRoute.workflowType,
       permissionPolicy,
       permissionPolicySource: explicitPermissionPolicy ? "explicit" : "inferred",
       planVariant,
@@ -88,6 +92,16 @@ export class RunPolicyManager {
       previousWorkflowType: decision.previousWorkflowType,
       continuationScore: decision.continuationScore,
       continuationSignals: decision.continuationSignals,
+      needsWrite: decision.needsWrite,
+      needsShell: decision.needsRunCommand,
+      aiOverridden: decision.aiOverridden,
+      boundaryBreakReason: decision.boundaryBreakReason,
+      effectiveTaskContextId: decision.effectiveTaskContextId,
+      legacyIntentHint: decision.legacyIntentHint,
+      legacyHintSources: decision.legacyHintSources,
+      entryIntent: decision.intent,
+      entryWorkflowType: workflowRoute.workflowType,
+      effectiveWorkflowType: workflowRoute.workflowType,
     };
   }
 
@@ -180,4 +194,4 @@ function resolvePlanVariant(
   if (intent !== "plan") return undefined;
   return detectPlanExecutionVariant(message) ?? "plan_only";
 }
-
+

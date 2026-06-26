@@ -1,6 +1,7 @@
 /** 从持久化的 tool 消息提取文件路径与代码片段，供 systemSections 注入。 */
 
 import { inferFileSnippetTags } from "./contextTags.js";
+import { classifyPathRisk } from "../policy/PathRiskClassifier.js";
 
 export interface FileSnippetItem {
   path: string;
@@ -91,6 +92,7 @@ export function extractFileSnippetsFromToolMessages(
     if (!FILE_SNIPPET_TOOLS.has(tool)) continue;
     const body = m.content.replace(/^工具「[^」]+」[^:\n]*[：:]?\n?/, "").trim();
     for (const raw of parseToolBody(tool, body)) {
+      if (classifyPathRisk(raw.path).kind !== "normal") continue;
       const preview =
         raw.preview.length > maxPreviewChars
           ? `${raw.preview.slice(0, maxPreviewChars)}…`

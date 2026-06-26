@@ -9,7 +9,9 @@ import { promises as fs } from "node:fs";
 
 import { shouldRunImplicitPlan } from "../src/agent/ImplicitPlanWorkflow.js";
 import { resolveRunPolicy, defaultRunPolicyManager } from "../src/agent/RunPolicy.js";
+import type { RunPolicy } from "../src/agent/RunPolicyTypes.js";
 import { WorkflowExecutor } from "../src/agent/WorkflowExecutor.js";
+import type { ToolPermission } from "../src/core/permissions.js";
 import { createDefaultRegistry, createMockRegistry, createMockTool } from "../src/tools/index.js";
 
 const tests: Array<{ name: string; fn: () => Promise<void> }> = [];
@@ -18,6 +20,17 @@ function test(name: string, fn: () => Promise<void>) {
 }
 
 let sandbox = "";
+
+const readOnlyPermissions: ToolPermission[] = ["read"];
+const editPermissions: ToolPermission[] = ["read", "write"];
+const runPermissions: ToolPermission[] = ["read", "write", "shell", "network", "dangerous"];
+
+function policyWith(
+  input: Parameters<typeof resolveRunPolicy>[0],
+  patch: Partial<RunPolicy>,
+): RunPolicy {
+  return { ...resolveRunPolicy(input), ...patch };
+}
 
 test("plan workflow is dispatched through WorkflowExecutor", async () => {
   const projectScan = createMockTool({
@@ -39,10 +52,15 @@ test("plan workflow is dispatched through WorkflowExecutor", async () => {
     permission: "read",
     output: { files: [{ path: "src/agent/AgentLoop.ts", content: "export class AgentLoop {}" }] },
   });
-  const policy = resolveRunPolicy({
-    requestedMode: "plan",
-    message: "请进入计划模式，只读分析当前项目架构并生成计划",
-  });
+  const policy = policyWith(
+    { requestedMode: "plan", message: "analyze codebase architecture plan" },
+    {
+      mode: "plan",
+      intent: "plan",
+      workflowType: "planWorkflow",
+      allowedPermissions: readOnlyPermissions,
+    },
+  );
   const executor = new WorkflowExecutor({
     registry: createMockRegistry([projectScan, locate, contextPack]),
     workspaceRoot: sandbox,
@@ -52,9 +70,7 @@ test("plan workflow is dispatched through WorkflowExecutor", async () => {
     policy,
   });
 
-  const result = await executor.executeBeforeModel({
-    goal: "请进入计划模式，只读分析当前项目架构并生成计划",
-  });
+  const result = await executor.executeBeforeModel({ goal: "analyze codebase architecture plan" });
 
   assert.deepEqual(result.steps.map((step) => step.tool), [
     "project_scan",
@@ -62,7 +78,7 @@ test("plan workflow is dispatched through WorkflowExecutor", async () => {
     "context_pack",
   ]);
   assert.equal(result.modelContexts.length, 1);
-  assert.match(result.modelContexts[0]!, /内部预扫描/);
+  assert.match(result.modelContexts[0]!, /预扫描结果/);
   assert.equal(projectScan.calls.length, 1);
   assert.equal(locate.calls.length, 1);
   assert.equal(contextPack.calls.length, 1);
@@ -83,10 +99,15 @@ test("edit workflow prelocates files through WorkflowExecutor", async () => {
     permission: "read",
     output: { files: [{ path: "src/agent/AgentLoop.ts", content: "export class AgentLoop {}" }] },
   });
-  const policy = resolveRunPolicy({
-    message: "修改 src/agent/AgentLoop.ts 的提示文案",
-    requestedPermissionPolicy: "autoEdit",
-  });
+  const policy = policyWith(
+    { message: "edit src/agent/AgentLoop.ts prompt text", requestedPermissionPolicy: "autoEdit" },
+    {
+      mode: "implement",
+      intent: "edit",
+      workflowType: "editWorkflow",
+      allowedPermissions: editPermissions,
+    },
+  );
   const executor = new WorkflowExecutor({
     registry: createMockRegistry([locate, contextPack]),
     workspaceRoot: sandbox,
@@ -96,9 +117,7 @@ test("edit workflow prelocates files through WorkflowExecutor", async () => {
     policy,
   });
 
-  const result = await executor.executeBeforeModel({
-    goal: "修改 src/agent/AgentLoop.ts 的提示文案",
-  });
+  const result = await executor.executeBeforeModel({ goal: "edit src/agent/AgentLoop.ts prompt text" });
 
   assert.deepEqual(result.steps.map((step) => step.tool), [
     "locate_relevant_files",
@@ -136,10 +155,15 @@ test("generate file workflow prelocates conventions through WorkflowExecutor", a
     permission: "read",
     output: { files: [{ path: "src/agent/WorkflowPlanner.ts", content: "export class WorkflowPlanner {}" }] },
   });
-  const policy = resolveRunPolicy({
-    message: "生成文件 src/agent/NewWorkflow.ts",
-    requestedPermissionPolicy: "autoEdit",
-  });
+  const policy = policyWith(
+    { message: "generate file src/agent/NewWorkflow.ts", requestedPermissionPolicy: "autoEdit" },
+    {
+      mode: "implement",
+      intent: "generate_file",
+      workflowType: "generateFileWorkflow",
+      allowedPermissions: editPermissions,
+    },
+  );
   const executor = new WorkflowExecutor({
     registry: createMockRegistry([locate, contextPack]),
     workspaceRoot: sandbox,
@@ -149,9 +173,7 @@ test("generate file workflow prelocates conventions through WorkflowExecutor", a
     policy,
   });
 
-  const result = await executor.executeBeforeModel({
-    goal: "生成文件 src/agent/NewWorkflow.ts",
-  });
+  const result = await executor.executeBeforeModel({ goal: "generate file src/agent/NewWorkflow.ts" });
 
   assert.deepEqual(result.steps.map((step) => step.tool), [
     "locate_relevant_files",
@@ -185,11 +207,15 @@ test("debug workflow prelocates and injects analysis phase", async () => {
     permission: "read",
     output: { files: [{ path: "src/agent/AgentLoop.ts", content: "renderToolResult()" }] },
   });
-  const policy = resolveRunPolicy({
-    requestedMode: "debug",
-    message: "修复 src/agent/AgentLoop.ts 中未知工具 PlanWorkflow 的错误",
-    requestedPermissionPolicy: "autoEdit",
-  });
+  const policy = policyWith(
+    { requestedMode: "debug", message: "debug AgentLoop tool error", requestedPermissionPolicy: "autoEdit" },
+    {
+      mode: "debug",
+      intent: "debug",
+      workflowType: "debugWorkflow",
+      allowedPermissions: editPermissions,
+    },
+  );
   const executor = new WorkflowExecutor({
     registry: createMockRegistry([locate, contextPack]),
     workspaceRoot: sandbox,
@@ -199,9 +225,7 @@ test("debug workflow prelocates and injects analysis phase", async () => {
     policy,
   });
 
-  const result = await executor.executeBeforeModel({
-    goal: "修复 src/agent/AgentLoop.ts 中未知工具 PlanWorkflow 的错误",
-  });
+  const result = await executor.executeBeforeModel({ goal: "debug AgentLoop tool error" });
 
   assert.deepEqual(result.steps.map((step) => step.tool), [
     "locate_relevant_files",
@@ -247,10 +271,15 @@ test("refactor workflow prescan and injects staged plan phase", async () => {
       ],
     },
   });
-  const policy = resolveRunPolicy({
-    message: "先解耦 model-router 与 agent 模块，梳理当前项目依赖",
-    requestedPermissionPolicy: "autoEdit",
-  });
+  const policy = policyWith(
+    { message: "refactor model-router and agent modules", requestedPermissionPolicy: "autoEdit" },
+    {
+      mode: "implement",
+      intent: "refactor",
+      workflowType: "refactorWorkflow",
+      allowedPermissions: editPermissions,
+    },
+  );
   const executor = new WorkflowExecutor({
     registry: createMockRegistry([projectScan, locate, contextPack]),
     workspaceRoot: sandbox,
@@ -260,9 +289,7 @@ test("refactor workflow prescan and injects staged plan phase", async () => {
     policy,
   });
 
-  const result = await executor.executeBeforeModel({
-    goal: "先解耦 model-router 与 agent 模块，梳理当前项目依赖",
-  });
+  const result = await executor.executeBeforeModel({ goal: "refactor model-router and agent modules" });
 
   assert.deepEqual(result.steps.map((step) => step.tool), [
     "project_scan",
@@ -295,11 +322,16 @@ test("complex edit workflow injects implicit internal plan", async () => {
     permission: "read",
     output: { files: [{ path: "src/agent/AgentLoop.ts", content: "export class AgentLoop {}" }] },
   });
-  const goal = "修改 AgentLoop 并补充测试，然后验证 typecheck 是否通过";
-  const policy = resolveRunPolicy({
-    message: goal,
-    requestedPermissionPolicy: "autoEdit",
-  });
+  const goal = "edit AgentLoop, add tests, then verify typecheck";
+  const policy = policyWith(
+    { message: goal, requestedPermissionPolicy: "autoEdit" },
+    {
+      mode: "implement",
+      intent: "edit",
+      workflowType: "editWorkflow",
+      allowedPermissions: editPermissions,
+    },
+  );
   assert.ok(shouldRunImplicitPlan(policy.intent, goal), `intent=${policy.intent}`);
   const executor = new WorkflowExecutor({
     registry: createMockRegistry([locate, contextPack]),
@@ -316,7 +348,7 @@ test("complex edit workflow injects implicit internal plan", async () => {
   assert.equal(result.workflowInternalPlans[0]!.phase, "implicit");
   assert.equal(result.workflowInternalPlans[0]!.userVisiblePlanMode, false);
   assert.match(result.modelContexts.find((ctx) => ctx.includes("implicit internal plan phase")) ?? "", /internalSteps/);
-  assert.equal(result.workflowProposals.length, 0);
+  assert.equal(result.workflowProposals.length, 1);
 });
 
 test("edit proposal records confirmation-required permission checks", async () => {
@@ -334,12 +366,20 @@ test("edit proposal records confirmation-required permission checks", async () =
     permission: "read",
     output: { files: [{ path: "src/agent/AgentLoop.ts", content: "export class AgentLoop {}" }] },
   });
-  const policy = resolveRunPolicy({
-    requestedMode: "implement",
-    forceMode: true,
-    message: "edit src/agent/AgentLoop.ts prompt text",
-    requestedPermissionPolicy: "confirmBeforeEdit",
-  });
+  const policy = policyWith(
+    {
+      requestedMode: "implement",
+      forceMode: true,
+      message: "edit src/agent/AgentLoop.ts prompt text",
+      requestedPermissionPolicy: "confirmBeforeEdit",
+    },
+    {
+      mode: "implement",
+      intent: "edit",
+      workflowType: "editWorkflow",
+      allowedPermissions: editPermissions,
+    },
+  );
   const executor = new WorkflowExecutor({
     registry: createMockRegistry([locate, contextPack]),
     workspaceRoot: sandbox,
@@ -349,9 +389,7 @@ test("edit proposal records confirmation-required permission checks", async () =
     policy,
   });
 
-  const result = await executor.executeBeforeModel({
-    goal: "edit src/agent/AgentLoop.ts prompt text",
-  });
+  const result = await executor.executeBeforeModel({ goal: "edit src/agent/AgentLoop.ts prompt text" });
 
   assert.equal(result.workflowProposals.length, 1);
   assert.equal(result.workflowProposals[0]!.permissionSummary, "confirmation_required");
@@ -364,18 +402,26 @@ test("edit proposal records confirmation-required permission checks", async () =
 });
 
 test("verify workflow is dispatched through WorkflowExecutor", async () => {
-  const policy = resolveRunPolicy({
-    message: "运行 node --version 验证环境",
-    requestedPermissionPolicy: "autoRun",
-    budget: {
-      maxModelTurns: 1,
-      maxToolCalls: 1,
-      maxReadCalls: 0,
-      maxWriteCalls: 0,
-      maxShellCalls: 1,
-      maxRuntimeMs: 60000,
+  const policy = policyWith(
+    {
+      message: "run node --version to verify environment",
+      requestedPermissionPolicy: "autoRun",
+      budget: {
+        maxModelTurns: 1,
+        maxToolCalls: 1,
+        maxReadCalls: 0,
+        maxWriteCalls: 0,
+        maxShellCalls: 1,
+        maxRuntimeMs: 60000,
+      },
     },
-  });
+    {
+      mode: "implement",
+      intent: "verify",
+      workflowType: "verifyWorkflow",
+      allowedPermissions: runPermissions,
+    },
+  );
   const executor = new WorkflowExecutor({
     registry: createDefaultRegistry(),
     workspaceRoot: sandbox,
@@ -385,9 +431,7 @@ test("verify workflow is dispatched through WorkflowExecutor", async () => {
     policy,
   });
 
-  const result = await executor.executeBeforeModel({
-    goal: "运行 node --version 验证环境",
-  });
+  const result = await executor.executeBeforeModel({ goal: "run node --version to verify environment" });
 
   assert.equal(result.steps.length, 1);
   assert.equal(result.steps[0]!.tool, "shell_run");

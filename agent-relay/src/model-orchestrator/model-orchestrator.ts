@@ -7,6 +7,7 @@ import {
 import type { CollaborationRunStore } from "../model-router/route-stores.js";
 import type { RouterDecision } from "../model-router/types.js";
 import { runDraftReviewPipeline } from "./pipelines/draft-review-pipeline.js";
+import { runParallelVotePipeline } from "./pipelines/parallel-vote-pipeline.js";
 import { runRuleOnlyPipeline } from "./pipelines/rule-only-pipeline.js";
 import { runSingleModelPipeline } from "./pipelines/single-model-pipeline.js";
 import type {
@@ -51,7 +52,9 @@ export class ModelOrchestrator {
       } catch (error) {
         const strategy = decision.executionStrategy;
         if (
-          (strategy !== "single_model" && strategy !== "strong_model_direct") ||
+          (strategy !== "single_model" &&
+            strategy !== "strong_model_direct" &&
+            strategy !== "parallel_vote") ||
           fallbackCount >= MAX_FALLBACKS_PER_REQUEST
         ) {
           throw error;
@@ -134,6 +137,14 @@ export class ModelOrchestrator {
         this.chat,
         this.collaborationStore,
         input.routerDecision.risk,
+        fallbackCtx,
+      );
+    }
+    if (strategy === "parallel_vote") {
+      return runParallelVotePipeline(
+        input,
+        this.chat,
+        this.collaborationStore,
         fallbackCtx,
       );
     }

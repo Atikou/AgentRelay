@@ -10,11 +10,16 @@ interface SessionTaskRow {
   current_phase: string;
   intent: string;
   workflow_type: string;
+  entry_intent: string | null;
+  entry_workflow_type: string | null;
+  reconciled_intent: string | null;
+  reconciled_workflow_type: string | null;
   last_run_id: string | null;
   last_failure: string | null;
   related_files_json: string | null;
   last_stop_reason: string | null;
   last_completed_at: string | null;
+  last_completion_status: string | null;
   side_effect_summary_json: string | null;
   is_active: number;
   updated_at: string;
@@ -28,9 +33,10 @@ export class SessionTaskStore {
     const row = this.db
       .prepare(
         `SELECT session_id, task_id, goal, current_phase, intent, workflow_type,
+                entry_intent, entry_workflow_type, reconciled_intent, reconciled_workflow_type,
                 last_run_id, last_failure, related_files_json,
-                last_stop_reason, last_completed_at, side_effect_summary_json,
-                is_active, updated_at
+                last_stop_reason, last_completed_at, last_completion_status,
+                side_effect_summary_json, is_active, updated_at
          FROM session_task_contexts WHERE session_id = ?`,
       )
       .get(sessionId) as SessionTaskRow | undefined;
@@ -44,21 +50,27 @@ export class SessionTaskStore {
       .prepare(
         `INSERT INTO session_task_contexts
          (session_id, task_id, goal, current_phase, intent, workflow_type,
+          entry_intent, entry_workflow_type, reconciled_intent, reconciled_workflow_type,
           last_run_id, last_failure, related_files_json,
-          last_stop_reason, last_completed_at, side_effect_summary_json,
-          is_active, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          last_stop_reason, last_completed_at, last_completion_status,
+          side_effect_summary_json, is_active, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(session_id) DO UPDATE SET
            task_id = excluded.task_id,
            goal = excluded.goal,
            current_phase = excluded.current_phase,
            intent = excluded.intent,
            workflow_type = excluded.workflow_type,
+           entry_intent = excluded.entry_intent,
+           entry_workflow_type = excluded.entry_workflow_type,
+           reconciled_intent = excluded.reconciled_intent,
+           reconciled_workflow_type = excluded.reconciled_workflow_type,
            last_run_id = excluded.last_run_id,
            last_failure = excluded.last_failure,
            related_files_json = excluded.related_files_json,
            last_stop_reason = excluded.last_stop_reason,
            last_completed_at = excluded.last_completed_at,
+           last_completion_status = excluded.last_completion_status,
            side_effect_summary_json = excluded.side_effect_summary_json,
            is_active = excluded.is_active,
            updated_at = excluded.updated_at`,
@@ -70,11 +82,16 @@ export class SessionTaskStore {
         context.currentPhase,
         context.intent,
         context.workflowType,
+        context.entryIntent ?? null,
+        context.entryWorkflowType ?? null,
+        context.reconciledIntent ?? null,
+        context.reconciledWorkflowType ?? null,
         context.lastRunId ?? null,
         context.lastFailure ?? null,
         context.relatedFiles?.length ? JSON.stringify(context.relatedFiles) : null,
         context.lastStopReason ?? null,
         context.lastCompletedAt ?? null,
+        context.lastCompletionStatus ?? null,
         context.lastSideEffectSummary
           ? JSON.stringify(context.lastSideEffectSummary)
           : null,
@@ -125,10 +142,21 @@ export class SessionTaskStore {
       currentPhase: row.current_phase as TaskPhase,
       intent: row.intent as AgentIntentType,
       workflowType: row.workflow_type as AgentWorkflowType,
+      entryIntent: row.entry_intent ? (row.entry_intent as AgentIntentType) : undefined,
+      entryWorkflowType: row.entry_workflow_type
+        ? (row.entry_workflow_type as AgentWorkflowType)
+        : undefined,
+      reconciledIntent: row.reconciled_intent
+        ? (row.reconciled_intent as AgentIntentType)
+        : undefined,
+      reconciledWorkflowType: row.reconciled_workflow_type
+        ? (row.reconciled_workflow_type as AgentWorkflowType)
+        : undefined,
       lastRunId: row.last_run_id ?? undefined,
       lastFailure: row.last_failure ?? undefined,
       lastStopReason: row.last_stop_reason ?? undefined,
       lastCompletedAt: row.last_completed_at ?? undefined,
+      lastCompletionStatus: row.last_completion_status ?? undefined,
       lastSideEffectSummary,
       relatedFiles,
       isActive: row.is_active === 1,

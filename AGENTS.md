@@ -7,7 +7,7 @@
 **AgentRelay** — 本地优先的 Agent 编排后端：
 
 - **单一 Agent 入口**：用户表达任务即可；系统通过会话上下文 + 意图路由选择内部工作流
-- **模型双轨**：`SmartModelRouter` 选模型；`ModelOrchestrator` 执行单模型或草拟+审查
+- 模型双轨：`SmartModelRouter` 选模型；`ModelOrchestrator` 执行单模型、草拟+审查或 **并行投票**（`parallel_vote`）
 - **工具与护栏**：17 个内置工具 + `PermissionGuard` / `WorkflowWriteGate` 硬边界
 - **计划与执行**：结构化计划 API + 循环内 plan 模式 + `planHandoff` / JIT `permissionRequest`
 - **可观测**：Run / Trace / Activity Timeline / `executionMeta`

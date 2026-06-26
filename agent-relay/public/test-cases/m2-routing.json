@@ -613,6 +613,34 @@
       }
     },
     {
+      "id": "m2-config-parallel-vote-routing",
+      "title": "配置暴露 parallelVoteRouting 能力",
+      "purpose": "确认 M2 并行投票策略已落地，capabilities 声明 parallelVoteRouting。",
+      "method": "GET",
+      "path": "/api/config",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyPaths": {
+          "capabilities.parallelVoteRouting": true
+        }
+      }
+    },
+    {
+      "id": "m2-config-visual-orchestration-v9",
+      "title": "配置暴露 visualOrchestrationV9 能力",
+      "purpose": "确认路由日志详情返回 pipelineGraph，测试台可可视化执行管线。",
+      "method": "GET",
+      "path": "/api/config",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyPaths": {
+          "capabilities.visualOrchestrationV9": true
+        }
+      }
+    },
+    {
       "id": "m2-chat-task-type-invalid",
       "title": "无效 taskType 返回 400",
       "purpose": "边界：非法 taskType 应在编排层校验并 400，避免静默忽略。",

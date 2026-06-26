@@ -10,6 +10,31 @@ import type {
   AgentWorkflowRefactorPlan,
   UserPermissionPolicy,
 } from "./RunPolicyTypes.js";
+import type { AgentIntentType, AgentWorkflowType } from "./IntentTypes.js";
+import type { CapabilityEscalationRecord } from "./CapabilityEscalation.js";
+import type { BudgetLedgerSnapshot } from "./BudgetManager.js";
+import type { CachedToolResult } from "./recovery/RunToolResultCache.js";
+
+export interface FailedActionMemoryState {
+  tool: string;
+  inputKey: string;
+  outcomeKind: string;
+  path?: string;
+  executedCount: number;
+  blockedCount: number;
+  lastMessage: string;
+}
+
+export interface PausedRunRuntimeState {
+  entryIntent?: AgentIntentType;
+  entryWorkflowType?: AgentWorkflowType;
+  reconciledIntent?: AgentIntentType;
+  reconciledWorkflowType?: AgentWorkflowType;
+  capabilityEscalations?: CapabilityEscalationRecord[];
+  budgetLedger?: BudgetLedgerSnapshot;
+  failedActionMemoryState?: FailedActionMemoryState[];
+  toolCacheEntries?: CachedToolResult[];
+}
 
 /**
  * 暂停中的 Agent Run 对话快照。
@@ -43,6 +68,8 @@ export interface PausedRunSnapshot {
   permissionPolicy: UserPermissionPolicy;
   /** 计划→执行交接：恢复后切换到的模式（一般为 implement）。 */
   resumeMode?: AgentRunMode;
+  /** 暂停时的运行时状态（escalation / 预算 / 缓存 / 熔断）。 */
+  runtimeState?: PausedRunRuntimeState;
   createdAt: string;
 }
 

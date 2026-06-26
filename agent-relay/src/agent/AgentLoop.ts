@@ -35,6 +35,12 @@ import {
   resolveEffectiveIntent,
 } from "./capabilityEscalationRuntime.js";
 import {
+  buildEffectiveWorkflowContext,
+  effectiveWorkflowRoute,
+  type EffectiveWorkflowContext,
+} from "./EffectiveWorkflowContext.js";
+import type { PausedRunRuntimeState } from "./PausedRunStore.js";
+import {
   evaluateCapabilityEscalation,
   expectedSideEffectsFromRoute,
   renderCapabilityEscalationContext,
@@ -45,6 +51,8 @@ import { isSoftWorkflow, defaultWorkflowRouter } from "./WorkflowRouter.js";
 import { assessWorkflowToolAccess, type WorkflowCapabilityAssessment } from "./WorkflowCapability.js";
 import { extractSideEffectSummary } from "./sideEffectFromSteps.js";
 import { evaluateCompletionGuard, type CompletionGuardResult } from "./completion/CompletionFinalGuard.js";
+import { buildToolLedger, toolLedgerToSummary } from "./completion/ToolLedger.js";
+import { ToolExecutionGateway } from "./ToolExecutionGateway.js";
 import { EditProposalWorkflow } from "./EditProposalWorkflow.js";
 import { MAX_WORKFLOW_CORRECTION_ATTEMPTS, WorkflowCorrectionWorkflow } from "./WorkflowCorrectionWorkflow.js";
 import { hasPlanningPhaseArtifacts, resolveWorkflowTaskState } from "./WorkflowTaskState.js";
@@ -78,6 +86,12 @@ import {
   resolveEffectivePermissions,
 } from "../policy/PermissionPolicy.js";
 import { evaluatePermissionGuard } from "../policy/PermissionGuard.js";
+import {
+  buildPathConfirmationRequest,
+  PathPolicy,
+  type ToolPathPreparation,
+} from "../policy/PathPolicy.js";
+import type { WorkspaceGrantStore, WorkspaceScopePermission } from "../policy/WorkspaceScopeManager.js";
 import {
   defaultPermissionRequestStore,
   permissionItemsFromConfirmation,
@@ -253,6 +267,15 @@ export interface AgentLoopOptions {
   sessionPermissionGrants?: SessionPermissionGrants;
   /** 本轮一次性已批准作用域权限。 */
   scopedGrants?: ScopedApprovedPermissions;
+  /** 持久化多工作区授权。 */
+  workspaceGrantStore?: WorkspaceGrantStore;
+  /** 配置型只读/预授权工作区。 */
+  workspaceConfigScopes?: Array<{
+    id: string;
+    rootPath: string;
+    label?: string;
+    permissions?: WorkspaceScopePermission[];
+  }>;
   /** 暂停 Run 快照存储（HTTP 入口注入单例），用于权限暂停后的忠实续跑。 */
   pausedRunStore?: PausedRunStore;
   /** 恢复执行：从该快照忠实续跑同一段对话（执行被批准工具或按计划进入执行阶段）。 */
@@ -301,11 +324,16 @@ export class AgentLoop {
   private capabilityEscalations: CapabilityEscalationRecord[] = [];
   private reconciledWorkflowType?: import("./IntentTypes.js").AgentWorkflowType;
   private reconciledIntent?: import("./IntentTypes.js").AgentIntentType;
+  private entryIntent?: import("./IntentTypes.js").AgentIntentType;
+  private entryWorkflowType?: import("./IntentTypes.js").AgentWorkflowType;
   private pendingWritePhaseContext?: string;
   private readonly toolResultCache = new RunToolResultCache();
   private failedActionMemory: FailedActionMemory;
 
+  private readonly toolGateway: ToolExecutionGateway;
+
   constructor(private readonly options: AgentLoopOptions) {
+    this.toolGateway = new ToolExecutionGateway(options.registry);
     this.policy =
       options.policy ??
       defaultRunPolicyManager.resolve({
@@ -343,11 +371,61 @@ export class AgentLoop {
     const sessionGrants = sessionId ? this.sessionPermissionGrants.get(sessionId) : undefined;
     if (!this.scopedGrants && !sessionGrants) return undefined;
     return {
+      read_file: [...new Set([...(this.scopedGrants?.read_file ?? []), ...(sessionGrants?.read_file ?? [])])],
       write_file: [...new Set([...(this.scopedGrants?.write_file ?? []), ...(sessionGrants?.write_file ?? [])])],
       shell: [...new Set([...(this.scopedGrants?.shell ?? []), ...(sessionGrants?.shell ?? [])])],
       delete_file: [...new Set([...(this.scopedGrants?.delete_file ?? []), ...(sessionGrants?.delete_file ?? [])])],
       network: [...new Set([...(this.scopedGrants?.network ?? []), ...(sessionGrants?.network ?? [])])],
       dangerous: [...new Set([...(this.scopedGrants?.dangerous ?? []), ...(sessionGrants?.dangerous ?? [])])],
+    };
+  }
+
+  private preparePathAccess(action: ToolAction): ToolPathPreparation | undefined {
+    const policy = new PathPolicy({
+      primaryRoot: this.options.workspaceRoot,
+      grants: this.options.workspaceGrantStore,
+      configScopes: this.options.workspaceConfigScopes,
+    });
+    return policy.prepareTool(action.tool, (action.input ?? {}) as Record<string, unknown>, {
+      sessionId: this.options.sessionId,
+      taskId: this.options.taskId,
+      scopedGrants: this.resolveScopedGrants(),
+    });
+  }
+
+  private buildPathBlockedStep(
+    action: ToolAction,
+    iteration: number,
+    pathAccess: ToolPathPreparation,
+    toolCallId?: string,
+  ): AgentToolStep {
+    const tool = this.options.registry.get(action.tool);
+    const confirmationRequest = pathAccess.decision.needsConfirmation
+      ? buildPathConfirmationRequest({
+          toolName: action.tool,
+          decision: pathAccess.decision,
+          intent: this.getEffectiveIntent(),
+          permissionPolicy: this.policy.permissionPolicy,
+        })
+      : undefined;
+    return {
+      iteration,
+      toolCallId,
+      tool: action.tool,
+      input: action.input ?? {},
+      permission: tool?.permission,
+      thought: action.thought,
+      ok: false,
+      blocked: true,
+      executed: false,
+      blockedReasonKind: "permission",
+      outcomeClass: "execution_error",
+      outcomeKind: pathAccess.decision.needsConfirmation ? "permission_required" : "permission_denied",
+      error: pathAccess.decision.needsConfirmation
+        ? `跨工作区访问需要用户授权：${pathAccess.decision.normalizedPath}`
+        : `路径策略拒绝访问：${pathAccess.decision.reason}`,
+      confirmationRequest,
+      workspaceAccess: pathAccess.audit,
     };
   }
 
@@ -359,7 +437,7 @@ export class AgentLoop {
     if (!pausedRun.resumeMode || this.workflowProposals.length > 0) return;
     const result = new EditProposalWorkflow().run({
       goal: pausedRun.goal,
-      intent: this.policy.intent,
+      intent: this.getEffectiveIntent(),
       permissionPolicy: this.policy.permissionPolicy,
       allowedPermissions: this.allowed,
     });
@@ -388,6 +466,8 @@ export class AgentLoop {
     this.capabilityEscalations = [];
     this.reconciledWorkflowType = undefined;
     this.reconciledIntent = undefined;
+    this.entryIntent = this.policy.intent;
+    this.entryWorkflowType = this.policy.workflowType;
     this.pendingWritePhaseContext = undefined;
     this.toolResultCache.invalidateAll();
     this.failedActionMemory = new FailedActionMemory(this.policy.budget.maxRepeatedToolFailures);
@@ -397,6 +477,7 @@ export class AgentLoop {
       this.workflowDebugAnalyses = [...(pausedRun.workflowDebugAnalyses ?? [])];
       this.workflowRefactorPlans = [...(pausedRun.workflowRefactorPlans ?? [])];
       this.workflowInternalPlans = [...(pausedRun.workflowInternalPlans ?? [])];
+      this.restoreRuntimeSnapshot(pausedRun.runtimeState);
       this.restoreApprovedHandoffArtifacts(pausedRun);
     }
     const isResume = Boolean(this.options.resumeState);
@@ -485,7 +566,7 @@ export class AgentLoop {
       this.workflowSwitch = resolveWorkflowSwitch({
         previous,
         current: {
-          intent: this.policy.intent,
+          intent: this.getEffectiveIntent(),
           workflowType: this.policy.workflowType,
         },
       });
@@ -728,7 +809,7 @@ export class AgentLoop {
         }
         const guard = evaluateCompletionGuard({
           goal: effectiveGoal,
-          intent: this.policy.intent,
+          intent: this.getEffectiveIntent(),
           reconciledIntent: this.reconciledIntent,
           capabilityEscalations: this.capabilityEscalations,
           mode: this.policy.mode,
@@ -743,7 +824,7 @@ export class AgentLoop {
             completionStatus: guard.status,
           });
           if (ctx && sessionId) {
-            ctx.saveRawModelFinal(sessionId, action.answer, this.options.runId, {
+            ctx.saveRawModelFinal(sessionId, guard.rawModelAnswer ?? action.answer, this.options.runId, {
               clientName: response.clientName,
               modelName: response.modelName,
             });
@@ -752,7 +833,7 @@ export class AgentLoop {
             }
           }
           return await this.finishRun({
-            answer: guard.guardedAnswer ?? "",
+            answer: guard.visibleAnswer ?? guard.guardedAnswer ?? "",
             steps,
             iterations: iteration,
             reachedLimit: false,
@@ -764,13 +845,27 @@ export class AgentLoop {
           });
         }
         if (ctx && sessionId) {
-          ctx.saveTrustedModelFinalAnswer(sessionId, action.answer, this.options.runId, {
-            clientName: response.clientName,
-            modelName: response.modelName,
-          });
+          if (guard.trustedForMemory) {
+            ctx.saveTrustedModelFinalAnswer(
+              sessionId,
+              guard.visibleAnswer ?? action.answer,
+              this.options.runId,
+              {
+              clientName: response.clientName,
+              modelName: response.modelName,
+            },
+            );
+          } else if (guard.guardedAnswer) {
+            ctx.saveGuardedFinalAnswer(sessionId, guard.guardedAnswer, this.options.runId);
+          } else {
+            ctx.saveRawModelFinal(sessionId, action.answer, this.options.runId, {
+              clientName: response.clientName,
+              modelName: response.modelName,
+            });
+          }
         }
         return await this.finishRun({
-          answer: action.answer,
+          answer: guard.visibleAnswer ?? action.answer,
           steps,
           iterations: iteration,
           reachedLimit: false,
@@ -802,24 +897,26 @@ export class AgentLoop {
         thought: action.thought,
         inputPreview: redactPreview(action.input ?? {}, 500),
       });
-      const tool = this.options.registry.get(action.tool);
-      const workflowRoute = defaultWorkflowRouter.routeIntent(this.policy.intent);
-      this.reconcileCapabilityBeforeTool({
+
+      const execResult = await this.executeToolStep({
         action,
-        toolPermission: tool?.permission,
-        workflowRoute,
         iteration,
+        toolCallId,
+        steps,
+        goal: effectiveGoal,
         messages,
+        sessionId,
+        system,
+        modelTurns,
+        consumedNotifications,
       });
-      const workflowBlock = assessWorkflowToolAccess({
-        mode: this.policy.mode,
-        workflowRoute,
-        toolPermission: tool?.permission,
-      });
-      if (workflowBlock.blocked) {
-        const step = this.buildWorkflowBlockedStep(action, iteration, workflowBlock, toolCallId);
-        steps.push(step);
-        this.options.onStep?.(step);
+      if (execResult.kind === "pause" || execResult.kind === "budget") {
+        return execResult.result;
+      }
+      const step = execResult.step;
+      steps.push(step);
+      this.options.onStep?.(step);
+      if (step.blocked) {
         this.recordToolStepMessages({
           messages,
           step,
@@ -828,115 +925,6 @@ export class AgentLoop {
           sessionId,
         });
         continue;
-      }
-
-      if (tool) {
-        const permissionDecision = evaluatePermissionGuard({
-          intent: this.policy.intent,
-          permissionPolicy: this.policy.permissionPolicy,
-          toolName: tool.name,
-          permission: tool.permission,
-          input: action.input ?? {},
-          allowedPermissions: this.allowed,
-          scopedGrants: this.resolveScopedGrants(),
-        });
-        if (permissionDecision.decision === "deny") {
-          const step = this.buildPermissionBlockedStep(
-            action,
-            iteration,
-            permissionDecision.reason ?? "权限拒绝",
-            toolCallId,
-            tool.permission,
-          );
-          steps.push(step);
-          this.options.onStep?.(step);
-          this.recordToolStepMessages({
-            messages,
-            step,
-            steps,
-            goal: effectiveGoal,
-            sessionId,
-          });
-          continue;
-        }
-        if (permissionDecision.decision === "needsConfirmation") {
-          const step = await this.runToolAction(action, iteration, toolCallId, {
-            steps,
-            goal: effectiveGoal,
-          });
-          steps.push(step);
-          this.options.onStep?.(step);
-          if (
-            step.blocked &&
-            step.confirmationRequest?.status === "waiting_confirmation" &&
-            this.pauseOnPermissionRequest
-          ) {
-            return await this.pauseForToolPermission({
-              step,
-              action,
-              messages,
-              steps,
-              modelTurns,
-              goal: effectiveGoal,
-              system,
-              sessionId,
-              consumedNotifications,
-            });
-          }
-          this.recordToolStepMessages({
-            messages,
-            step,
-            steps,
-            goal: effectiveGoal,
-            sessionId,
-          });
-          continue;
-        }
-      }
-
-      const toolBudgetExhausted = this.budgetManager.findToolExhaustion({
-        toolPermission: tool?.permission,
-        permissionAllowed: Boolean(tool),
-        steps,
-      });
-      if (toolBudgetExhausted) {
-        const step = this.buildBudgetBlockedStep(action, iteration, toolBudgetExhausted, toolCallId);
-        steps.push(step);
-        this.options.onStep?.(step);
-        return await this.finishRun({
-          answer: "",
-          partialSummary: this.buildPartialAnswer(steps, toolBudgetExhausted, effectiveGoal),
-          steps,
-          iterations: modelTurns,
-          reachedLimit: true,
-          budgetExhausted: toolBudgetExhausted,
-          consumedNotifications,
-          sessionId,
-          userMessage: effectiveGoal,
-        });
-      }
-      const step = await this.runToolAction(action, iteration, toolCallId, {
-        steps,
-        goal: effectiveGoal,
-      });
-      steps.push(step);
-      this.options.onStep?.(step);
-      if (
-        step.blocked &&
-        step.confirmationRequest?.status === "waiting_confirmation" &&
-        this.pauseOnPermissionRequest
-      ) {
-        return await this.pauseForToolPermission({
-          step,
-          action,
-          messages,
-          steps,
-          modelTurns,
-          goal: effectiveGoal,
-          system,
-          sessionId,
-          consumedNotifications,
-        });
       }
       this.recordToolStepMessages({
         messages,
@@ -972,7 +960,7 @@ export class AgentLoop {
           steps,
           iterations: modelTurns,
           reachedLimit: false,
-          stopReason: "error",
+          stopReason: "recovery_partial",
           consumedNotifications,
           sessionId,
           userMessage: effectiveGoal,
@@ -1109,10 +1097,10 @@ export class AgentLoop {
         sessionId: input.sessionId,
         taskId: this.options.taskId,
         goal: input.userMessage,
-        intent: this.policy.intent,
-        workflowType: this.policy.workflowType,
-        entryIntent: this.policy.intent,
-        entryWorkflowType: this.policy.workflowType,
+        intent: this.getEffectiveIntent(),
+        workflowType: this.reconciledWorkflowType ?? this.policy.workflowType,
+        entryIntent: this.entryIntent ?? this.policy.intent,
+        entryWorkflowType: this.entryWorkflowType ?? this.policy.workflowType,
         reconciledIntent: this.reconciledIntent,
         reconciledWorkflowType: this.reconciledWorkflowType,
         runId: this.options.runId,
@@ -1219,7 +1207,7 @@ export class AgentLoop {
     goal: string,
   ): Promise<AgentToolStep | undefined> {
     const planned = new EditAutoVerificationWorkflow().run({
-      intent: this.policy.intent,
+      intent: this.getEffectiveIntent(),
       step: writeStep,
     });
     if (!planned) return undefined;
@@ -1232,7 +1220,7 @@ export class AgentLoop {
     };
     const tool = this.options.registry.get(action.tool);
     const toolCallId = this.makeToolCallId(iteration, `${action.tool}:auto-verify`);
-    const workflowRoute = defaultWorkflowRouter.routeIntent(this.policy.intent);
+    const workflowRoute = effectiveWorkflowRoute(this.getEffectiveWorkflowContext());
     this.reconcileCapabilityBeforeTool({
       action,
       toolPermission: tool?.permission,
@@ -1249,7 +1237,7 @@ export class AgentLoop {
     }
     if (tool) {
       const permissionDecision = evaluatePermissionGuard({
-        intent: this.policy.intent,
+        intent: this.getEffectiveIntent(),
         permissionPolicy: this.policy.permissionPolicy,
         toolName: tool.name,
         permission: tool.permission,
@@ -1310,7 +1298,7 @@ export class AgentLoop {
       });
     }
     const followups = buildWorkflowFollowupContexts({
-      intent: this.policy.intent,
+      intent: this.getEffectiveIntent(),
       goal: input.goal,
       step: input.step,
       steps: input.steps,
@@ -1329,7 +1317,15 @@ export class AgentLoop {
     }
     const ctx = this.options.contextManager;
     if (ctx && input.sessionId) {
-      ctx.saveToolMessage(input.sessionId, toolText, this.options.runId);
+      ctx.saveToolMessage(input.sessionId, toolText, this.options.runId, {
+        outcomeClass: input.step.outcomeClass,
+        outcomeKind: input.step.outcomeKind,
+        toolCallId: input.step.toolCallId,
+        ledgerBacked:
+          input.step.outcomeClass === "observation_success" &&
+          input.step.outcomeKind !== "not_found" &&
+          input.step.outcomeKind !== "no_results",
+      });
     }
   }
 
@@ -1351,14 +1347,20 @@ export class AgentLoop {
     }
     if (
       stop === "completed_partial" ||
+      stop === "recovery_partial" ||
       stop === "misleading_completion" ||
       stop === "blocked_by_policy" ||
+      input.completionGuard?.status === "historical_reference" ||
       input.completionGuard?.status === "completed_partial" ||
       input.completionGuard?.status === "misleading_completion" ||
       input.completionGuard?.status === "blocked_by_policy"
     ) {
       const title =
-        stop === "misleading_completion" ? "检测到虚假完成" : "任务未完全完成";
+        stop === "misleading_completion"
+          ? "检测到虚假完成"
+          : stop === "recovery_partial"
+            ? "部分完成 · 恢复预算耗尽"
+            : "任务未完全完成";
       const summary =
         input.partialSummary ||
         input.completionGuard?.reason ||
@@ -1388,7 +1390,15 @@ export class AgentLoop {
       return;
     }
     if (input.reachedLimit) {
-      tl.failRun(`运行预算耗尽：${input.budgetExhausted ?? "unknown"}`);
+      const ledger = this.budgetManager.ledgerSnapshot();
+      const summary =
+        input.partialSummary ||
+        `运行预算耗尽：${input.budgetExhausted ?? "unknown"}（恢复 ${ledger.recoveryTurns}/${this.budget.maxRecoveryTurns}）`;
+      if (typeof tl.partialCompleteRun === "function") {
+        tl.partialCompleteRun(summary.slice(0, 800), "部分完成 · 预算耗尽");
+      } else {
+        tl.failRun(summary.slice(0, 800));
+      }
       return;
     }
     tl.completeRun(input.answer.slice(0, 800));
@@ -1494,28 +1504,36 @@ export class AgentLoop {
         at: new Date().toISOString(),
       });
     };
-    const failActivity = (msg: string, extra?: { durationMs?: number; outcomeKind?: string }) => {
+    const failActivity = (msg: string, extra?: { durationMs?: number; outcomeKind?: string; workspaceAccess?: ToolPathPreparation["audit"] }) => {
       if (activityStepId && tl) {
         tl.failStep(activityStepId, msg, {
           durationMs: extra?.durationMs,
           outcomeClass: "execution_error",
           outcomeKind: extra?.outcomeKind,
+          crossWorkspace: extra?.workspaceAccess?.crossWorkspace,
+          matchedRoot: extra?.workspaceAccess?.matchedRoot,
+          grantId: extra?.workspaceAccess?.grantId,
+          pathRisk: extra?.workspaceAccess?.pathRisk,
         });
       }
     };
-    const okActivity = (msg: string, extra?: { durationMs?: number; changedFiles?: string[] }) => {
+    const okActivity = (msg: string, extra?: { durationMs?: number; changedFiles?: string[]; workspaceAccess?: ToolPathPreparation["audit"] }) => {
       if (activityStepId && tl) {
         tl.completeStep(activityStepId, msg, {
           durationMs: extra?.durationMs,
           resultSummary: msg,
           changedFiles: extra?.changedFiles,
           outcomeClass: "observation_success",
+          crossWorkspace: extra?.workspaceAccess?.crossWorkspace,
+          matchedRoot: extra?.workspaceAccess?.matchedRoot,
+          grantId: extra?.workspaceAccess?.grantId,
+          pathRisk: extra?.workspaceAccess?.pathRisk,
         });
       }
     };
     const observeActivity = (
       msg: string,
-      extra?: { durationMs?: number; outcomeKind?: string; exitCode?: number; command?: string },
+      extra?: { durationMs?: number; outcomeKind?: string; exitCode?: number; command?: string; workspaceAccess?: ToolPathPreparation["audit"] },
     ) => {
       if (activityStepId && tl) {
         tl.completeStep(activityStepId, msg, {
@@ -1525,6 +1543,10 @@ export class AgentLoop {
           outcomeKind: extra?.outcomeKind,
           exitCode: extra?.exitCode,
           command: extra?.command,
+          crossWorkspace: extra?.workspaceAccess?.crossWorkspace,
+          matchedRoot: extra?.workspaceAccess?.matchedRoot,
+          grantId: extra?.workspaceAccess?.grantId,
+          pathRisk: extra?.workspaceAccess?.pathRisk,
         });
       }
     };
@@ -1547,8 +1569,61 @@ export class AgentLoop {
     const withPermission = { ...base, permission: tool.permission };
 
     const inputRecord = (action.input ?? {}) as Record<string, unknown>;
+    const pathAccess = this.preparePathAccess(action);
+    if (pathAccess) {
+      this.options.trace?.write({
+        type: "path_access_decision",
+        tool: action.tool,
+        runId: this.options.runId,
+        sessionId: this.options.sessionId,
+        taskId: this.options.taskId,
+        toolCallId,
+        allowed: pathAccess.decision.allowed,
+        needsConfirmation: pathAccess.decision.needsConfirmation,
+        reason: pathAccess.decision.reason,
+        operation: pathAccess.decision.requiredPermission,
+        normalizedPath: pathAccess.decision.normalizedPath,
+        matchedRoot: pathAccess.audit.matchedRoot,
+        crossWorkspace: pathAccess.audit.crossWorkspace,
+        permissionSource: pathAccess.audit.permissionSource,
+        pathRisk: pathAccess.audit.pathRisk,
+        workspaceScopeId: pathAccess.audit.workspaceScopeId,
+        grantId: pathAccess.audit.grantId,
+      });
+      this.options.workspaceGrantStore?.recordAccess({
+        runId: this.options.runId,
+        sessionId: this.options.sessionId,
+        taskId: this.options.taskId,
+        toolCallId,
+        toolName: action.tool,
+        operation: pathAccess.decision.requiredPermission,
+        normalizedPath: pathAccess.decision.normalizedPath,
+        matchedRoot: pathAccess.audit.matchedRoot,
+        workspaceScopeId: pathAccess.audit.workspaceScopeId,
+        grantId: pathAccess.audit.grantId,
+        permissionSource: pathAccess.audit.permissionSource,
+        decision: pathAccess.decision.allowed
+          ? "allowed"
+          : pathAccess.decision.needsConfirmation
+            ? "needs_confirmation"
+            : "denied",
+        reason: pathAccess.decision.reason,
+        crossWorkspace: pathAccess.audit.crossWorkspace,
+        pathRisk: pathAccess.audit.pathRisk,
+        pathRiskTier: pathAccess.audit.pathRiskTier,
+      });
+    }
+    if (pathAccess && !pathAccess.decision.allowed) {
+      const step = this.buildPathBlockedStep(action, iteration, pathAccess, toolCallId);
+      failActivity(step.error ?? "路径策略拒绝访问", { outcomeKind: step.outcomeKind, workspaceAccess: pathAccess.audit });
+      this.failedActionMemory.record(step);
+      return step;
+    }
+    const cacheInputRecord = pathAccess?.grantVersionKey
+      ? { ...inputRecord, _workspaceGrantVersion: pathAccess.grantVersionKey }
+      : inputRecord;
     if (!ctx.isRecovery) {
-      const cached = this.toolResultCache.lookup(action.tool, inputRecord);
+      const cached = this.toolResultCache.lookup(action.tool, cacheInputRecord);
       if (cached) {
         okActivity("复用本 run 缓存结果");
         return this.buildCachedToolStep(withPermission, tool, cached.entry.output, inputRecord);
@@ -1590,7 +1665,7 @@ export class AgentLoop {
     }
 
     const writeOrchestration = orchestrateWorkflowWrite({
-      intent: this.policy.intent ?? "answer",
+      intent: this.getEffectiveIntent(),
       goal: ctx.goal,
       permissionPolicy: this.policy.permissionPolicy,
       tool: action.tool,
@@ -1620,7 +1695,7 @@ export class AgentLoop {
     }
 
     const permissionDecision = evaluatePermissionGuard({
-      intent: this.policy.intent,
+      intent: this.getEffectiveIntent(),
       permissionPolicy: this.policy.permissionPolicy,
       toolName: tool.name,
       permission: tool.permission,
@@ -1663,19 +1738,29 @@ export class AgentLoop {
       runId: this.options.runId,
       sessionId: this.options.sessionId,
       taskId: this.options.taskId,
+      workspaceAccess: pathAccess?.audit,
     });
-    const result = await this.options.registry.run(action.tool, action.input ?? {}, {
-      workspaceRoot: this.options.workspaceRoot,
+    const result = await this.toolGateway.invokeRegistry({
+      toolName: action.tool,
+      input: pathAccess?.input ?? ((action.input ?? {}) as Record<string, unknown>),
+      source: ctx.isRecovery ? "agent_loop" : "agent_loop",
+      budgetBucket: ctx.isRecovery ? "recovery" : ctx.isPreflight ? "preflight" : "main",
+      workspaceRoot: pathAccess?.workspaceRoot ?? this.options.workspaceRoot,
       allowedPermissions: this.allowed,
+      scopedGrants: this.resolveScopedGrants(),
+      workspaceGrantStore: this.options.workspaceGrantStore,
+      workspaceConfigScopes: this.options.workspaceConfigScopes,
+      toolCallId,
       taskId: this.options.taskId,
       sessionId: this.options.sessionId,
       requestId: this.options.requestId ?? this.options.runId,
-      toolCallId,
-      sensitive: this.options.sensitive,
-      subAgentDispatchDepth: this.options.subAgentDispatchDepth ?? 0,
-      maxSubAgentDispatchDepth: this.options.maxSubAgentDispatchDepth ?? 1,
-      projectAllowedPermissions: this.options.projectAllowedPermissions,
       signal: this.options.signal,
+      registryExtras: {
+        sensitive: this.options.sensitive,
+        subAgentDispatchDepth: this.options.subAgentDispatchDepth ?? 0,
+        maxSubAgentDispatchDepth: this.options.maxSubAgentDispatchDepth ?? 1,
+        projectAllowedPermissions: this.options.projectAllowedPermissions,
+      },
     });
 
     if (result.executed) {
@@ -1709,6 +1794,7 @@ export class AgentLoop {
         modelJsonLength: layers.modelJsonLength,
         userDisplay: layers.userDisplay,
         rawOutput: layers.raw,
+        workspaceAccess: pathAccess?.audit,
       });
       const rawPath = action.input?.path;
       const path = typeof rawPath === "string" ? rawPath : undefined;
@@ -1719,13 +1805,15 @@ export class AgentLoop {
           outcomeKind: result.outcomeKind,
           exitCode: result.outcomeExitCode,
           command: result.outcomeCommand,
+          workspaceAccess: pathAccess?.audit,
         });
       } else if (result.outcomeClass === "execution_error") {
-        failActivity(summary, { durationMs: result.durationMs, outcomeKind: result.outcomeKind });
+        failActivity(summary, { durationMs: result.durationMs, outcomeKind: result.outcomeKind, workspaceAccess: pathAccess?.audit });
       } else {
         okActivity(summary, {
           durationMs: result.durationMs,
           changedFiles: path ? [path] : undefined,
+          workspaceAccess: pathAccess?.audit,
         });
       }
       const step = applyOutcomeToStep(withPermission, outcome, {
@@ -1735,9 +1823,10 @@ export class AgentLoop {
         durationMs: result.durationMs,
         toolCallId: result.toolCallId,
         risk: result.risk,
+        workspaceAccess: pathAccess?.audit,
       });
       if (!ctx.isRecovery && result.output !== undefined) {
-        this.toolResultCache.store(action.tool, inputRecord, result.output);
+        this.toolResultCache.store(action.tool, cacheInputRecord, result.output);
       }
       this.failedActionMemory.record(step);
       return step;
@@ -1757,6 +1846,7 @@ export class AgentLoop {
         durationMs: result.durationMs,
         toolCallId: result.toolCallId,
         risk: result.risk,
+        workspaceAccess: pathAccess?.audit,
       },
     );
     this.failedActionMemory.record(failedStep);
@@ -1829,6 +1919,200 @@ export class AgentLoop {
 
   private getEffectiveIntent(): import("./IntentTypes.js").AgentIntentType {
     return resolveEffectiveIntent(this.policy.intent, this.reconciledIntent);
+  }
+
+  private getEffectiveWorkflowContext(): EffectiveWorkflowContext {
+    return buildEffectiveWorkflowContext({
+      entryIntent: this.entryIntent ?? this.policy.intent,
+      entryWorkflowType: this.entryWorkflowType ?? this.policy.workflowType,
+      reconciledIntent: this.reconciledIntent,
+      reconciledWorkflowType: this.reconciledWorkflowType,
+      capabilityEscalations: this.capabilityEscalations,
+    });
+  }
+
+  private buildRuntimeSnapshot(): PausedRunRuntimeState {
+    return {
+      entryIntent: this.entryIntent ?? this.policy.intent,
+      entryWorkflowType: this.entryWorkflowType ?? this.policy.workflowType,
+      reconciledIntent: this.reconciledIntent,
+      reconciledWorkflowType: this.reconciledWorkflowType,
+      capabilityEscalations: [...this.capabilityEscalations],
+      budgetLedger: this.budgetManager.ledgerSnapshot(),
+      failedActionMemoryState: this.failedActionMemory.exportState(),
+      toolCacheEntries: this.toolResultCache.exportState(),
+    };
+  }
+
+  private restoreRuntimeSnapshot(state?: PausedRunRuntimeState): void {
+    if (!state) return;
+    if (state.entryIntent) this.entryIntent = state.entryIntent;
+    if (state.entryWorkflowType) this.entryWorkflowType = state.entryWorkflowType;
+    this.reconciledIntent = state.reconciledIntent;
+    this.reconciledWorkflowType = state.reconciledWorkflowType;
+    this.capabilityEscalations = [...(state.capabilityEscalations ?? [])];
+    if (state.failedActionMemoryState?.length) {
+      this.failedActionMemory.restoreState(state.failedActionMemoryState);
+    }
+    if (state.toolCacheEntries?.length) {
+      this.toolResultCache.restoreState(state.toolCacheEntries);
+    }
+    if (state.budgetLedger) {
+      this.budgetManager.restoreLedger(state.budgetLedger);
+    }
+  }
+
+  /** 统一工具执行管道：escalation → workflow → PermissionGuard → Budget → runToolAction */
+  private async executeToolStep(input: {
+    action: ToolAction;
+    iteration: number;
+    toolCallId: string;
+    steps: AgentToolStep[];
+    goal: string;
+    messages: ChatMessage[];
+    sessionId?: string;
+    system?: string;
+    modelTurns: number;
+    consumedNotifications: AgentNotification[];
+    skipJitPause?: boolean;
+  }): Promise<
+    | { kind: "step"; step: AgentToolStep }
+    | { kind: "pause"; result: AgentRunResult }
+    | { kind: "budget"; result: AgentRunResult }
+  > {
+    const tool = this.options.registry.get(input.action.tool);
+    const workflowRoute = effectiveWorkflowRoute(this.getEffectiveWorkflowContext());
+    this.reconcileCapabilityBeforeTool({
+      action: input.action,
+      toolPermission: tool?.permission,
+      workflowRoute,
+      iteration: input.iteration,
+      messages: input.messages,
+    });
+    const workflowBlock = assessWorkflowToolAccess({
+      mode: this.policy.mode,
+      workflowRoute,
+      toolPermission: tool?.permission,
+    });
+    if (workflowBlock.blocked) {
+      const step = this.buildWorkflowBlockedStep(
+        input.action,
+        input.iteration,
+        workflowBlock,
+        input.toolCallId,
+      );
+      return { kind: "step", step };
+    }
+
+    if (tool) {
+      const permissionDecision = evaluatePermissionGuard({
+        intent: this.getEffectiveIntent(),
+        permissionPolicy: this.policy.permissionPolicy,
+        toolName: tool.name,
+        permission: tool.permission,
+        input: input.action.input ?? {},
+        allowedPermissions: this.allowed,
+        scopedGrants: this.resolveScopedGrants(),
+      });
+      if (permissionDecision.decision === "deny") {
+        const step = this.buildPermissionBlockedStep(
+          input.action,
+          input.iteration,
+          permissionDecision.reason ?? "权限拒绝",
+          input.toolCallId,
+          tool.permission,
+        );
+        return { kind: "step", step };
+      }
+      if (permissionDecision.decision === "needsConfirmation" && !input.skipJitPause) {
+        const step = await this.runToolAction(input.action, input.iteration, input.toolCallId, {
+          steps: input.steps,
+          goal: input.goal,
+        });
+        if (
+          step.blocked &&
+          step.confirmationRequest?.status === "waiting_confirmation" &&
+          this.pauseOnPermissionRequest
+        ) {
+          const result = await this.pauseForToolPermission({
+            step,
+            action: input.action,
+            messages: input.messages,
+            steps: input.steps,
+            modelTurns: input.modelTurns,
+            goal: input.goal,
+            system: input.system,
+            sessionId: input.sessionId,
+            consumedNotifications: input.consumedNotifications,
+          });
+          return { kind: "pause", result };
+        }
+        return { kind: "step", step };
+      }
+    }
+
+    const pathAccess = this.preparePathAccess(input.action);
+    if (pathAccess && !pathAccess.decision.allowed) {
+      const step = this.buildPathBlockedStep(
+        input.action,
+        input.iteration,
+        pathAccess,
+        input.toolCallId,
+      );
+      if (
+        pathAccess.decision.needsConfirmation &&
+        !input.skipJitPause &&
+        this.pauseOnPermissionRequest
+      ) {
+        const result = await this.pauseForToolPermission({
+          step,
+          action: input.action,
+          messages: input.messages,
+          steps: [...input.steps, step],
+          modelTurns: input.modelTurns,
+          goal: input.goal,
+          system: input.system,
+          sessionId: input.sessionId,
+          consumedNotifications: input.consumedNotifications,
+        });
+        return { kind: "pause", result };
+      }
+      return { kind: "step", step };
+    }
+
+    const toolBudgetExhausted = this.budgetManager.findToolExhaustion({
+      toolPermission: tool?.permission,
+      permissionAllowed: Boolean(tool),
+      steps: input.steps,
+    });
+    if (toolBudgetExhausted) {
+      const step = this.buildBudgetBlockedStep(
+        input.action,
+        input.iteration,
+        toolBudgetExhausted,
+        input.toolCallId,
+      );
+      return {
+        kind: "budget",
+        result: await this.finishRun({
+          answer: "",
+          partialSummary: this.buildPartialAnswer(input.steps, toolBudgetExhausted, input.goal),
+          steps: input.steps,
+          iterations: input.modelTurns,
+          reachedLimit: true,
+          budgetExhausted: toolBudgetExhausted,
+          consumedNotifications: input.consumedNotifications,
+          sessionId: input.sessionId,
+          userMessage: input.goal,
+        }),
+      };
+    }
+
+    const step = await this.runToolAction(input.action, input.iteration, input.toolCallId, {
+      steps: input.steps,
+      goal: input.goal,
+    });
+    return { kind: "step", step };
   }
 
   private recordCapabilityEscalationTimeline(
@@ -2092,8 +2376,8 @@ export class AgentLoop {
     const needsMoreBudget = input.stopReason === "budget_exhausted";
     const location = buildLocationMeta(input.steps);
     const workflowDiffs = buildWorkflowDiffs(input.steps);
-    const workflowVerifications = buildWorkflowVerifications(this.policy.intent, input.steps);
-    const workflowCorrections = buildWorkflowCorrections(this.policy.intent, input.steps);
+    const workflowVerifications = buildWorkflowVerifications(this.getEffectiveIntent(), input.steps);
+    const workflowCorrections = buildWorkflowCorrections(this.getEffectiveIntent(), input.steps);
     const workflowState = buildWorkflowState({
       intent: this.getEffectiveIntent(),
       steps: input.steps,
@@ -2112,6 +2396,7 @@ export class AgentLoop {
         workflowRefactorPlans: this.workflowRefactorPlans,
       }),
     });
+    const ledger = buildToolLedger(input.steps);
     const base: AgentExecutionMeta = {
       mode: this.policy.mode,
       executionStage: this.policy.executionStage,
@@ -2129,6 +2414,16 @@ export class AgentLoop {
       currentWorkflowType: this.reconciledWorkflowType ?? this.policy.workflowType,
       continuationScore: this.policy.continuationScore,
       continuationSignals: this.policy.continuationSignals,
+      needsWrite: this.policy.needsWrite,
+      needsShell: this.policy.needsShell,
+      aiOverridden: this.policy.aiOverridden,
+      boundaryBreakReason: this.policy.boundaryBreakReason,
+      effectiveTaskContextId: this.policy.effectiveTaskContextId,
+      legacyIntentHint: this.policy.legacyIntentHint,
+      legacyHintSources: this.policy.legacyHintSources,
+      entryIntent: this.entryIntent ?? this.policy.entryIntent,
+      entryWorkflowType: this.entryWorkflowType ?? this.policy.entryWorkflowType,
+      effectiveWorkflowType: this.reconciledWorkflowType ?? this.policy.effectiveWorkflowType,
       workflowProposals: this.workflowProposals.length ? this.workflowProposals : undefined,
       workflowDebugAnalyses: this.workflowDebugAnalyses.length ? this.workflowDebugAnalyses : undefined,
       workflowRefactorPlans: this.workflowRefactorPlans.length ? this.workflowRefactorPlans : undefined,
@@ -2161,16 +2456,8 @@ export class AgentLoop {
       guardedAnswer: input.completionGuard?.guardedAnswer,
       rawModelAnswer: input.completionGuard?.rawModelAnswer,
       partialSummary: input.partialSummary,
-      toolLedger: input.completionGuard?.ledger
-        ? {
-            attemptedShellCalls: input.completionGuard.ledger.attemptedShellCalls,
-            blockedShellCalls: input.completionGuard.ledger.blockedShellCalls,
-            successfulShellCalls: input.completionGuard.ledger.successfulShellCalls,
-            attemptedWriteCalls: input.completionGuard.ledger.attemptedWriteCalls,
-            blockedWriteCalls: input.completionGuard.ledger.blockedWriteCalls,
-            successfulWriteCalls: input.completionGuard.ledger.successfulWriteCalls,
-          }
-        : undefined,
+      toolLedger: toolLedgerToSummary(ledger),
+      toolLedgerSummary: toolLedgerToSummary(ledger),
       suggestedBudget: needsMoreBudget && input.budgetExhausted
         ? this.budgetManager.buildSuggestedBudget(input.budgetExhausted)
         : undefined,
@@ -2213,7 +2500,7 @@ export class AgentLoop {
       title: confirmation.title,
       summary: confirmation.message,
       requiredPermissions,
-      intent: this.policy.intent,
+      intent: this.getEffectiveIntent(),
       executionStage: this.policy.executionStage,
       planVariant: this.policy.planVariant,
       blockedTool: {
@@ -2259,6 +2546,7 @@ export class AgentLoop {
       mode: this.policy.mode,
       permissionPolicy: this.policy.permissionPolicy,
       resumeMode: input.resumeMode,
+      runtimeState: this.buildRuntimeSnapshot(),
       createdAt: new Date().toISOString(),
     });
   }
@@ -2318,10 +2606,23 @@ export class AgentLoop {
     };
     const iteration = input.modelTurns;
     const toolCallId = this.makeToolCallId(iteration, action.tool);
-    const step = await this.runToolAction(action, iteration, toolCallId, {
+    const execResult = await this.executeToolStep({
+      action,
+      iteration,
+      toolCallId,
       steps: input.steps,
       goal: input.goal,
+      messages: input.messages,
+      sessionId: input.sessionId,
+      system: input.system,
+      modelTurns: input.modelTurns,
+      consumedNotifications: input.consumedNotifications,
+      skipJitPause: true,
     });
+    if (execResult.kind === "pause" || execResult.kind === "budget") {
+      return execResult.result;
+    }
+    const step = execResult.step;
     input.steps.push(step);
     this.options.onStep?.(step);
     if (

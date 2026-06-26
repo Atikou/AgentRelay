@@ -11,7 +11,15 @@ import type {
 } from "../../policy/permissionRequestTypes.js";
 
 function parseDecision(value: unknown): PermissionRequestDecision | undefined {
-  if (value === "allow_once" || value === "allow_session" || value === "deny") return value;
+  if (
+    value === "allow_once" ||
+    value === "allow_session" ||
+    value === "allow_project" ||
+    value === "allow_workspace" ||
+    value === "deny"
+  ) {
+    return value;
+  }
   return undefined;
 }
 
@@ -25,7 +33,8 @@ function parseApprovedItems(value: unknown): PermissionRequestItem[] | undefined
     const target = record.target;
     const reason = record.reason;
     if (
-      (type === "write_file" ||
+      (type === "read_file" ||
+        type === "write_file" ||
         type === "shell" ||
         type === "delete_file" ||
         type === "network" ||
@@ -33,7 +42,36 @@ function parseApprovedItems(value: unknown): PermissionRequestItem[] | undefined
       typeof target === "string" &&
       typeof reason === "string"
     ) {
-      items.push({ type, target, reason });
+      items.push({
+        type,
+        target,
+        reason,
+        tool: typeof record.tool === "string" ? record.tool : undefined,
+        riskTier:
+          record.riskTier === "low" ||
+          record.riskTier === "medium" ||
+          record.riskTier === "high" ||
+          record.riskTier === "critical"
+            ? record.riskTier
+            : undefined,
+        workspaceScope: typeof record.workspaceScope === "string" ? record.workspaceScope : undefined,
+        grantScope:
+          record.grantScope === "once" ||
+          record.grantScope === "session" ||
+          record.grantScope === "project" ||
+          record.grantScope === "workspace"
+            ? record.grantScope
+            : undefined,
+        rootPath: typeof record.rootPath === "string" ? record.rootPath : undefined,
+        operation:
+          record.operation === "read" || record.operation === "write" || record.operation === "shell"
+            ? record.operation
+            : undefined,
+        pathRisk: typeof record.pathRisk === "string" ? record.pathRisk : undefined,
+        diffPreview: typeof record.diffPreview === "string" ? record.diffPreview : undefined,
+        inputPreview: typeof record.inputPreview === "string" ? record.inputPreview : undefined,
+        auditId: typeof record.auditId === "string" ? record.auditId : undefined,
+      });
     }
   }
   return items.length ? items : undefined;
@@ -65,7 +103,7 @@ export function handlePermissionRequestRespond(
   if (!decision) {
     return {
       status: 400,
-      body: { error: "decision 必须是 allow_once / allow_session / deny" },
+      body: { error: "decision 必须是 allow_once / allow_session / allow_project / allow_workspace / deny" },
     };
   }
 
@@ -80,9 +118,24 @@ export function handlePermissionRequestRespond(
   const sessionGrants = applyDecisionToSessionGrants(
     app.sessionPermissionGrants,
     responded.sessionId,
-    decision,
+    decision === "allow_session" ? decision : decision === "allow_once" ? decision : "allow_once",
     responded.approvedPermissions,
   );
+
+  if (decision === "allow_project" || decision === "allow_workspace") {
+    for (const item of responded.requiredPermissions) {
+      const operation =
+        item.operation ?? (item.type === "shell" ? "shell" : item.type === "write_file" ? "write" : "read");
+      const rootPath = item.rootPath ?? item.target.replace(/[\\/]\*\*?$/, "");
+      app.workspaceGrantStore.add({
+        sessionId: decision === "allow_project" ? responded.sessionId : undefined,
+        rootPath,
+        permissions: [operation],
+        scope: decision === "allow_project" ? "project" : "workspace",
+        source: "user_confirmed",
+      });
+    }
+  }
 
   if (decision !== "deny") {
     app.runs.update(responded.runId, { status: "waiting_confirmation" });

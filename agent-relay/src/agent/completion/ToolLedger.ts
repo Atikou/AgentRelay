@@ -11,6 +11,12 @@ export interface ToolLedgerEntry {
   blockReasonKind?: AgentToolStep["blockedReasonKind"];
   outcomeKind?: string;
   successful: boolean;
+  workspaceScopeId?: string;
+  matchedRoot?: string;
+  crossWorkspace?: boolean;
+  grantId?: string;
+  permissionSource?: string;
+  pathRisk?: string;
 }
 
 export interface ToolLedger {
@@ -25,6 +31,11 @@ export interface ToolLedger {
   attemptedReadCalls: number;
   blockedReadCalls: number;
   successfulReadCalls: number;
+  crossWorkspaceCalls: number;
+  successfulCrossWorkspaceCalls: number;
+  blockedCrossWorkspaceCalls: number;
+  rootsTouched: string[];
+  sensitivePathCalls: number;
   entries: ToolLedgerEntry[];
 }
 
@@ -55,8 +66,14 @@ export function buildToolLedger(steps: AgentToolStep[]): ToolLedger {
     attemptedReadCalls: 0,
     blockedReadCalls: 0,
     successfulReadCalls: 0,
+    crossWorkspaceCalls: 0,
+    successfulCrossWorkspaceCalls: 0,
+    blockedCrossWorkspaceCalls: 0,
+    rootsTouched: [],
+    sensitivePathCalls: 0,
     entries: [],
   };
+  const rootsTouched = new Set<string>();
 
   for (const step of steps) {
     const permission = permissionOf(step);
@@ -75,7 +92,23 @@ export function buildToolLedger(steps: AgentToolStep[]): ToolLedger {
       blockReasonKind: step.blockedReasonKind,
       outcomeKind: step.outcomeKind,
       successful,
+      workspaceScopeId: step.workspaceAccess?.workspaceScopeId,
+      matchedRoot: step.workspaceAccess?.matchedRoot,
+      crossWorkspace: step.workspaceAccess?.crossWorkspace,
+      grantId: step.workspaceAccess?.grantId,
+      permissionSource: step.workspaceAccess?.permissionSource,
+      pathRisk: step.workspaceAccess?.pathRisk,
     });
+
+    if (step.workspaceAccess?.crossWorkspace) {
+      ledger.crossWorkspaceCalls += 1;
+      if (successful) ledger.successfulCrossWorkspaceCalls += 1;
+      if (blocked) ledger.blockedCrossWorkspaceCalls += 1;
+    }
+    if (step.workspaceAccess?.matchedRoot) rootsTouched.add(step.workspaceAccess.matchedRoot);
+    if (step.workspaceAccess?.pathRisk && step.workspaceAccess.pathRisk !== "normal") {
+      ledger.sensitivePathCalls += 1;
+    }
 
     if (!bucket) continue;
     if (bucket === "shell") {
@@ -94,6 +127,36 @@ export function buildToolLedger(steps: AgentToolStep[]): ToolLedger {
       else if (successful) ledger.successfulReadCalls += 1;
     }
   }
+  ledger.rootsTouched = [...rootsTouched];
 
   return ledger;
+}
+
+/** executionMeta / API 用的精简 ToolLedger 摘要。 */
+export function toolLedgerToSummary(ledger: ToolLedger): {
+  attemptedShellCalls: number;
+  blockedShellCalls: number;
+  successfulShellCalls: number;
+  attemptedWriteCalls: number;
+  blockedWriteCalls: number;
+  successfulWriteCalls: number;
+  crossWorkspaceCalls: number;
+  successfulCrossWorkspaceCalls: number;
+  blockedCrossWorkspaceCalls: number;
+  rootsTouched: string[];
+  sensitivePathCalls: number;
+} {
+  return {
+    attemptedShellCalls: ledger.attemptedShellCalls,
+    blockedShellCalls: ledger.blockedShellCalls,
+    successfulShellCalls: ledger.successfulShellCalls,
+    attemptedWriteCalls: ledger.attemptedWriteCalls,
+    blockedWriteCalls: ledger.blockedWriteCalls,
+    successfulWriteCalls: ledger.successfulWriteCalls,
+    crossWorkspaceCalls: ledger.crossWorkspaceCalls,
+    successfulCrossWorkspaceCalls: ledger.successfulCrossWorkspaceCalls,
+    blockedCrossWorkspaceCalls: ledger.blockedCrossWorkspaceCalls,
+    rootsTouched: ledger.rootsTouched,
+    sensitivePathCalls: ledger.sensitivePathCalls,
+  };
 }

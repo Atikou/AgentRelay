@@ -5,7 +5,7 @@ import { ensureEvalTables } from "../model-router/eval-set-store.js";
 import { backfillMessageEnvelopes } from "./messageEnvelopeBackfill.js";
 import { addColumnIfMissing, hashRowId, type SqliteMigration } from "../storage/sqliteMigration.js";
 
-export const MEMORY_DB_SCHEMA_VERSION = 21;
+export const MEMORY_DB_SCHEMA_VERSION = 24;
 
 function ensureFts(
   db: DatabaseSync,
@@ -584,6 +584,90 @@ export const MEMORY_DB_MIGRATIONS: readonly SqliteMigration[] = [
     name: "messages_envelope_backfill",
     up(db) {
       backfillMessageEnvelopes(db);
+    },
+  },
+  {
+    version: 22,
+    name: "session_task_contexts_entry_reconciled",
+    up(db) {
+      addColumnIfMissing(db, "session_task_contexts", "entry_intent", "entry_intent TEXT");
+      addColumnIfMissing(db, "session_task_contexts", "entry_workflow_type", "entry_workflow_type TEXT");
+      addColumnIfMissing(db, "session_task_contexts", "reconciled_intent", "reconciled_intent TEXT");
+      addColumnIfMissing(
+        db,
+        "session_task_contexts",
+        "reconciled_workflow_type",
+        "reconciled_workflow_type TEXT",
+      );
+      addColumnIfMissing(
+        db,
+        "session_task_contexts",
+        "last_completion_status",
+        "last_completion_status TEXT",
+      );
+    },
+  },
+  {
+    version: 23,
+    name: "messages_tool_outcome_meta",
+    up(db) {
+      addColumnIfMissing(db, "messages", "ledger_backed", "ledger_backed INTEGER");
+      addColumnIfMissing(db, "messages", "outcome_class", "outcome_class TEXT");
+      addColumnIfMissing(db, "messages", "outcome_kind", "outcome_kind TEXT");
+    },
+  },
+  {
+    version: 24,
+    name: "workspace_grants_and_audit",
+    up(db) {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS workspace_grants (
+          id TEXT PRIMARY KEY,
+          session_id TEXT,
+          project_id TEXT,
+          task_id TEXT,
+          root_path TEXT NOT NULL,
+          permissions_json TEXT NOT NULL,
+          scope TEXT NOT NULL,
+          source TEXT NOT NULL,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          expires_at TEXT,
+          revoked_at TEXT,
+          revoked_reason TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_workspace_grants_session
+          ON workspace_grants(session_id, revoked_at, updated_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_workspace_grants_project
+          ON workspace_grants(project_id, revoked_at, updated_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_workspace_grants_root
+          ON workspace_grants(root_path, revoked_at, updated_at DESC);
+
+        CREATE TABLE IF NOT EXISTS workspace_access_audit (
+          id TEXT PRIMARY KEY,
+          run_id TEXT,
+          session_id TEXT,
+          task_id TEXT,
+          tool_call_id TEXT,
+          tool_name TEXT NOT NULL,
+          operation TEXT NOT NULL,
+          normalized_path TEXT NOT NULL,
+          matched_root TEXT,
+          workspace_scope_id TEXT,
+          grant_id TEXT,
+          permission_source TEXT,
+          decision TEXT NOT NULL,
+          reason TEXT NOT NULL,
+          cross_workspace INTEGER NOT NULL,
+          path_risk TEXT NOT NULL,
+          path_risk_tier TEXT NOT NULL,
+          created_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_workspace_access_audit_run
+          ON workspace_access_audit(run_id, created_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_workspace_access_audit_session
+          ON workspace_access_audit(session_id, created_at DESC);
+      `);
     },
   },
 ];

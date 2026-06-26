@@ -68,11 +68,19 @@ function parseRunRow(row: Record<string, unknown>): RunExecutionFacts {
 }
 
 export function runFactsIndicateTrustedCompletion(facts: RunExecutionFacts): boolean {
-  if (facts.completionStatus === "completed_success") return true;
   if (facts.completionStatus === "misleading_completion") return false;
+  if (facts.completionStatus === "historical_reference") return false;
   if (facts.completionStatus === "awaiting_permission") return false;
   if (facts.completionStatus === "blocked_by_policy") return false;
+  if (facts.completionStatus === "completed_partial") return false;
   if (facts.stopReason === "misleading_completion") return false;
+  if (facts.completionStatus === "completed_success") {
+    const ledger = facts.toolLedger;
+    if (!ledger) return false;
+    const shellOk = (ledger.successfulShellCalls ?? 0) > 0;
+    const writeOk = (ledger.successfulWriteCalls ?? 0) > 0;
+    return shellOk || writeOk;
+  }
   if (facts.stopReason === "completed" && facts.completionStatus !== "completed_partial") {
     const ledger = facts.toolLedger;
     if (!ledger) return false;

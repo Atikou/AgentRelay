@@ -58,6 +58,7 @@ import type { PermissionRequestStore } from "../policy/PermissionRequestStore.js
 import { findBlockingAgentPause } from "../policy/permissionPauseGate.js";
 import type { SessionPermissionGrants } from "../policy/SessionPermissionGrants.js";
 import type { ScopedApprovedPermissions } from "../policy/permissionRequestTypes.js";
+import type { WorkspaceGrantStore, WorkspaceScopePermission } from "../policy/WorkspaceScopeManager.js";
 
 import type { SubAgentCoordinator } from "../subagent/SubAgentCoordinator.js";
 
@@ -87,6 +88,12 @@ export interface OrchestratorDeps {
 
   /** 按会话 workspaceKey 解析工具沙箱根路径；省略时回退 workspaceRoot。 */
   resolveWorkspaceRoot?: (sessionId?: string) => string;
+  resolveWorkspaceConfigScopes?: (sessionId?: string) => Array<{
+    id: string;
+    rootPath: string;
+    label?: string;
+    permissions?: WorkspaceScopePermission[];
+  }>;
 
   directChat: (request: ChatRequest, opts?: RouteOptions) => Promise<ModelResponse>;
 
@@ -135,6 +142,7 @@ export interface OrchestratorDeps {
   permissionRequestStore?: PermissionRequestStore;
   planHandoffStore?: PlanHandoffStore;
   sessionPermissionGrants?: SessionPermissionGrants;
+  workspaceGrantStore?: WorkspaceGrantStore;
   pausedRunStore?: PausedRunStore;
 }
 
@@ -180,6 +188,10 @@ export class Orchestrator {
 
   private workspaceForSession(sessionId?: string): string {
     return this.deps.resolveWorkspaceRoot?.(sessionId) ?? this.deps.workspaceRoot;
+  }
+
+  private workspaceConfigScopesForSession(sessionId?: string) {
+    return this.deps.resolveWorkspaceConfigScopes?.(sessionId) ?? [];
   }
 
   private workspaceForRun(runId: string): string {
@@ -839,6 +851,8 @@ export class Orchestrator {
       runStateStore: this.deps.runStateStore,
       projectIndex: this.deps.projectIndex,
       resumeState: state,
+      workspaceGrantStore: this.deps.workspaceGrantStore,
+      workspaceConfigScopes: this.workspaceConfigScopesForSession(sessionId),
       maxCostUsdPerRun: this.deps.maxCostUsdPerRun,
       subAgentDispatchDepth: 0,
       maxSubAgentDispatchDepth: this.deps.maxSubAgentDispatchDepth ?? 1,
@@ -981,6 +995,8 @@ export class Orchestrator {
       permissionRequestStore: store,
       planHandoffStore: this.deps.planHandoffStore,
       sessionPermissionGrants: this.deps.sessionPermissionGrants,
+      workspaceGrantStore: this.deps.workspaceGrantStore,
+      workspaceConfigScopes: this.workspaceConfigScopesForSession(sessionId),
       pausedRunStore: pausedStore,
       pausedRun: snapshot,
       scopedGrants,
@@ -1107,6 +1123,8 @@ export class Orchestrator {
       permissionRequestStore: this.deps.permissionRequestStore,
       planHandoffStore: store,
       sessionPermissionGrants: this.deps.sessionPermissionGrants,
+      workspaceGrantStore: this.deps.workspaceGrantStore,
+      workspaceConfigScopes: this.workspaceConfigScopesForSession(sessionId),
       pausedRunStore: pausedStore,
       pausedRun: snapshot,
       pauseOnPermissionRequest: payload.autoConfirm !== true,
@@ -1346,6 +1364,9 @@ export class Orchestrator {
       runId: run.id,
 
       requestId: run.id,
+      sessionId: input.sessionId,
+      workspaceGrantStore: this.deps.workspaceGrantStore,
+      workspaceConfigScopes: this.workspaceConfigScopesForSession(input.sessionId),
 
       subAgentDispatchDepth: 0,
 
@@ -1680,7 +1701,7 @@ export class Orchestrator {
     }
     const policy = await defaultRunPolicyManager.resolveAsync({
       requestedMode: payload.mode,
-      forceMode: payload.forceMode === true,
+      forceMode: payload.mode !== undefined || payload.forceMode === true,
       sessionId: payload.sessionId,
       requestedPermissionPolicy: payload.permissionPolicy,
       autoConfirm: payload.autoConfirm,
@@ -1776,6 +1797,8 @@ export class Orchestrator {
       permissionRequestStore: this.deps.permissionRequestStore,
       planHandoffStore: this.deps.planHandoffStore,
       sessionPermissionGrants: this.deps.sessionPermissionGrants,
+      workspaceGrantStore: this.deps.workspaceGrantStore,
+      workspaceConfigScopes: this.workspaceConfigScopesForSession(sessionId),
       pausedRunStore: this.deps.pausedRunStore,
       pauseOnPermissionRequest: payload.autoConfirm !== true,
     });

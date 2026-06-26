@@ -1,21 +1,31 @@
-import { defaultIntentRouter, type IntentRouteInput } from "../IntentRouter.js";
+import type { IntentRouteInput } from "../IntentRouter.js";
+import { defaultWorkflowPlanner } from "../WorkflowPlanner.js";
+import { defaultWorkflowRouter } from "../WorkflowRouter.js";
 import type { IntentDecision } from "./IntentDecision.js";
+import { extractLegacyIntentHints } from "./LegacyIntentHints.js";
 
-/** 旧 IntentRouter 的 fallback 包装；不再作为主决策器。 */
+/**
+ * Legacy 路径：输出中性语义候选（answer/chat），关键词仅写入 legacyIntentHint。
+ * 最终 intent/workflow 由 WorkflowResolver + 代码裁决决定。
+ */
 export function resolveLegacyIntentFallback(input: IntentRouteInput): IntentDecision {
-  const route = defaultIntentRouter.route(input);
+  const goal = input.message ?? "";
+  const hints = extractLegacyIntentHints(goal);
+  const workflowType = defaultWorkflowRouter.routeIntent("answer").workflowType;
   return {
-    mode: route.mode,
-    modeSource: route.modeSource,
-    intent: route.intent,
-    workflowType: route.workflowType,
-    workflowPlan: route.workflowPlan,
+    mode: "chat",
+    modeSource: "inferred",
+    intent: "answer",
+    workflowType,
+    workflowPlan: defaultWorkflowPlanner.plan(goal, "chat", "answer"),
     isContinuation: false,
     isNewTask: false,
-    needsWrite: route.intent === "edit" || route.intent === "generate_file" || route.intent === "refactor",
-    needsRunCommand: route.intent === "run" || route.intent === "verify",
-    confidence: 0.55,
-    reason: "legacy_intent_router_fallback",
+    confidence: 0.45,
+    reason: hints.hintedIntent
+      ? `legacy_hint_only:${hints.hintedIntent}`
+      : "legacy_neutral_answer_candidate",
     source: "legacy_fallback",
+    legacyIntentHint: hints.hintedIntent,
+    legacyHintSources: hints.hintSources,
   };
 }

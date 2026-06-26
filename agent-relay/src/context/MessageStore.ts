@@ -38,9 +38,10 @@ export class MessageStore {
       .prepare(
         `INSERT INTO messages(
            id, session_id, role, content, token_estimate,
-           client_name, model_name, message_kind, ui_visible, trusted, source, run_id, created_at
+           client_name, model_name, message_kind, ui_visible, trusted, source, run_id,
+           ledger_backed, outcome_class, outcome_kind, created_at
          )
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         id,
@@ -55,6 +56,9 @@ export class MessageStore {
         envelope.trusted ? 1 : 0,
         envelope.source,
         envelope.runId ?? null,
+        envelope.ledgerBacked == null ? null : envelope.ledgerBacked ? 1 : 0,
+        envelope.outcomeClass ?? null,
+        envelope.outcomeKind ?? null,
         ts,
       );
     this.db.upsertFts("messages_fts", id, content);
@@ -183,6 +187,9 @@ function toMessageRecord(input: {
     trusted: input.envelope.trusted,
     source: input.envelope.source,
     runId: input.envelope.runId,
+    ledgerBacked: input.envelope.ledgerBacked,
+    outcomeClass: input.envelope.outcomeClass,
+    outcomeKind: input.envelope.outcomeKind,
     createdAt: input.ts,
   };
 }
@@ -195,6 +202,9 @@ export function enrichMessageRecord(record: MessageRecord): MessageRecord & { en
         trusted: record.trusted ?? false,
         source: record.source ?? inferEnvelopeFromLegacy(record.role, record.content).source,
         runId: record.runId,
+        ledgerBacked: record.ledgerBacked,
+        outcomeClass: record.outcomeClass,
+        outcomeKind: record.outcomeKind,
       }
     : inferEnvelopeFromLegacy(record.role, record.content);
   return {

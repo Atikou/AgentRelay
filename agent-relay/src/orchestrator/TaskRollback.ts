@@ -2,6 +2,8 @@ import { MODE_PERMISSIONS } from "../core/permissions.js";
 import type { ToolRegistry } from "../tools/ToolRegistry.js";
 import type { ToolStorage } from "../tools/storage/ToolStorage.js";
 import type { TraceLogger } from "../trace/TraceLogger.js";
+import { ToolExecutionGateway } from "../agent/ToolExecutionGateway.js";
+import { defaultWorkflowRouter } from "../agent/WorkflowRouter.js";
 
 export interface TaskRollbackResult {
   attempted: number;
@@ -33,18 +35,25 @@ export async function rollbackFileChangesForRun(opts: {
     changeCount: changeIds.length,
   });
 
+  const gateway = new ToolExecutionGateway(opts.registry);
+
   for (const changeId of [...changeIds].reverse()) {
-    const result = await opts.registry.run(
-      "rollback_change",
-      { changeId },
-      {
-        workspaceRoot: opts.workspaceRoot,
-        sessionId: opts.sessionId,
-        requestId: opts.runId,
-        taskId: opts.taskId,
-        allowedPermissions: MODE_PERMISSIONS.task,
-      },
-    );
+    const result = await gateway.run({
+      toolName: "rollback_change",
+      input: { changeId },
+      source: "rollback",
+      budgetBucket: "rollback",
+      workspaceRoot: opts.workspaceRoot,
+      sessionId: opts.sessionId,
+      requestId: opts.runId,
+      taskId: opts.taskId,
+      allowedPermissions: MODE_PERMISSIONS.task,
+      intent: "edit",
+      permissionPolicy: "autoEdit",
+      mode: "implement",
+      workflowRoute: defaultWorkflowRouter.routeIntent("edit"),
+      skipBudgetCheck: true,
+    });
     if (result.ok) {
       const paths = (result.output as { restoredFiles?: string[] }).restoredFiles ?? [];
       restored.push(...paths);

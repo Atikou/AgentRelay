@@ -60,13 +60,37 @@ export function presentExecutionState(meta: Partial<AgentExecutionMeta>): Execut
   }
   if (
     meta.stopReason === "completed_partial" ||
+    meta.stopReason === "recovery_partial" ||
     meta.stopReason === "misleading_completion" ||
-    meta.stopReason === "blocked_by_policy"
+    meta.stopReason === "blocked_by_policy" ||
+    meta.completionStatus === "historical_reference" ||
+    meta.completionStatus === "completed_partial" ||
+    meta.completionStatus === "misleading_completion"
   ) {
-    return { userFacingState: "completed_partial", userFacingLabel: "任务未完全完成" };
+    const label =
+      meta.completionStatus === "historical_reference"
+        ? "历史完成未验证"
+        : meta.stopReason === "recovery_partial"
+          ? "部分完成 · 恢复预算耗尽"
+          : "任务未完全完成";
+    return { userFacingState: "completed_partial", userFacingLabel: label };
   }
   if (meta.workflowTaskState === "completed" || meta.stopReason === "completed") {
-    return { userFacingState: "completed", userFacingLabel: "任务已完成" };
+    const ledger = meta.toolLedger;
+    const needsProof =
+      (ledger?.attemptedShellCalls ?? 0) > 0 || (ledger?.attemptedWriteCalls ?? 0) > 0;
+    const proved =
+      (ledger?.successfulShellCalls ?? 0) > 0 || (ledger?.successfulWriteCalls ?? 0) > 0;
+    if (needsProof && !proved) {
+      return { userFacingState: "completed_partial", userFacingLabel: "历史未验证 / 需要重新确认" };
+    }
+    if (meta.completionStatus === "completed_success" || proved || !needsProof) {
+      return { userFacingState: "completed", userFacingLabel: "任务已完成" };
+    }
+    return { userFacingState: "completed_partial", userFacingLabel: "任务未完全完成" };
+  }
+  if (meta.stopReason === "budget_exhausted") {
+    return { userFacingState: "completed_partial", userFacingLabel: "部分完成 · 预算耗尽" };
   }
   if (meta.workflowTaskState === "failed" || meta.stopReason === "error") {
     return { userFacingState: "failed", userFacingLabel: "执行失败，等待补充信息" };

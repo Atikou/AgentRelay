@@ -123,11 +123,19 @@ export class RunToolResultCache {
 
 
   invalidateAll(): void {
-
     this.entries.clear();
-
   }
 
+  exportState(): CachedToolResult[] {
+    return [...this.entries.values()];
+  }
+
+  restoreState(entries: CachedToolResult[]): void {
+    this.entries.clear();
+    for (const entry of entries) {
+      this.entries.set(entry.inputKey, entry);
+    }
+  }
 }
 
 

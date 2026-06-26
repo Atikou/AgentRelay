@@ -18,6 +18,9 @@ export interface MessageEnvelope {
   trusted: boolean;
   source: MessageSource;
   runId?: string;
+  ledgerBacked?: boolean;
+  outcomeClass?: string;
+  outcomeKind?: string;
 }
 
 export interface MessageEnvelopeInput {
@@ -28,6 +31,9 @@ export interface MessageEnvelopeInput {
   source?: MessageSource;
   runId?: string;
   content?: string;
+  ledgerBacked?: boolean;
+  outcomeClass?: string;
+  outcomeKind?: string;
 }
 
 export function resolveMessageEnvelope(input: MessageEnvelopeInput): MessageEnvelope {
@@ -38,6 +44,9 @@ export function resolveMessageEnvelope(input: MessageEnvelopeInput): MessageEnve
       trusted: input.trusted ?? defaultTrusted(input.messageKind),
       source: input.source ?? defaultSource(input.messageKind),
       runId: input.runId,
+      ledgerBacked: input.ledgerBacked,
+      outcomeClass: input.outcomeClass,
+      outcomeKind: input.outcomeKind,
     };
   }
   return inferEnvelopeFromLegacy(input.role ?? "system", input.content);

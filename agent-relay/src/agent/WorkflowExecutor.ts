@@ -156,6 +156,7 @@ export class WorkflowExecutor {
       registry: this.options.registry,
       workspaceRoot: this.options.workspaceRoot,
       allowedPermissions: this.options.allowedPermissions,
+      permissionPolicy: this.options.policy.permissionPolicy,
       budget: this.options.budget,
       trace: this.options.trace,
       contextManager: this.options.contextManager,

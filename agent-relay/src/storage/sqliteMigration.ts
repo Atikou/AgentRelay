@@ -77,8 +77,15 @@ function backfillLegacyMigrations(
 
   const now = new Date().toISOString();
   const backfillTo = uv > 0 ? Math.min(uv, targetVersion) : 0;
+  const shouldRepairLegacyBootstrap =
+    tableExists(db, "sessions") &&
+    !tableExists(db, "messages") &&
+    migrations.some((m) => m.name === "core_sessions_messages_memories");
   for (const m of migrations) {
     if (m.version <= backfillTo) {
+      if (shouldRepairLegacyBootstrap && m.version <= Math.min(backfillTo, 7)) {
+        m.up(db);
+      }
       recordMigration(db, m.version, m.name, now);
     }
   }

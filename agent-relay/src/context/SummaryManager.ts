@@ -1,4 +1,5 @@
 import type { MessageStore, SummaryStore } from "./stores.js";
+import { isUntrustedCompletionMemoryText, scrubStructuredSummaryContent } from "./contextTrust.js";
 import type { MessageRecord, StructuredSummary, SummarizeFn, SummaryRecord } from "./types.js";
 
 export interface SummaryManagerOptions {
@@ -63,19 +64,23 @@ export class SummaryManager {
       .filter((s) => s.summaryType === "chunk_summary");
     if (chunks.length === 0) return existing;
 
-    const merged: StructuredSummary = {
+    const merged: StructuredSummary = scrubStructuredSummaryContent({
       current_goal: chunks[chunks.length - 1]?.content.current_goal,
       important_decisions: unique(
-        chunks.flatMap((c) => c.content.important_decisions ?? []),
+        chunks.flatMap((c) => scrubStructuredSummaryContent(c.content).important_decisions ?? []),
       ),
       user_preferences: unique(chunks.flatMap((c) => c.content.user_preferences ?? [])),
-      project_state: unique(chunks.flatMap((c) => c.content.project_state ?? [])),
+      project_state: unique(
+        chunks.flatMap((c) => scrubStructuredSummaryContent(c.content).project_state ?? []),
+      ),
       open_questions: unique(chunks.flatMap((c) => c.content.open_questions ?? [])),
-      recent_changes: unique(chunks.flatMap((c) => c.content.recent_changes ?? [])),
+      recent_changes: unique(
+        chunks.flatMap((c) => scrubStructuredSummaryContent(c.content).recent_changes ?? []),
+      ),
       important_files: unique(chunks.flatMap((c) => c.content.important_files ?? [])),
       tool_results: unique(chunks.flatMap((c) => c.content.tool_results ?? []).slice(-5)),
       errors_seen: unique(chunks.flatMap((c) => c.content.errors_seen ?? []).slice(-5)),
-    };
+    });
 
     return this.summaries.save({
       sessionId,
@@ -95,7 +100,8 @@ async function defaultSummarize(messages: MessageRecord[]): Promise<StructuredSu
       if (m.messageKind === "tool_action" || m.messageKind === "raw_model_final") return false;
       return !m.content.trim().startsWith("{");
     })
-    .map((m) => m.content.slice(0, 200));
+    .map((m) => m.content.slice(0, 200))
+    .filter((line) => !isUntrustedCompletionMemoryText(line));
   const toolLines = messages
     .filter((m) => m.role === "tool" || m.content.includes("工具"))
     .map((m) => m.content.slice(0, 160));

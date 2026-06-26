@@ -1,4 +1,7 @@
+import type { ToolPermission } from "../core/permissions.js";
 import type { ToolRegistry } from "../tools/ToolRegistry.js";
+import { ToolExecutionGateway } from "../agent/ToolExecutionGateway.js";
+import { defaultWorkflowRouter } from "../agent/WorkflowRouter.js";
 
 /** 从任务描述中提取疑似工作区相对路径（如 src/agent/AgentLoop.ts）。 */
 export function extractFilePaths(task: string): string[] {
@@ -47,10 +50,22 @@ export async function preloadReferencedFiles(
     "以下文件已预读（优先基于这些内容审查，勿重复 read_file 同一文件，除非预读失败）：",
   ];
 
+  const gateway = new ToolExecutionGateway(registry);
+
   for (const filePath of paths) {
-    const result = await registry.run("read_file", { path: filePath }, {
+    const result = await gateway.run({
+      toolName: "read_file",
+      input: { path: filePath },
+      source: "preflight",
+      budgetBucket: "preflight",
       workspaceRoot,
       allowedPermissions: ["read"],
+      intent: "answer",
+      permissionPolicy: "readOnly",
+      mode: "chat",
+      workflowRoute: defaultWorkflowRouter.routeIntent("answer"),
+      skipBudgetCheck: true,
+      skipPermissionCheck: true,
     });
     if (!result.ok) {
       blocks.push(`【${filePath}】预读失败：${result.error}`);

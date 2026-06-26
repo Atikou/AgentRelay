@@ -116,6 +116,26 @@ test("Agent API 规范登记 permissionPolicy", async () => {
   assert.ok(metaPolicy?.enum?.includes("confirmBeforeEdit"));
 });
 
+test("M2 并行投票与管线图字段进入 API 规范", async () => {
+  const raw = await readFile(specPath, "utf-8");
+  const spec = JSON.parse(raw) as {
+    components: {
+      schemas: Record<string, { properties?: Record<string, unknown> }>;
+    };
+    paths: Record<string, { get?: { responses?: Record<string, unknown> } }>;
+  };
+  const chat = spec.components.schemas.ChatResponse?.properties ?? {};
+  const decision = spec.components.schemas.RouterDecision?.properties ?? {};
+  const vote = spec.components.schemas.ParallelVoteResult?.properties ?? {};
+  const graph = spec.components.schemas.PipelineGraph?.properties ?? {};
+  assert.ok(chat.voteResult);
+  assert.ok(decision.voteModelIds);
+  assert.ok(decision.judgeModelId);
+  assert.ok(vote.winnerModelId);
+  assert.ok(graph.mermaid);
+  assert.ok(spec.paths["/api/routing/logs"]?.get?.responses?.["200"]);
+});
+
 test("api-docs 页面使用 Scalar 官方 script 集成", async () => {
   const html = await readFile(apiDocsHtml, "utf-8");
   assert.ok(html.includes('id="api-reference"'));

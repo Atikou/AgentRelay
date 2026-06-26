@@ -14,6 +14,8 @@ import {
   type WorkflowPlan,
   type WorkflowToolName,
 } from "./WorkflowPlanner.js";
+import { ToolExecutionGateway } from "./ToolExecutionGateway.js";
+import { defaultWorkflowRouter } from "./WorkflowRouter.js";
 
 export interface PlanWorkflowOptions {
   registry: ToolRegistry;
@@ -44,7 +46,11 @@ export interface PlanWorkflowResumeContext {
  * 确定性只读预扫描执行器（由 WorkflowPlanner 选择步骤序列）。
  */
 export class PlanWorkflow {
-  constructor(private readonly options: PlanWorkflowOptions) {}
+  private readonly gateway: ToolExecutionGateway;
+
+  constructor(private readonly options: PlanWorkflowOptions) {
+    this.gateway = new ToolExecutionGateway(options.registry);
+  }
 
   async run(
     goal: string,
@@ -90,6 +96,7 @@ export class PlanWorkflow {
           "project_scan",
           { root: ".", maxDepth: 3 },
           "预扫描：先识别项目结构、配置和重要入口。",
+          steps,
         );
         steps.push(projectScan);
         newSteps += 1;
@@ -134,6 +141,7 @@ export class PlanWorkflow {
           isResume
             ? "续跑：在已保存 searchPlan/visitedFiles 基础上继续定位。"
             : "预扫描：根据目标定位 primaryFiles 和 candidateFiles。",
+          steps,
         );
         steps.push(locate);
         newSteps += 1;
@@ -155,6 +163,7 @@ export class PlanWorkflow {
               includeImportantSections: true,
             },
             "预扫描：一次性打包相关文件上下文，避免连续 read_file。",
+            steps,
           );
           steps.push(pack);
           newSteps += 1;
@@ -169,6 +178,7 @@ export class PlanWorkflow {
     toolName: string,
     input: Record<string, unknown>,
     thought: string,
+    priorSteps: AgentToolStep[],
   ): Promise<AgentToolStep> {
     const tool = this.options.registry.get(toolName);
     const step: AgentToolStep = {
@@ -190,18 +200,29 @@ export class PlanWorkflow {
       workflow: "plan",
     });
 
-    const result = await this.options.registry.run(toolName, input, {
+    const result = await this.gateway.run({
+      toolName,
+      input,
+      source: "preflight",
+      budgetBucket: "preflight",
       workspaceRoot: this.options.workspaceRoot,
       allowedPermissions: this.options.allowedPermissions,
+      intent: "plan",
+      permissionPolicy: "readOnly",
+      mode: "plan",
+      workflowRoute: defaultWorkflowRouter.routeIntent("plan"),
+      budgetManager: this.options.budgetManager,
+      existingSteps: priorSteps,
       taskId: this.options.taskId,
       sessionId: this.options.sessionId,
       requestId: this.options.requestId,
+      isPreflight: true,
     });
 
     if (result.outcomeClass !== "execution_error") {
       const output =
         this.options.contextManager?.compactToolOutput(toolName, result.output) ?? result.output;
-      this.saveToolMessage(toolName, output);
+      this.saveToolMessage(toolName, output, result);
       return {
         ...step,
         preflight: true,
@@ -225,15 +246,25 @@ export class PlanWorkflow {
       outcomeClass: result.outcomeClass,
       outcomeKind: result.outcomeKind,
     };
-    this.saveToolMessage(toolName, { error: failed.error, code: result.code });
+    this.saveToolMessage(toolName, { error: failed.error, code: result.code }, result);
     return failed;
   }
 
-  private saveToolMessage(toolName: string, output: unknown): void {
+  private saveToolMessage(
+    toolName: string,
+    output: unknown,
+    result?: import("../tools/types.js").ToolRunResult,
+  ): void {
     if (!this.options.contextManager || !this.options.sessionId) return;
     this.options.contextManager.saveToolMessage(
       this.options.sessionId,
       `内部预扫描步骤「${toolName}」执行结果（JSON）：\n${JSON.stringify(output)}`,
+      this.options.requestId,
+      {
+        outcomeClass: result?.outcomeClass,
+        outcomeKind: result?.outcomeKind,
+        ledgerBacked: result?.outcomeClass === "observation_success",
+      },
     );
   }
 }

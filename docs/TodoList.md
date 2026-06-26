@@ -68,8 +68,8 @@
 - [x] `SmartModelRouter` + 规则 + DecisionEngine
 - [x] `FallbackManager`、路由/调用/协作日志
 - [x] V3–V8 部分（evaluator、prompt strategy、cost、availability…）
-- [ ] V9 可视化编排
-- [ ] 并行投票
+- [x] V9 路由管线可视化（`pipelineGraph` + 测试台面板）
+- [x] 并行投票（`parallel_vote` + deep 模式架构/文档类任务）
 
 ### M3 计划与任务
 

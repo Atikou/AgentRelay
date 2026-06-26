@@ -51,6 +51,10 @@ import {
   SessionPermissionGrants,
 } from "../policy/SessionPermissionGrants.js";
 import {
+  WorkspaceGrantStore,
+  type WorkspaceScopePermission,
+} from "../policy/WorkspaceScopeManager.js";
+import {
   defaultPlanHandoffStore,
   PlanHandoffStore,
 } from "../policy/PlanHandoffStore.js";
@@ -145,6 +149,7 @@ export class AppContext {
   readonly permissionRequestStore: PermissionRequestStore;
   readonly planHandoffStore: PlanHandoffStore;
   readonly sessionPermissionGrants: SessionPermissionGrants;
+  readonly workspaceGrantStore: WorkspaceGrantStore;
   readonly pausedRunStore: PausedRunStore;
   private readonly defaultAgentChat: LoopChatFn;
   readonly startupRecovery?: StartupRecoverySummary;
@@ -193,6 +198,7 @@ export class AppContext {
     permissionRequestStore?: PermissionRequestStore;
     planHandoffStore?: PlanHandoffStore;
     sessionPermissionGrants?: SessionPermissionGrants;
+    workspaceGrantStore?: WorkspaceGrantStore;
     pausedRunStore?: PausedRunStore;
     startupRecovery?: StartupRecoverySummary;
   }) {
@@ -240,6 +246,7 @@ export class AppContext {
     this.permissionRequestStore = opts.permissionRequestStore ?? defaultPermissionRequestStore;
     this.planHandoffStore = opts.planHandoffStore ?? defaultPlanHandoffStore;
     this.sessionPermissionGrants = opts.sessionPermissionGrants ?? defaultSessionPermissionGrants;
+    this.workspaceGrantStore = opts.workspaceGrantStore ?? new WorkspaceGrantStore();
     this.pausedRunStore = opts.pausedRunStore ?? defaultPausedRunStore;
     this.startupRecovery = opts.startupRecovery;
   }
@@ -290,6 +297,23 @@ export class AppContext {
     );
   }
 
+  workspaceConfigScopesForSession(sessionId?: string): Array<{
+    id: string;
+    rootPath: string;
+    label?: string;
+    permissions?: WorkspaceScopePermission[];
+  }> {
+    const workspaceRoot = this.resolveWorkspaceRootForSession(sessionId);
+    return this.workspaceCatalog.entries
+      .filter((entry) => entry.resolvedRoot !== workspaceRoot)
+      .map((entry) => ({
+        id: `config:${entry.id}`,
+        label: entry.label,
+        rootPath: entry.resolvedRoot,
+        permissions: ["read"] as WorkspaceScopePermission[],
+      }));
+  }
+
   getConfigPayload() {
     return {
       profile: this.profile,
@@ -326,6 +350,7 @@ export class AppContext {
         toolErrorCategory: true,
         toolStorageRedaction: true,
         highRiskConfirmation: true,
+        multiWorkspaceSandbox: true,
         localFirstPrivacyMode: true,
         plannerSmartRouting: true,
         agentSmartRouting: true,
@@ -364,6 +389,8 @@ export class AppContext {
         projectIndexUpdate: true,
         costBudgetPerRun: true,
         ruleOnlyRouting: true,
+        parallelVoteRouting: true,
+        visualOrchestrationV9: true,
         dataLifecycleRetention: true,
         permissionScopeResolution: true,
         sqliteSchemaMigrations: true,
@@ -556,6 +583,7 @@ export function createAppContext(): AppContext {
   const permissionRequestStore = new PermissionRequestStore(contextManager.db.connection);
   const planHandoffStore = new PlanHandoffStore(contextManager.db.connection);
   const sessionPermissionGrants = new SessionPermissionGrants(contextManager.db.connection);
+  const workspaceGrantStore = new WorkspaceGrantStore(contextManager.db.connection);
   const pausedRunStore = new PausedRunStore(contextManager.db.connection);
   const sessionTaskManager = wireSessionTaskManager(contextManager.db.connection);
   wireEntryIntentRouter(sessionTaskManager);
@@ -678,6 +706,24 @@ export function createAppContext(): AppContext {
         session?.workspaceKey ?? workspaceCatalog.defaultKey,
       );
     },
+    resolveWorkspaceConfigScopes: (sessionId?: string) => {
+      const root = (() => {
+        if (!sessionId) return workspaceCatalog.defaultRoot;
+        const session = contextManager.getSession(sessionId);
+        return resolveWorkspaceRootFromCatalog(
+          workspaceCatalog,
+          session?.workspaceKey ?? workspaceCatalog.defaultKey,
+        );
+      })();
+      return workspaceCatalog.entries
+        .filter((entry) => entry.resolvedRoot !== root)
+        .map((entry) => ({
+          id: `config:${entry.id}`,
+          label: entry.label,
+          rootPath: entry.resolvedRoot,
+          permissions: ["read" as const],
+        }));
+    },
     directChat,
     planner,
     registry,
@@ -714,6 +760,7 @@ export function createAppContext(): AppContext {
     permissionRequestStore,
     planHandoffStore,
     sessionPermissionGrants,
+    workspaceGrantStore,
     pausedRunStore,
   });
   orchestratorHolder.current = orchestrator;
@@ -801,6 +848,7 @@ export function createAppContext(): AppContext {
     permissionRequestStore,
     planHandoffStore,
     sessionPermissionGrants,
+    workspaceGrantStore,
     pausedRunStore,
     startupRecovery,
   });

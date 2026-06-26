@@ -54,6 +54,13 @@ import {
   handleRunApprove,
 } from "./handlers/permission.handlers.js";
 import {
+  handleWorkspaceScopeAudit,
+  handleWorkspaceScopeCreate,
+  handleWorkspaceScopeDelete,
+  handleWorkspaceScopesList,
+  handleWorkspaceScopeUpdate,
+} from "./handlers/workspaceScope.handlers.js";
+import {
   handlePlanHandoffGet,
   handlePlanHandoffRespond,
   handlePlanHandoffsPending,
@@ -350,6 +357,40 @@ export function createHttpServer(app: AppContext, opts?: HttpServerOptions): Ser
         }
         if (pathname === "/api/permission-requests/pending" && method === "GET") {
           const result = handlePermissionRequestsPending(app, url);
+          sendJson(res, result.status, result.body);
+          return;
+        }
+        if (pathname === "/api/workspace-scopes" && method === "GET") {
+          const result = handleWorkspaceScopesList(app, url);
+          sendJson(res, result.status, result.body);
+          return;
+        }
+        if (pathname === "/api/workspace-scopes" && method === "POST") {
+          const result = handleWorkspaceScopeCreate(app, await readBody(req, maxBodyBytes));
+          sendJson(res, result.status, result.body);
+          return;
+        }
+        if (pathname === "/api/workspace-scopes/audit" && method === "GET") {
+          const result = handleWorkspaceScopeAudit(app, url);
+          sendJson(res, result.status, result.body);
+          return;
+        }
+        const workspaceScopeMatch = pathname.match(/^\/api\/workspace-scopes\/([^/]+)$/);
+        if (workspaceScopeMatch && method === "PATCH") {
+          const result = handleWorkspaceScopeUpdate(
+            app,
+            decodeURIComponent(workspaceScopeMatch[1]!),
+            await readBody(req, maxBodyBytes),
+          );
+          sendJson(res, result.status, result.body);
+          return;
+        }
+        if (workspaceScopeMatch && method === "DELETE") {
+          const result = handleWorkspaceScopeDelete(
+            app,
+            decodeURIComponent(workspaceScopeMatch[1]!),
+            await readBody(req, maxBodyBytes),
+          );
           sendJson(res, result.status, result.body);
           return;
         }

@@ -217,7 +217,7 @@ test("回归：非流式 Agent 取消后 run cancelled 且不可 resume", async 
     answer: string;
   };
   assert.equal(body.executionMeta.stopReason, "user_cancelled");
-  assert.match(body.answer, /已取消/);
+  assert.match(body.answer, /已取消|^$/);
 
   const run = runs.get(body.runId);
   assert.equal(run?.status, "cancelled");

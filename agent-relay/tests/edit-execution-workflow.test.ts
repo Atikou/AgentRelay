@@ -20,6 +20,7 @@ test("renders execution context for successful edit write", () => {
     input: { path: "src/a.ts", search: "old", replace: "new" },
     permission: "write",
     ok: true,
+    outcomeClass: "observation_success",
     output: { path: "src/a.ts", changeId: "chg-1", diff: "-old\n+new" },
   };
 

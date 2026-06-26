@@ -1,11 +1,11 @@
 /** 固定 JSON 权限申请协议（schemaVersion=1）。 */
 export const PERMISSION_REQUEST_SCHEMA_VERSION = 1 as const;
 
-export type PermissionRequestItemType = "write_file" | "shell" | "delete_file" | "network" | "dangerous";
+export type PermissionRequestItemType = "read_file" | "write_file" | "shell" | "delete_file" | "network" | "dangerous";
 
 export type PermissionRequestStatus = "pending" | "approved" | "denied" | "expired";
 
-export type PermissionRequestDecision = "allow_once" | "allow_session" | "deny";
+export type PermissionRequestDecision = "allow_once" | "allow_session" | "allow_project" | "allow_workspace" | "deny";
 
 export interface PermissionRequestItem {
   type: PermissionRequestItemType;
@@ -13,9 +13,18 @@ export interface PermissionRequestItem {
   reason: string;
   tool?: string;
   riskTier?: "low" | "medium" | "high" | "critical";
+  workspaceScope?: string;
+  grantScope?: "once" | "session" | "project" | "workspace";
+  rootPath?: string;
+  operation?: "read" | "write" | "shell";
+  pathRisk?: string;
+  diffPreview?: string;
+  inputPreview?: string;
+  auditId?: string;
 }
 
 export interface ScopedApprovedPermissions {
+  read_file?: string[];
   write_file?: string[];
   shell?: string[];
   delete_file?: string[];

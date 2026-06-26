@@ -32,18 +32,28 @@ function tempDataDir(): string {
 }
 
 function removeTempDir(dir: string): void {
-  for (let attempt = 0; attempt < 5; attempt += 1) {
+  for (let attempt = 0; attempt < 20; attempt += 1) {
     try {
       rmSync(dir, { recursive: true, force: true });
       return;
     } catch (error) {
-      if (attempt === 4) throw error;
-      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50);
+      if (attempt === 19) {
+        const code =
+          typeof error === "object" && error && "code" in error
+            ? String((error as { code?: unknown }).code)
+            : "";
+        if (code === "EBUSY" || code === "EPERM" || code === "ENOTEMPTY") {
+          console.warn(`  ! skipped temp cleanup for locked sqlite file: ${dir}`);
+          return;
+        }
+        throw error;
+      }
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 100);
     }
   }
 }
 
-test("v1–v21 全新 memory.db 应用迁移", () => {
+test("v1–v24 全新 memory.db 应用迁移", () => {
   const dataDir = tempDataDir();
   let dbm: DatabaseManager | undefined;
   try {
@@ -52,13 +62,16 @@ test("v1–v21 全新 memory.db 应用迁移", () => {
     assert.equal(dbm.schemaInfo.userVersion, MEMORY_DB_SCHEMA_VERSION);
     assert.equal(dbm.schemaInfo.migrations.length, MEMORY_DB_MIGRATIONS.length);
     assert.equal(dbm.schemaInfo.migrations[0]?.name, "core_sessions_messages_memories");
-    assert.equal(dbm.schemaInfo.migrations.at(-1)?.name, "messages_envelope_backfill");
+    assert.equal(dbm.schemaInfo.migrations.at(-1)?.name, "workspace_grants_and_audit");
 
     const messageCols = dbm.connection
       .prepare(`PRAGMA table_info(messages)`)
       .all() as Array<{ name: string }>;
     assert.ok(messageCols.some((c) => c.name === "client_name"));
     assert.ok(messageCols.some((c) => c.name === "model_name"));
+    assert.ok(messageCols.some((c) => c.name === "ledger_backed"));
+    assert.ok(messageCols.some((c) => c.name === "outcome_class"));
+    assert.ok(messageCols.some((c) => c.name === "outcome_kind"));
 
     const runStatesTable = dbm.connection
       .prepare(`SELECT name FROM sqlite_master WHERE type='table' AND name='run_states'`)
@@ -110,10 +123,27 @@ test("v1–v21 全新 memory.db 应用迁移", () => {
       .get() as { name: string };
     assert.equal(sessionTaskTable.name, "session_task_contexts");
 
+    const workspaceGrantsTable = dbm.connection
+      .prepare(`SELECT name FROM sqlite_master WHERE type='table' AND name='workspace_grants'`)
+      .get() as { name: string };
+    assert.equal(workspaceGrantsTable.name, "workspace_grants");
+
+    const workspaceAuditTable = dbm.connection
+      .prepare(`SELECT name FROM sqlite_master WHERE type='table' AND name='workspace_access_audit'`)
+      .get() as { name: string };
+    assert.equal(workspaceAuditTable.name, "workspace_access_audit");
+
     const sideEffectCol = dbm.connection
       .prepare(`PRAGMA table_info(session_task_contexts)`)
       .all() as Array<{ name: string }>;
     assert.ok(sideEffectCol.some((c) => c.name === "side_effect_summary_json"));
+
+    const entryCol = dbm.connection
+      .prepare(`PRAGMA table_info(session_task_contexts)`)
+      .all() as Array<{ name: string }>;
+    assert.ok(entryCol.some((c) => c.name === "entry_intent"));
+    assert.ok(entryCol.some((c) => c.name === "reconciled_workflow_type"));
+    assert.ok(entryCol.some((c) => c.name === "last_completion_status"));
   } finally {
     dbm?.close();
     removeTempDir(dataDir);

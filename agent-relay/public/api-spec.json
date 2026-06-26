@@ -64,6 +64,123 @@
         }
       }
     },
+    "/api/workspace-scopes/audit": {
+      "get": {
+        "tags": ["安全与审计"],
+        "summary": "列出工作区访问审计",
+        "operationId": "listWorkspaceScopeAudit",
+        "parameters": [
+          { "name": "sessionId", "in": "query", "schema": { "type": "string" } },
+          { "name": "runId", "in": "query", "schema": { "type": "string" } },
+          { "name": "limit", "in": "query", "schema": { "type": "integer" } }
+        ],
+        "responses": {
+          "200": {
+            "description": "访问审计列表",
+            "content": { "application/json": { "schema": { "type": "object", "additionalProperties": true } } }
+          }
+        }
+      }
+    },
+    "/api/workspace-scopes/{id}": {
+      "patch": {
+        "tags": ["安全与审计"],
+        "summary": "更新工作区授权 scope",
+        "operationId": "updateWorkspaceScope",
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "requestBody": {
+          "content": { "application/json": { "schema": { "type": "object", "additionalProperties": true } } }
+        },
+        "responses": {
+          "200": {
+            "description": "更新后的授权",
+            "content": { "application/json": { "schema": { "type": "object", "additionalProperties": true } } }
+          }
+        }
+      },
+      "delete": {
+        "tags": ["安全与审计"],
+        "summary": "撤销工作区授权 scope",
+        "operationId": "deleteWorkspaceScope",
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": {
+          "200": {
+            "description": "撤销结果",
+            "content": { "application/json": { "schema": { "type": "object", "additionalProperties": true } } }
+          }
+        }
+      }
+    },
+    "/api/workspace-scopes": {
+      "post": {
+        "tags": ["安全与审计"],
+        "summary": "创建外部工作区授权 scope",
+        "operationId": "createWorkspaceScope",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "sessionId": { "type": "string" },
+                  "projectId": { "type": "string" },
+                  "rootPath": { "type": "string" },
+                  "permissions": {
+                    "type": "array",
+                    "items": { "type": "string", "enum": ["read", "write", "shell"] }
+                  },
+                  "scope": { "type": "string", "enum": ["once", "session", "project", "workspace"] },
+                  "expiresAt": { "type": "string" }
+                },
+                "required": ["rootPath", "permissions"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "创建的授权",
+            "content": { "application/json": { "schema": { "type": "object", "additionalProperties": true } } }
+          }
+        }
+      },
+      "get": {
+        "tags": ["安全与审计"],
+        "summary": "列出当前会话可访问的工作区 scope",
+        "description": "返回 primary workspace、配置型只读 workspace，以及本会话通过 permissionRequest 授权的外部 workspace scope。",
+        "operationId": "listWorkspaceScopes",
+        "parameters": [
+          {
+            "name": "sessionId",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "工作区 scope 列表",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "sessionId": { "type": "string" },
+                    "primaryRoot": { "type": "string" },
+                    "scopes": {
+                      "type": "array",
+                      "items": { "type": "object", "additionalProperties": true }
+                    }
+                  },
+                  "required": ["primaryRoot", "scopes"]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/models/check": {
       "get": {
         "tags": ["配置与模型", "模型与指标"],
@@ -793,7 +910,19 @@
           { "name": "limit", "in": "query", "schema": { "type": "integer", "default": 20, "maximum": 100 } }
         ],
         "responses": {
-          "200": { "description": "路由日志列表或详情" },
+          "200": {
+            "description": "路由日志列表或详情",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    { "$ref": "#/components/schemas/RoutingLogList" },
+                    { "$ref": "#/components/schemas/RoutingLogDetail" }
+                  ]
+                }
+              }
+            }
+          },
           "404": { "$ref": "#/components/responses/NotFound" }
         }
       }
@@ -2053,12 +2182,13 @@
         "properties": {
           "runId": { "type": "string", "format": "uuid" },
           "content": { "type": "string" },
-          "routerDecision": { "type": "object", "description": "规则路由摘要（taskType/strategy/模型 id）" },
+          "routerDecision": { "$ref": "#/components/schemas/RouterDecision" },
           "executionStrategy": {
             "type": "string",
-            "enum": ["single_model", "strong_model_direct", "local_draft_remote_review"]
+            "enum": ["rule_only", "single_model", "strong_model_direct", "local_draft_remote_review", "parallel_vote"]
           },
           "collaborationRunId": { "type": "string", "description": "多模型协作 run id（如有）" },
+          "voteResult": { "$ref": "#/components/schemas/ParallelVoteResult" },
           "fallbackCount": { "type": "integer", "description": "V2：本请求触发的模型升级 fallback 次数（0 时省略）" },
           "fallbackLogIds": {
             "type": "array",
@@ -2070,6 +2200,100 @@
           "location": { "type": "string" },
           "latencyMs": { "type": "number" },
           "usage": { "type": "object", "additionalProperties": true }
+        }
+      },
+      "RouterDecision": {
+        "type": "object",
+        "description": "SmartModelRouter 的结构化决策摘要。",
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "taskType": { "type": "string" },
+          "selectedLevel": { "type": "integer" },
+          "risk": { "type": "string", "enum": ["low", "medium", "high"] },
+          "reason": { "type": "string" },
+          "source": { "type": "string", "enum": ["rule", "manual_override", "fallback", "evaluator", "runtime_stats", "cost_budget"] },
+          "executionStrategy": {
+            "type": "string",
+            "enum": ["rule_only", "single_model", "strong_model_direct", "local_draft_remote_review", "parallel_vote"]
+          },
+          "selectedModelId": { "type": "string" },
+          "draftModelId": { "type": "string" },
+          "reviewModelId": { "type": "string" },
+          "finalModelId": { "type": "string" },
+          "voteModelIds": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "parallel_vote 中并行作答的模型 id。"
+          },
+          "judgeModelId": { "type": "string", "description": "parallel_vote 中裁决模型 id。" },
+          "candidates": { "type": "array", "items": { "type": "string" } },
+          "requireUserConfirmation": { "type": "boolean" },
+          "fallbackNote": { "type": "string" },
+          "contextSignals": { "type": "array", "items": { "type": "string" } }
+        }
+      },
+      "ParallelVoteResult": {
+        "type": "object",
+        "properties": {
+          "winnerIndex": { "type": "integer" },
+          "winnerModelId": { "type": "string" },
+          "reason": { "type": "string" },
+          "candidates": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "modelId": { "type": "string" },
+                "answer": { "type": "string" },
+                "callLogId": { "type": "string" }
+              }
+            }
+          }
+        }
+      },
+      "PipelineGraph": {
+        "type": "object",
+        "properties": {
+          "nodes": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": { "type": "string" },
+                "kind": { "type": "string" },
+                "label": { "type": "string" },
+                "meta": { "type": "object", "additionalProperties": true }
+              }
+            }
+          },
+          "edges": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "from": { "type": "string" },
+                "to": { "type": "string" },
+                "label": { "type": "string" }
+              }
+            }
+          },
+          "mermaid": { "type": "string" }
+        }
+      },
+      "RoutingLogList": {
+        "type": "object",
+        "properties": {
+          "routes": { "type": "array", "items": { "type": "object", "additionalProperties": true } }
+        }
+      },
+      "RoutingLogDetail": {
+        "type": "object",
+        "properties": {
+          "route": { "type": "object", "additionalProperties": true },
+          "calls": { "type": "array", "items": { "type": "object", "additionalProperties": true } },
+          "collaborations": { "type": "array", "items": { "type": "object", "additionalProperties": true } },
+          "fallbacks": { "type": "array", "items": { "type": "object", "additionalProperties": true } },
+          "pipelineGraph": { "$ref": "#/components/schemas/PipelineGraph" }
         }
       },
       "ChatStreamRequest": {
@@ -2557,7 +2781,7 @@
           "location": { "$ref": "#/components/schemas/LocationExecutionMeta" },
           "budgetExhausted": {
             "type": "string",
-            "enum": ["maxModelTurns", "maxToolCalls", "maxReadCalls", "maxWriteCalls", "maxShellCalls", "maxRuntimeMs"]
+            "enum": ["maxModelTurns", "maxToolCalls", "maxReadCalls", "maxWriteCalls", "maxShellCalls", "maxPreflightTools", "maxRecoveryTurns", "maxRuntimeMs"]
           },
           "usedIterations": { "type": "integer" },
           "usedModelTurns": { "type": "integer" },
@@ -2567,8 +2791,32 @@
           "usedShellCalls": { "type": "integer" },
           "stopReason": {
             "type": "string",
-            "enum": ["completed", "budget_exhausted", "error", "user_cancelled"]
+            "enum": [
+              "completed",
+              "completed_partial",
+              "recovery_partial",
+              "misleading_completion",
+              "blocked_by_policy",
+              "budget_exhausted",
+              "historical_reference",
+              "error",
+              "user_cancelled",
+              "awaiting_permission",
+              "awaiting_plan_handoff"
+            ]
           },
+          "completionStatus": {
+            "type": "string",
+            "enum": [
+              "completed_success",
+              "completed_partial",
+              "misleading_completion",
+              "blocked_by_policy",
+              "historical_reference"
+            ]
+          },
+          "legacyIntentHint": { "type": "string" },
+          "toolLedgerSummary": { "type": "object", "additionalProperties": true },
           "needsMoreBudget": { "type": "boolean" },
           "suggestedBudget": { "$ref": "#/components/schemas/RunBudget" },
           "suggestedToolCalls": { "type": "integer", "description": "按任务复杂度估算的建议工具调用次数" },

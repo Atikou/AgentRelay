@@ -8,9 +8,11 @@ export type AgentExecutionStage = "analyze" | "plan" | "execute" | "verify";
 export type AgentStopReason =
   | "completed"
   | "completed_partial"
+  | "recovery_partial"
   | "misleading_completion"
   | "blocked_by_policy"
   | "budget_exhausted"
+  | "historical_reference"
   | "error"
   | "user_cancelled"
   | "awaiting_permission"
@@ -304,6 +306,16 @@ export interface AgentExecutionMeta {
   currentWorkflowType?: AgentWorkflowType;
   continuationScore?: number;
   continuationSignals?: Record<string, number | boolean>;
+  needsWrite?: boolean;
+  needsShell?: boolean;
+  aiOverridden?: boolean;
+  boundaryBreakReason?: string;
+  effectiveTaskContextId?: string;
+  legacyIntentHint?: AgentIntentType;
+  legacyHintSources?: string[];
+  entryIntent?: AgentIntentType;
+  entryWorkflowType?: AgentWorkflowType;
+  effectiveWorkflowType?: AgentWorkflowType;
   /** 按任务复杂度估算的建议工具调用次数（预算耗尽时返回）。 */
   suggestedToolCalls?: number;
   complexityTier?: "low" | "medium" | "high";
@@ -321,6 +333,15 @@ export interface AgentExecutionMeta {
   /** 系统侧运行摘要（预算耗尽/权限暂停等），禁止作为用户可见 answer。 */
   partialSummary?: string;
   toolLedger?: {
+    attemptedShellCalls: number;
+    blockedShellCalls: number;
+    successfulShellCalls: number;
+    attemptedWriteCalls: number;
+    blockedWriteCalls: number;
+    successfulWriteCalls: number;
+  };
+  /** Final Guard / ToolLedger 摘要别名（观测字段）。 */
+  toolLedgerSummary?: {
     attemptedShellCalls: number;
     blockedShellCalls: number;
     successfulShellCalls: number;
@@ -354,6 +375,16 @@ export interface RunPolicy {
   previousWorkflowType?: AgentWorkflowType;
   continuationScore?: number;
   continuationSignals?: Record<string, number | boolean>;
+  needsWrite?: boolean;
+  needsShell?: boolean;
+  aiOverridden?: boolean;
+  boundaryBreakReason?: string;
+  effectiveTaskContextId?: string;
+  legacyIntentHint?: import("./IntentTypes.js").AgentIntentType;
+  legacyHintSources?: string[];
+  entryIntent?: import("./IntentTypes.js").AgentIntentType;
+  entryWorkflowType?: import("./IntentTypes.js").AgentWorkflowType;
+  effectiveWorkflowType?: import("./IntentTypes.js").AgentWorkflowType;
 }
 
 export interface ResolveRunPolicyInput {

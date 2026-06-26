@@ -11,6 +11,8 @@ import { buildUnifiedDiff, truncateDiff } from "../../tools/file/diff.js";
 import { hashContent } from "../../tools/file/hash.js";
 import { resolveInsideWorkspace, resolveInsideWorkspaceAsync, assertIsFile } from "../../tools/pathSafe.js";
 import { checkCommandRisk } from "../../tools/risk.js";
+import { ToolExecutionGateway } from "../../agent/ToolExecutionGateway.js";
+import { defaultWorkflowRouter } from "../../agent/WorkflowRouter.js";
 
 export function handleToolsList(app: AppContext) {
   return { workspaceRoot: app.workspaceRoot, tools: app.registry.list() };
@@ -167,9 +169,29 @@ export async function handleToolRun(app: AppContext, body: unknown): Promise<Api
     projectSource: "config.security.permissions",
   });
 
-  const result = await app.registry.run(name, parsed.data, {
+  const gateway = new ToolExecutionGateway(app.registry);
+  const workflowRoute =
+    tool.permission === "shell"
+      ? defaultWorkflowRouter.routeIntent("run")
+      : tool.permission === "write" || tool.permission === "dangerous"
+        ? defaultWorkflowRouter.routeIntent("edit")
+        : defaultWorkflowRouter.routeIntent("answer");
+
+  const result = await gateway.run({
+    toolName: name,
+    input: parsed.data as Record<string, unknown>,
+    source: "manual",
+    budgetBucket: "manual",
     workspaceRoot: app.workspaceRoot,
     allowedPermissions: allowed,
+    workspaceGrantStore: app.workspaceGrantStore,
+    workspaceConfigScopes: app.workspaceConfigScopesForSession(undefined),
+    intent: tool.permission === "shell" ? "run" : tool.permission === "write" ? "edit" : "answer",
+    permissionPolicy: payload.confirm ? "autoEdit" : "confirmBeforeRun",
+    mode: "implement",
+    workflowRoute,
+    skipBudgetCheck: true,
+    skipPermissionCheck: payload.confirm === true,
   });
   return { status: result.outcomeClass === "execution_error" ? 400 : 200, body: result };
 }

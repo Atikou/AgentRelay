@@ -3,14 +3,16 @@ import type { TraceLogger } from "../trace/TraceLogger.js";
 import type { ToolRegistry } from "../tools/ToolRegistry.js";
 import type { AgentIntentType } from "./IntentTypes.js";
 import type { ToolPermission } from "../core/permissions.js";
-import type { RunBudget } from "./RunPolicyTypes.js";
+import type { UserPermissionPolicy, RunBudget } from "./RunPolicyTypes.js";
 import type { AgentToolStep } from "./toolStep.js";
 import { toolStepPayloadForContext } from "./toolStepOutcome.js";
-
+import { ToolExecutionGateway } from "./ToolExecutionGateway.js";
+import { defaultWorkflowRouter } from "./WorkflowRouter.js";
 export interface RunVerifyWorkflowOptions {
   registry: ToolRegistry;
   workspaceRoot: string;
   allowedPermissions: ToolPermission[];
+  permissionPolicy?: UserPermissionPolicy;
   budget: RunBudget;
   trace?: TraceLogger;
   contextManager?: ContextManager;
@@ -49,6 +51,15 @@ export class RunVerifyWorkflow {
     if (!this.options.allowedPermissions.includes("shell")) {
       return this.staticFallback("The current permission policy does not allow shell execution.");
     }
+    if (
+      this.options.permissionPolicy === "confirmBeforeRun" ||
+      this.options.permissionPolicy === "confirmBeforeEdit" ||
+      this.options.permissionPolicy === "readOnly"
+    ) {
+      return this.staticFallback(
+        "Shell execution requires user JIT confirmation; preflight will not auto-run shell_run.",
+      );
+    }
     if (this.options.budget.maxToolCalls <= 0 || this.options.budget.maxShellCalls <= 0) {
       return this.staticFallback("The current run budget does not allow shell execution.");
     }
@@ -77,14 +88,33 @@ export class RunVerifyWorkflow {
       workflow: intent,
     });
 
-    const result = await this.options.registry.run("shell_run", step.input, {
+    const gateway = new ToolExecutionGateway(this.options.registry);
+    const workflowRoute = defaultWorkflowRouter.routeIntent(intent);
+    const result = await gateway.run({
+      toolName: "shell_run",
+      input: step.input as Record<string, unknown>,
+      source: "preflight",
+      budgetBucket: "preflight",
       workspaceRoot: this.options.workspaceRoot,
       allowedPermissions: this.options.allowedPermissions,
+      intent,
+      permissionPolicy: this.options.permissionPolicy ?? "confirmBeforeRun",
+      mode: "implement",
+      workflowRoute,
       taskId: this.options.taskId,
       sessionId: this.options.sessionId,
       requestId: this.options.requestId,
+      skipBudgetCheck: true,
     });
 
+    if (
+      result.outcomeClass === "execution_error" &&
+      (result.outcomeKind === "permission_denied" || result.code === "permission_denied")
+    ) {
+      return this.staticFallback(
+        "Shell execution requires user JIT confirmation; preflight will not auto-run shell_run.",
+      );
+    }
     const finalStep: AgentToolStep =
       result.outcomeClass === "execution_error"
         ? {
@@ -107,7 +137,14 @@ export class RunVerifyWorkflow {
             outcomeMessage: result.message,
           };
 
-    this.saveToolMessage(finalStep);
+    this.saveToolMessage({
+      tool: finalStep.tool,
+      output: finalStep.output,
+      error: finalStep.error,
+      outcomeClass: finalStep.outcomeClass,
+      outcomeKind: finalStep.outcomeKind,
+      toolCallId: finalStep.toolCallId,
+    });
     return {
       steps: [finalStep],
       modelContext: renderRunVerifyContext([finalStep], intent),
@@ -130,11 +167,28 @@ export class RunVerifyWorkflow {
     return result;
   }
 
-  private saveToolMessage(input: { tool: string; output?: unknown; error?: string }): void {
+  private saveToolMessage(input: {
+    tool: string;
+    output?: unknown;
+    error?: string;
+    outcomeClass?: string;
+    outcomeKind?: string;
+    toolCallId?: string;
+  }): void {
     if (!this.options.contextManager || !this.options.sessionId) return;
     this.options.contextManager.saveToolMessage(
       this.options.sessionId,
       `run/verify workflow step "${input.tool}" result (JSON):\n${JSON.stringify(input.output ?? { error: input.error })}`,
+      this.options.requestId,
+      {
+        outcomeClass: input.outcomeClass,
+        outcomeKind: input.outcomeKind,
+        toolCallId: input.toolCallId,
+        ledgerBacked:
+          input.outcomeClass === "observation_success" &&
+          input.outcomeKind !== "not_found" &&
+          input.outcomeKind !== "no_results",
+      },
     );
   }
 }

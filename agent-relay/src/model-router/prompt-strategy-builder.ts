@@ -59,6 +59,9 @@ export class PromptStrategyBuilder {
     if (strategy === "local_draft_remote_review") {
       temperature = 0.2;
       hints.push("pipeline=draft_review");
+    } else if (strategy === "parallel_vote") {
+      temperature = 0.35;
+      hints.push("pipeline=parallel_vote");
     } else if (strategy === "strong_model_direct") {
       temperature = 0.2;
       hints.push("pipeline=strong_direct");

@@ -46,6 +46,8 @@ export interface ToolContext {
   sensitive?: boolean;
   /** 项目级权限上限（子 Agent grantedPermissions 收敛）。 */
   projectAllowedPermissions?: ToolPermission[];
+  /** 路径授权审计摘要，由 ToolExecutionGateway 注入，供 trace / run report 串联。 */
+  workspaceAccess?: Record<string, unknown>;
 }
 
 /**

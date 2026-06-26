@@ -27,6 +27,7 @@ export interface OrchestratorResult {
   collaborationRunId?: string;
   modelCallIds: string[];
   reviewResult?: DraftReviewResult;
+  voteResult?: import("./pipelines/parallel-vote-pipeline.js").ParallelVoteResult;
   fallbackCount?: number;
   fallbackLogIds?: string[];
   clientName?: string;

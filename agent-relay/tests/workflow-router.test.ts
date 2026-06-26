@@ -15,6 +15,7 @@ function test(name: string, fn: () => void) {
 
 const expected: Record<AgentIntentType, {
   workflowType: string;
+  workflowKind: string;
   executor: string;
   readonlyOnly: boolean;
   enforceReadOnlyTools: boolean;
@@ -22,6 +23,7 @@ const expected: Record<AgentIntentType, {
 }> = {
   answer: {
     workflowType: "answerWorkflow",
+    workflowKind: "hard",
     executor: "answerExecutor",
     readonlyOnly: true,
     enforceReadOnlyTools: true,
@@ -29,6 +31,7 @@ const expected: Record<AgentIntentType, {
   },
   plan: {
     workflowType: "planWorkflow",
+    workflowKind: "hard",
     executor: "planExecutor",
     readonlyOnly: true,
     enforceReadOnlyTools: false,
@@ -36,6 +39,7 @@ const expected: Record<AgentIntentType, {
   },
   edit: {
     workflowType: "editWorkflow",
+    workflowKind: "soft",
     executor: "editExecutor",
     readonlyOnly: false,
     enforceReadOnlyTools: false,
@@ -43,6 +47,7 @@ const expected: Record<AgentIntentType, {
   },
   run: {
     workflowType: "runWorkflow",
+    workflowKind: "soft",
     executor: "runExecutor",
     readonlyOnly: false,
     enforceReadOnlyTools: false,
@@ -50,6 +55,7 @@ const expected: Record<AgentIntentType, {
   },
   debug: {
     workflowType: "debugWorkflow",
+    workflowKind: "soft",
     executor: "debugExecutor",
     readonlyOnly: false,
     enforceReadOnlyTools: false,
@@ -57,6 +63,7 @@ const expected: Record<AgentIntentType, {
   },
   review: {
     workflowType: "reviewWorkflow",
+    workflowKind: "hard",
     executor: "reviewExecutor",
     readonlyOnly: true,
     enforceReadOnlyTools: false,
@@ -64,6 +71,7 @@ const expected: Record<AgentIntentType, {
   },
   verify: {
     workflowType: "verifyWorkflow",
+    workflowKind: "soft",
     executor: "verifyExecutor",
     readonlyOnly: false,
     enforceReadOnlyTools: false,
@@ -71,6 +79,7 @@ const expected: Record<AgentIntentType, {
   },
   summarize: {
     workflowType: "summarizeWorkflow",
+    workflowKind: "hard",
     executor: "summarizeExecutor",
     readonlyOnly: true,
     enforceReadOnlyTools: true,
@@ -78,6 +87,7 @@ const expected: Record<AgentIntentType, {
   },
   search: {
     workflowType: "searchWorkflow",
+    workflowKind: "hard",
     executor: "searchExecutor",
     readonlyOnly: true,
     enforceReadOnlyTools: true,
@@ -85,6 +95,7 @@ const expected: Record<AgentIntentType, {
   },
   refactor: {
     workflowType: "refactorWorkflow",
+    workflowKind: "soft",
     executor: "refactorExecutor",
     readonlyOnly: false,
     enforceReadOnlyTools: false,
@@ -92,6 +103,7 @@ const expected: Record<AgentIntentType, {
   },
   generate_file: {
     workflowType: "generateFileWorkflow",
+    workflowKind: "soft",
     executor: "generateFileExecutor",
     readonlyOnly: false,
     enforceReadOnlyTools: false,

@@ -301,13 +301,31 @@ export class ContextManager {
     });
   }
 
-  saveToolMessage(sessionId: string, content: string, runId?: string): MessageRecord {
+  saveToolMessage(
+    sessionId: string,
+    content: string,
+    runId?: string,
+    meta?: {
+      outcomeClass?: string;
+      outcomeKind?: string;
+      toolCallId?: string;
+      ledgerBacked?: boolean;
+    },
+  ): MessageRecord {
+    const ledgerBacked =
+      meta?.ledgerBacked ??
+      (meta?.outcomeClass === "observation_success" &&
+        meta?.outcomeKind !== "not_found" &&
+        meta?.outcomeKind !== "no_results");
     return this.saveMessage(sessionId, "tool", content, undefined, {
       messageKind: "tool_result",
       uiVisible: false,
       trusted: true,
       source: "tool",
-      runId,
+      runId: runId ?? meta?.toolCallId,
+      ledgerBacked,
+      outcomeClass: meta?.outcomeClass,
+      outcomeKind: meta?.outcomeKind,
     });
   }
 

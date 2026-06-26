@@ -36,8 +36,11 @@ export interface ContextMessageLike {
   messageKind?: MessageKind;
   uiVisible?: boolean;
   trusted?: boolean;
-  source?: MessageEnvelope["source"];
+  source?: import("./messageEnvelope.js").MessageSource;
   runId?: string;
+  ledgerBacked?: boolean;
+  outcomeClass?: string;
+  outcomeKind?: string;
 }
 
 export function shouldIncludeInContext(
@@ -89,13 +92,36 @@ export function evaluateContextMessageTrust(
   }
 
   if (envelope.messageKind === "tool_result") {
-    if (envelope.trusted) {
-      return { include: true, reason: "trusted_tool_result", envelope };
+    const ledgerBacked =
+      message.ledgerBacked ??
+      (message.outcomeClass === "observation_success" &&
+        message.outcomeKind !== "not_found" &&
+        message.outcomeKind !== "no_results");
+    const claimsCompletion = isUntrustedCompletionMemoryText(message.content);
+    if (!envelope.trusted) {
+      return {
+        include: false,
+        reason: "filtered_untrusted_assistant",
+        envelope,
+      };
+    }
+    if (claimsCompletion && !ledgerBacked) {
+      return {
+        include: false,
+        reason: "filtered_misleading_completion",
+        envelope,
+        needsCorrection: true,
+        correctionText: [
+          "【上下文事实纠偏 · 工具结果不可作完成依据】",
+          "历史 tool 消息含未验证的完成声明，且缺少 ledger 成功副作用证明。",
+          "请以当前 Run 的 Tool Ledger 与工具执行结果为准。",
+        ].join("\n"),
+      };
     }
     return {
-      include: false,
-      reason: "filtered_untrusted_assistant",
-      envelope,
+      include: true,
+      reason: ledgerBacked ? "trusted_tool_result" : "trusted_tool_result",
+      envelope: { ...envelope, trusted: true },
     };
   }
 
@@ -184,6 +210,29 @@ export function claimsCompletionInText(text: string): boolean {
 
 export function isUntrustedCompletionMemoryText(text: string): boolean {
   return claimsCompletionInText(text);
+}
+
+/** 从结构化摘要中剔除未验证的「已完成」声明行。 */
+export function scrubStructuredSummaryContent<T extends {
+  current_goal?: string;
+  important_decisions?: string[];
+  project_state?: string[];
+  open_questions?: string[];
+  recent_changes?: string[];
+}>(content: T): T {
+  const scrubLine = (line: string) => !isUntrustedCompletionMemoryText(line);
+  const goal =
+    content.current_goal && isUntrustedCompletionMemoryText(content.current_goal)
+      ? undefined
+      : content.current_goal;
+  return {
+    ...content,
+    current_goal: goal,
+    important_decisions: (content.important_decisions ?? []).filter(scrubLine),
+    project_state: (content.project_state ?? []).filter(scrubLine),
+    open_questions: (content.open_questions ?? []).filter(scrubLine),
+    recent_changes: (content.recent_changes ?? []).filter(scrubLine),
+  };
 }
 
 function buildMisleadingCorrection(

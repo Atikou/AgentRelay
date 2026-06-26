@@ -171,6 +171,67 @@ test("run 验证通过的 legacy final 可升级入上下文", () => {
   assert.equal(decision.envelope.trusted, true);
 });
 
+test("tool_result 含完成声明但无 ledgerBacked 被过滤", () => {
+  const decision = evaluateContextMessageTrust({
+    id: "6",
+    role: "tool",
+    content: "npm install 已成功完成，依赖已安装。",
+    createdAt: new Date().toISOString(),
+    messageKind: "tool_result",
+    trusted: true,
+    source: "tool",
+    ledgerBacked: false,
+    outcomeClass: "observation_success",
+  });
+  assert.equal(decision.include, false);
+  assert.equal(decision.reason, "filtered_misleading_completion");
+  assert.ok(decision.needsCorrection);
+
+  const trusted = evaluateContextMessageTrust({
+    id: "7",
+    role: "tool",
+    content: "exitCode=0\nstdout: added 120 packages",
+    createdAt: new Date().toISOString(),
+    messageKind: "tool_result",
+    trusted: true,
+    source: "tool",
+    ledgerBacked: true,
+    outcomeClass: "observation_success",
+  });
+  assert.equal(trusted.include, true);
+  assert.equal(trusted.reason, "trusted_tool_result");
+});
+
+test("ContextRestorer 持久化 ledgerBacked 后过滤虚假 tool 完成声明", async () => {
+  const tmp = await mkdtemp(path.join(os.tmpdir(), "ctx-ledger-"));
+  try {
+    const mgr = new ContextManager({
+      dataDir: tmp,
+      useLanceDb: false,
+      vectorStore: new InMemoryVectorStore(),
+      recentMessageCount: 10,
+    });
+    const session = mgr.createSession("ledger 测试");
+    mgr.saveToolMessage(
+      session.id,
+      "npm install 已成功完成，依赖已安装。",
+      undefined,
+      { outcomeClass: "observation_success", ledgerBacked: false },
+    );
+    const pkg = await mgr.restoreContextPackage(session.id, "安装依赖");
+    assert.equal(
+      pkg.messages.some((m) => m.content.includes("npm install 已成功完成")),
+      false,
+    );
+    assert.ok(pkg.contextTrust);
+    assert.equal(pkg.contextTrust!.excludedCount, 1);
+    assert.equal(pkg.contextTrust!.excluded[0]?.reason, "filtered_misleading_completion");
+    mgr.close();
+  } finally {
+    await rm(tmp, { recursive: true, force: true }).catch(() => undefined);
+  }
+});
+
 test("记忆检索排除未验证完成声明", async () => {
   const tmp = await mkdtemp(path.join(os.tmpdir(), "ctx-mem-"));
   try {

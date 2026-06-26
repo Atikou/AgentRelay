@@ -189,6 +189,7 @@ export class ToolRegistry {
             networkPolicy: execCtx.networkPolicy,
           }).tier
         : undefined,
+      workspaceAccess: ctx.workspaceAccess,
     });
 
     try {
@@ -213,6 +214,7 @@ export class ToolRegistry {
         runId: ctx.requestId,
         sessionId: ctx.sessionId,
         taskId: ctx.taskId,
+        workspaceAccess: ctx.workspaceAccess,
       });
       const result = registryFromOutcome({
         tool: name,
@@ -259,6 +261,7 @@ export class ToolRegistry {
         runId: ctx.requestId,
         sessionId: ctx.sessionId,
         taskId: ctx.taskId,
+        workspaceAccess: ctx.workspaceAccess,
       });
       const result = registryExecutionError({
         tool: name,

@@ -33,7 +33,7 @@ test("问答任务不需要副作用", () => {
   assert.equal(contract.requiresSideEffect, false);
 });
 
-test("基于历史说明先前已安装 → 接受模型 final", () => {
+test("基于历史说明先前已安装但 ledger 为空 → historical_reference，不接受 trusted", () => {
   const guard = evaluateCompletionGuard({
     goal: "安装依赖",
     intent: "run",
@@ -42,9 +42,11 @@ test("基于历史说明先前已安装 → 接受模型 final", () => {
       "根据历史记录，`testTS` 项目的依赖安装已在之前成功完成。执行 `npm install` 后安装了 three 与 typescript。当前依赖已就绪，无需额外操作。",
     steps: [],
   });
-  assert.equal(guard.accepted, true);
-  assert.equal(guard.status, "completed_success");
-  assert.equal(guard.guardedAnswer, undefined);
+  assert.equal(guard.accepted, false);
+  assert.equal(guard.status, "historical_reference");
+  assert.equal(guard.stopReason, "completed_partial");
+  assert.ok(guard.guardedAnswer);
+  assert.ok(guard.rawModelAnswer?.includes("根据历史"));
 });
 
 test("shell 被权限阻止且模型声称本轮已成功 → guardedAnswer 替代 raw final", () => {

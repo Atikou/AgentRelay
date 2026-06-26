@@ -326,6 +326,15 @@ function messageClass(role) {
 function renderStoredMessage(message) {
   const env = resolveMessageEnvelope(message);
   if (!env.uiVisible && message.role !== "user") return null;
+  if (
+    message.role === "assistant" &&
+    env.messageKind === "final_answer" &&
+    env.uiVisible &&
+    !env.trusted &&
+    env.source !== "guard"
+  ) {
+    return null;
+  }
   const wrap = document.createElement("div");
   wrap.className = `msg ${messageClass(message.role)} history-message`;
   const bubble = document.createElement("div");
@@ -398,16 +407,18 @@ function extractFinalAnswerFromReplies(replies) {
     const message = replies[i];
     if (message.role !== "assistant") continue;
     const env = resolveMessageEnvelope(message);
-    if (env.messageKind === "final_answer" && env.uiVisible) {
+    if (env.messageKind === "final_answer" && env.uiVisible && (env.trusted || env.source === "guard")) {
       return message.content || "";
     }
   }
   for (let i = replies.length - 1; i >= 0; i -= 1) {
     const message = replies[i];
     if (message.role !== "assistant") continue;
+    const env = resolveMessageEnvelope(message);
+    if (env.source === "guard" && env.uiVisible) return message.content || "";
     const action = parseAgentActionJson(message.content);
     if (action) continue;
-    if (message.content?.trim()) return message.content;
+    if (message.content?.trim() && env.trusted) return message.content;
   }
   return "";
 }
@@ -946,11 +957,17 @@ function resolveRunUiStatus(meta) {
   const status = meta.completionStatus;
   if (status === "completed_success" || meta.stopReason === "completed") return "已完成";
   if (status === "awaiting_permission" || meta.stopReason === "awaiting_permission") return "等待授权";
-  if (status === "misleading_completion") return "虚假完成（未执行副作用）";
   if (status === "completed_partial" || meta.stopReason === "completed_partial") return "任务未完全完成";
+  if (status === "historical_reference" || meta.stopReason === "historical_reference") return "历史完成未验证";
+  if (meta.stopReason === "recovery_partial") return "部分完成 · 恢复预算耗尽";
+  if (status === "misleading_completion" || meta.stopReason === "misleading_completion") return "检测到虚假完成";
   if (status === "blocked_by_policy" || meta.stopReason === "blocked_by_policy") return "被策略阻止";
-  if (meta.stopReason === "budget_exhausted") return "预算耗尽";
+  if (meta.stopReason === "budget_exhausted") return "部分完成 · 预算耗尽";
+  if (meta.stopReason === "awaiting_plan_handoff") return "等待计划批准";
   if (meta.stopReason === "error") return "执行失败";
+  if (meta.stopReason && !["completed", "user_cancelled"].includes(meta.stopReason)) {
+    return "任务未完全完成";
+  }
   return "已完成";
 }
 
@@ -1469,6 +1486,45 @@ function renderConfigCard(cfg) {
   addMessage("system", lines.join("\n"));
 }
 
+async function handleWorkspaceScopes() {
+  clearWelcome();
+  const sessionParam = activeSessionId ? `?sessionId=${encodeURIComponent(activeSessionId)}` : "";
+  const data = await api(`/api/workspace-scopes${sessionParam}`);
+  const wrap = document.createElement("div");
+  wrap.className = "plan-card";
+  const rows = (data.scopes || [])
+    .map((scope) => {
+      const canRevoke = scope.kind === "granted" && scope.grantId && !String(scope.grantId).startsWith("scoped:");
+      return `<tr>
+        <td>${escapeHtml(scope.label || scope.kind || "")}</td>
+        <td><code>${escapeHtml(scope.rootPath)}</code></td>
+        <td>${escapeHtml((scope.permissions || []).join(" / "))}</td>
+        <td>${escapeHtml(scope.grantScope || "")}</td>
+        <td>${escapeHtml(scope.source || "")}</td>
+        <td>${canRevoke ? `<button class="action-btn secondary" data-action="revoke-workspace-scope" data-scope-id="${escapeHtml(scope.grantId)}">撤销</button>` : ""}</td>
+      </tr>`;
+    })
+    .join("");
+  wrap.innerHTML = `
+    <h3>已授权工作区</h3>
+    <p class="muted">当前主工作区：<code>${escapeHtml(data.primaryRoot || "")}</code></p>
+    <table class="model-table">
+      <thead><tr><th>名称</th><th>Root</th><th>权限</th><th>范围</th><th>来源</th><th>操作</th></tr></thead>
+      <tbody>${rows || `<tr><td colspan="6">暂无额外授权</td></tr>`}</tbody>
+    </table>`;
+  addMessage("system", wrap);
+}
+
+async function revokeWorkspaceScope(id) {
+  await api(`/api/workspace-scopes/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ reason: "user_revoked_from_ui" }),
+  });
+  addMessage("system", "已撤销工作区授权。");
+  await handleWorkspaceScopes();
+}
+
 function renderModelTable(rows) {
   clearWelcome();
   const table = document.createElement("table");
@@ -1667,6 +1723,32 @@ async function handleStorage() {
   }
 }
 
+function renderPipelineGraphHtml(graph) {
+  const nodes = graph.nodes || [];
+  const edges = graph.edges || [];
+  const nodeList = nodes
+    .map((n) => `<li><strong>${escapeHtml(n.kind)}</strong> · ${escapeHtml(n.label)}</li>`)
+    .join("");
+  const edgeList = edges
+    .map((e) => {
+      const label = e.label ? ` <em>(${escapeHtml(e.label)})</em>` : "";
+      return `<li><code>${escapeHtml(e.from)}</code> → <code>${escapeHtml(e.to)}</code>${label}</li>`;
+    })
+    .join("");
+  const mermaid = graph.mermaid
+    ? `<details class="routing-mermaid-details"><summary>Mermaid</summary><pre class="routing-mermaid">${escapeHtml(graph.mermaid)}</pre></details>`
+    : "";
+  return `
+    <div class="routing-graph-panel">
+      <h4>执行管线（V9 可视化）</h4>
+      <div class="routing-graph-columns">
+        <div><strong>节点</strong><ul>${nodeList || "<li>（无）</li>"}</ul></div>
+        <div><strong>边</strong><ul>${edgeList || "<li>（无）</li>"}</ul></div>
+      </div>
+      ${mermaid}
+    </div>`;
+}
+
 function renderRoutingLogRows(routes, detailsEl) {
   if (!routes.length) {
     return `<div class="history-empty">暂无模型路由记录。发送一次自动路由对话后再刷新。</div>`;
@@ -1802,7 +1884,17 @@ async function handleRoutingLogs() {
     details.textContent = "加载详情中…";
     try {
       const data = await api(`/api/routing/logs?routeLogId=${encodeURIComponent(routeLogId)}`);
-      details.textContent = JSON.stringify(data, null, 2);
+      details.innerHTML = "";
+      if (data.pipelineGraph) {
+        const graphBox = document.createElement("div");
+        graphBox.className = "routing-pipeline-graph";
+        graphBox.innerHTML = renderPipelineGraphHtml(data.pipelineGraph);
+        details.appendChild(graphBox);
+      }
+      const pre = document.createElement("pre");
+      pre.className = "routing-log-json";
+      pre.textContent = JSON.stringify(data, null, 2);
+      details.appendChild(pre);
     } catch (err) {
       details.classList.add("err");
       details.textContent = String(err.message || err);
@@ -3154,9 +3246,10 @@ function ensurePermissionRequestPanel() {
 }
 
 function groupPermissionItems(items) {
-  const groups = { write_file: [], shell: [], other: [] };
+  const groups = { read_file: [], write_file: [], shell: [], other: [] };
   for (const item of items || []) {
-    if (item.type === "write_file") groups.write_file.push(item);
+    if (item.type === "read_file") groups.read_file.push(item);
+    else if (item.type === "write_file") groups.write_file.push(item);
     else if (item.type === "shell") groups.shell.push(item);
     else groups.other.push(item);
   }
@@ -3187,7 +3280,15 @@ async function respondPermissionRequest(request, decision) {
     return responded;
   }
   hidePermissionRequestPanel();
-  addMessage("system", `已批准权限（${decision === "allow_session" ? "本次会话" : "仅一次"}），正在继续执行…`);
+  const decisionLabel =
+    decision === "allow_workspace"
+      ? "长期工作区"
+      : decision === "allow_project"
+        ? "本项目"
+        : decision === "allow_session"
+          ? "本次会话"
+          : "仅一次";
+  addMessage("system", `已批准权限（${decisionLabel}），正在继续执行…`);
   try {
     const resume = await api(`/api/runs/${encodeURIComponent(request.runId)}/resume-permission`, {
       method: "POST",
@@ -3218,6 +3319,11 @@ function showPermissionRequestPanel(request) {
     <h3>${escapeHtml(request.title || "AI 需要权限继续执行")}</h3>
     <div class="perm-summary">${escapeHtml(request.summary || "")}</div>
     ${
+      groups.read_file.length
+        ? `<div class="perm-group"><div class="perm-group-title">跨工作区读取</div>${renderPermissionItemList(groups.read_file)}</div>`
+        : ""
+    }
+    ${
       groups.write_file.length
         ? `<div class="perm-group"><div class="perm-group-title">文件修改</div>${renderPermissionItemList(groups.write_file)}</div>`
         : ""
@@ -3233,8 +3339,10 @@ function showPermissionRequestPanel(request) {
         : ""
     }
     <div class="perm-actions">
-      <button type="button" class="btn-allow" data-decision="allow_once">允许</button>
+      <button type="button" class="btn-allow" data-decision="allow_once">允许一次</button>
       <button type="button" class="btn-session" data-decision="allow_session">本次会话都允许</button>
+      <button type="button" class="btn-session" data-decision="allow_project">本项目允许</button>
+      <button type="button" class="btn-session" data-decision="allow_workspace">长期允许</button>
       <button type="button" class="btn-deny" data-decision="deny">拒绝</button>
     </div>`;
   panel.classList.add("visible");
@@ -4200,6 +4308,8 @@ document.querySelector(".sidebar").addEventListener("click", async (e) => {
   } else if (action === "view-config") {
     const cfg = await loadConfig();
     if (cfg) renderConfigCard(cfg);
+  } else if (action === "workspace-scopes") {
+    await handleWorkspaceScopes();
   } else if (action === "check-models") {
     await handleCheckModels();
   } else if (action === "metrics") {
@@ -4258,9 +4368,13 @@ document.querySelector(".sidebar").addEventListener("click", async (e) => {
 });
 
 feed.addEventListener("click", (e) => {
-  const btn = e.target.closest(".welcome button[data-action], .home-page button[data-action]");
+  const btn = e.target.closest(".welcome button[data-action], .home-page button[data-action], .plan-card button[data-action]");
   if (!btn) return;
   const action = btn.dataset.action;
+  if (action === "revoke-workspace-scope" && btn.dataset.scopeId) {
+    void revokeWorkspaceScope(btn.dataset.scopeId);
+    return;
+  }
   if (action === "refresh-history") void loadHistorySessions();
   if (action === "resume-session") {
     const sessionId = btn.dataset.sessionId;
@@ -4271,7 +4385,7 @@ feed.addEventListener("click", (e) => {
       messageInput.focus();
     }
   }
-  if (["check-models", "view-config"].includes(action)) {
+  if (["check-models", "view-config", "workspace-scopes"].includes(action)) {
     document.querySelector(`.sidebar [data-action="${action}"]`)?.click();
   }
 });

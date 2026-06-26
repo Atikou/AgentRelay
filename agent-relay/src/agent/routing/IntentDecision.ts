@@ -29,4 +29,9 @@ export interface IntentDecision {
   continuationScore?: number;
   continuationSignals?: Record<string, number | boolean>;
   aiOverridden?: boolean;
+  /** 关键词 hint，非最终 intent（source=legacy_fallback 时）。 */
+  legacyIntentHint?: AgentIntentType;
+  legacyHintSources?: string[];
+  boundaryBreakReason?: string;
+  effectiveTaskContextId?: string;
 }

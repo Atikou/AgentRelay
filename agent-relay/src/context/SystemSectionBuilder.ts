@@ -1,5 +1,5 @@
 import type { FileSnippetItem } from "./fileSnippets.js";
-import { isUntrustedCompletionMemoryText } from "./contextTrust.js";
+import { isUntrustedCompletionMemoryText, scrubStructuredSummaryContent } from "./contextTrust.js";
 import {
   inferMemoryTags,
   inferPlanStepTags,
@@ -261,20 +261,22 @@ function buildSummaryItems(
 ): SystemSectionItem[] {
   const items: SystemSectionItem[] = [];
   if (sessionSummary) {
+    const scrubbed = scrubStructuredSummaryContent(sessionSummary.content);
     items.push({
       sourceType: "summary",
       sourceId: sessionSummary.id,
-      text: formatStructuredSummary(sessionSummary.content),
-      tags: inferSummaryTags(sessionSummary.summaryType, sessionSummary.content),
+      text: formatStructuredSummary(scrubbed),
+      tags: inferSummaryTags(sessionSummary.summaryType, scrubbed),
     });
     return items;
   }
   for (const chunk of chunkSummaries.slice(-3)) {
+    const scrubbed = scrubStructuredSummaryContent(chunk.content);
     items.push({
       sourceType: "summary",
       sourceId: chunk.id,
-      text: formatStructuredSummary(chunk.content),
-      tags: inferSummaryTags(chunk.summaryType, chunk.content),
+      text: formatStructuredSummary(scrubbed),
+      tags: inferSummaryTags(chunk.summaryType, scrubbed),
     });
   }
   return items;

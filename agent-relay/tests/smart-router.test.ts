@@ -113,7 +113,17 @@ test("TypeScript 报错 → single_model Level 2", () => {
   assert.ok(d.selectedModelId === "api-general" || d.selectedModelId === "api-strong");
 });
 
-test("完整架构方案 → local_draft_remote_review", () => {
+test("qualityMode=deep 架构方案 → parallel_vote", () => {
+  const d = router.route({
+    userInput: "帮我设计完整架构方案",
+    qualityMode: "deep",
+  });
+  assert.equal(d.taskType, "architecture");
+  assert.equal(d.executionStrategy, "parallel_vote");
+  assert.ok(d.voteModelIds && d.voteModelIds.length === 2);
+});
+
+test("完整架构方案 balanced → local_draft_remote_review", () => {
   const d = router.route({ userInput: "帮我设计完整架构方案" });
   assert.equal(d.taskType, "architecture");
   assert.equal(d.executionStrategy, "local_draft_remote_review");
@@ -160,7 +170,9 @@ test("qualityMode=deep 倾向协作", () => {
     userInput: "普通技术问题",
     qualityMode: "deep",
   });
-  assert.equal(d.executionStrategy, "local_draft_remote_review");
+  assert.ok(
+    d.executionStrategy === "local_draft_remote_review" || d.executionStrategy === "parallel_vote",
+  );
 });
 
 test("长上下文 technical_qa V8 提升 primary 至 Level 3", () => {

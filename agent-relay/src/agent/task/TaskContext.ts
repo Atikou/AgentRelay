@@ -78,6 +78,9 @@ export interface TaskContext {
 
   reconciledWorkflowType?: AgentWorkflowType;
 
+  /** 上一轮 Final Guard 结论（供分类器与观测）。 */
+  lastCompletionStatus?: string;
+
   hasPendingPlanHandoff?: boolean;
 
   hasPendingPermission?: boolean;

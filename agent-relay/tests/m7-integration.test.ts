@@ -180,7 +180,7 @@ test("集成：危险 shell 经 ToolRegistry 拦截并记录 tool_audit error", 
     await flushTrace();
     const audits = auditEvents(readRecentTraceEvents(traceFile, { limit: 20, redact: false }), "shell_run");
     assert.ok(audits.some((e) => e.status === "start"));
-    assert.ok(audits.some((e) => e.status === "error"));
+    assert.ok(audits.some((e) => e.status === "execution_error"));
   });
 });
 
@@ -205,6 +205,7 @@ test("集成：AgentLoop 副作用工具需 autoConfirm，否则不写 tool_audi
 test("集成：TaskRunner + ToolStepExecutor 写入 task_step 与 tool_audit", async () => {
   await withTraceWorkspace(async ({ sandbox, traceFile, trace, flushTrace }) => {
     const registry = createDefaultRegistry(trace);
+    await fs.writeFile(path.join(sandbox, "listed.txt"), "ok", "utf-8");
     const plan = makePlan([
       {
         id: "list",
@@ -257,7 +258,7 @@ test("集成：TaskRunner + ToolStepExecutor 写入 task_step 与 tool_audit", a
     const audits = auditEvents(events, "list_files");
     assert.ok(audits.every((e) => e.toolCallId === taskStep.toolCallId));
     assert.ok(audits.some((e) => e.status === "start"));
-    assert.ok(audits.some((e) => e.status === "ok"));
+    assert.ok(audits.some((e) => e.status === "ok" || e.status === "observation_success"));
   });
 });
 
@@ -276,7 +277,7 @@ test("集成：readRecentTraceEvents 可汇总完整审计链路并二次脱敏"
     assert.ok(exported.length >= 2);
     const blob = JSON.stringify(exported);
     assert.equal(blob.includes(FAKE_SECRET), false);
-    assert.ok(auditEvents(exported, "read_file").some((e) => e.status === "error"));
+    assert.ok(auditEvents(exported, "read_file").some((e) => e.status === "observation_failure"));
   });
 });
 

@@ -10,6 +10,7 @@ import {
   resolveEffectiveRequirements,
   validateCapabilityMatrixCoverage,
 } from "../src/model-router/model-capabilities.js";
+import { buildModelProfiles } from "../src/model-router/model-profiles.js";
 import { ModelRegistry } from "../src/model-router/model-registry.js";
 import type { ModelProfile, RuleRouteResult } from "../src/model-router/types.js";
 
@@ -118,6 +119,29 @@ test("buildCapabilityMatrixSnapshot 含 profiles/matrix/coverage", () => {
   assert.ok(snapshot.matrix.length >= 10);
   assert.ok(snapshot.coverage.some((c) => c.taskType === "architecture"));
   assert.equal(snapshot.profiles[0]?.capabilities.maxInputTokens, localDraft.maxInputTokens);
+});
+
+test("routerProfile defaultLevel 覆盖时同步扩展默认任务集", () => {
+  const profiles = buildModelProfiles([
+    {
+      name: "local-vl",
+      provider: "ollama",
+      location: "local",
+      baseUrl: "http://localhost:11434",
+      model: "qwen2.5vl:7b",
+      routerProfile: {
+        defaultLevel: 3,
+        supportsVision: true,
+        canReview: true,
+        allowedRoles: ["primary", "draft", "review"],
+      },
+    },
+  ]);
+  const profile = profiles[0]!;
+  assert.equal(profile.defaultLevel, 3);
+  assert.ok(profile.allowedTaskTypes.includes("image_qa"));
+  assert.ok(profile.allowedTaskTypes.includes("architecture"));
+  assert.equal(profile.maxInputTokens, 128000);
 });
 
 let passed = 0;

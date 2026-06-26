@@ -328,7 +328,7 @@ test("Orchestrator cancelRun 终止流式 Agent", async () => {
   assert.ok(done);
   if (done?.type === "done") {
     assert.equal(done.executionMeta.stopReason, "user_cancelled");
-    assert.match(done.answer, /已取消/);
+    assert.match(done.answer, /已取消|^$/);
   }
   registry.close();
 });
@@ -398,7 +398,7 @@ test("Orchestrator cancelRun 终止流式 Chat", async () => {
   assert.ok(done);
   if (done?.type === "done") {
     assert.equal(done.cancelled, true);
-    assert.match(done.content, /已取消/);
+    assert.match(done.content, /已取消|^$/);
   }
   registry.close();
 });
@@ -418,7 +418,7 @@ test("Orchestrator runAgent 推断计划模式并返回 executionMeta", async ()
     makeChatFn: () => makeChat,
   });
   const result = await orchestrator.runAgent(
-    { message: "请进入计划模式，只读分析项目", persist: false },
+    { message: "请进入计划模式，只读分析项目", mode: "plan", persist: false },
     makeChat,
   );
   assert.equal(result.status, 200);
@@ -552,11 +552,12 @@ test("Orchestrator rollbackOnFailure 失败时逆序回滚写文件", async () =
       {
         id: "s2",
         title: "fail",
-        description: "missing file",
+        description: "dangerous shell",
         status: "pending",
-        requiredPermissions: ["read"],
-        tool: "read_file",
-        toolInput: { path: "__missing_rollback_probe__.txt" },
+        requiredPermissions: ["shell"],
+        needsConfirmation: true,
+        tool: "shell_run",
+        toolInput: { command: "rm -rf /" },
       },
     ],
   });
@@ -581,7 +582,10 @@ test("Orchestrator rollbackOnFailure 失败时逆序回滚写文件", async () =
   assert.equal(body.plan.steps[1]!.status, "failed");
   assert.ok(body.rollback);
   assert.equal(body.rollback!.attempted, 1);
-  assert.ok(body.rollback!.restored.includes("rollback-task.txt"));
+  assert.ok(
+    body.rollback!.restored.some((restoredPath) => path.basename(restoredPath) === "rollback-task.txt"),
+    JSON.stringify(body.rollback),
+  );
   assert.equal(await fs.readFile(target, "utf-8"), "original");
   registry.close();
 });

@@ -19,6 +19,7 @@ test("plans read_file verification for successful edit write", () => {
     input: { path: "src/a.ts", content: "new" },
     permission: "write",
     ok: true,
+    outcomeClass: "observation_success",
     output: { path: "src/a.ts", changeId: "chg-1" },
   };
 
@@ -37,9 +38,15 @@ test("skips non-edit, failed write, and missing path", () => {
     input: {},
     permission: "write",
     ok: true,
+    outcomeClass: "observation_success",
     output: { path: "src/a.ts" },
   };
-  const failedWrite: AgentToolStep = { ...writeStep, ok: false, error: "failed" };
+  const failedWrite: AgentToolStep = {
+    ...writeStep,
+    ok: false,
+    error: "failed",
+    outcomeClass: "execution_error",
+  };
   const missingPath: AgentToolStep = { ...writeStep, output: {} };
 
   assert.equal(workflow.run({ intent: "answer", step: writeStep }), undefined);

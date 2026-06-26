@@ -230,22 +230,28 @@ export function permissionItemsFromConfirmation(
 ): PermissionRequestItem[] {
   const items: PermissionRequestItem[] = [];
   for (const file of confirmation.affects.files) {
-    items.push({
-      type: "write_file",
-      target: file,
-      reason: confirmation.message,
-      tool: confirmation.tool,
-      riskTier: confirmation.risk.tier,
-    });
+      items.push({
+        type: confirmation.permission === "read" ? "read_file" : "write_file",
+        target: file,
+        reason: confirmation.message,
+        tool: confirmation.tool,
+        riskTier: confirmation.risk.tier,
+        rootPath: file.replace(/[\\/]\*\*?$/, ""),
+        operation: confirmation.permission === "read" ? "read" : "write",
+        pathRisk: confirmation.risk.reasons.find((r) => r !== "cross_workspace"),
+      });
   }
   for (const command of confirmation.affects.commands) {
-    items.push({
-      type: "shell",
-      target: command,
-      reason: confirmation.message,
-      tool: confirmation.tool,
-      riskTier: confirmation.risk.tier,
-    });
+      items.push({
+        type: "shell",
+        target: command,
+        reason: confirmation.message,
+        tool: confirmation.tool,
+        riskTier: confirmation.risk.tier,
+        rootPath: command.replace(/[\\/]\*\*?$/, ""),
+        operation: "shell",
+        pathRisk: confirmation.risk.reasons.find((r) => r !== "cross_workspace"),
+      });
   }
   for (const target of confirmation.affects.networkTargets) {
     items.push({
@@ -258,11 +264,24 @@ export function permissionItemsFromConfirmation(
   }
   if (items.length === 0) {
     items.push({
-      type: confirmation.permission === "shell" ? "shell" : "write_file",
+      type:
+        confirmation.permission === "read"
+          ? "read_file"
+          : confirmation.permission === "shell"
+            ? "shell"
+            : "write_file",
       target: confirmation.action,
       reason: confirmation.message,
       tool: confirmation.tool,
       riskTier: confirmation.risk.tier,
+      rootPath: confirmation.action.replace(/[\\/]\*\*?$/, ""),
+      operation:
+        confirmation.permission === "read"
+          ? "read"
+          : confirmation.permission === "shell"
+            ? "shell"
+            : "write",
+      pathRisk: confirmation.risk.reasons.find((r) => r !== "cross_workspace"),
     });
   }
   return items;

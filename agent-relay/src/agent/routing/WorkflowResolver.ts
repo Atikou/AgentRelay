@@ -105,8 +105,8 @@ function reconcileWorkflowSideEffects(
       intent: "run",
       workflowType: route.workflowType,
       workflowPlan: defaultWorkflowPlanner.plan(message, mode, "run"),
-      isContinuation: false,
-      isNewTask: true,
+      isContinuation: decision.isContinuation,
+      isNewTask: boundary.breaksContinuation ? true : decision.isNewTask,
       needsRunCommand: true,
       reason: boundary.reason || `任务需要 shell，切换到 ${route.workflowType}`,
       source: "task_boundary",
@@ -114,7 +114,69 @@ function reconcileWorkflowSideEffects(
     };
   }
 
+  if (required.includes("write")) {
+    const route = defaultWorkflowRouter.routeIntent("edit");
+    const mode = runModeForIntent("edit");
+    return {
+      ...decision,
+      mode,
+      modeSource: "inferred",
+      intent: "edit",
+      workflowType: route.workflowType,
+      workflowPlan: defaultWorkflowPlanner.plan(message, mode, "edit"),
+      isContinuation: decision.isContinuation,
+      isNewTask: boundary.breaksContinuation ? true : decision.isNewTask,
+      needsWrite: true,
+      reason: boundary.reason || `任务需要 write，切换到 ${route.workflowType}`,
+      source: decision.isContinuation ? "task_continuation" : "task_boundary",
+      confidence: Math.max(decision.confidence, 0.82),
+    };
+  }
+
   return decision;
+}
+
+/** 任务续写：保留 taskId/续写标记，workflow 仍经副作用兼容重解析。 */
+export function resolveForContinuation(
+  input: WorkflowResolveInput & {
+    continuation: import("./TaskContinuationEngine.js").TaskContinuationDecision;
+  },
+): IntentDecision {
+  const intent = input.continuation.inheritIntent!;
+  const candidate: IntentDecision = {
+    mode: runModeForIntent(intent),
+    modeSource: "inferred",
+    intent,
+    workflowType: input.continuation.inheritWorkflowType!,
+    workflowPlan: null,
+    isContinuation: true,
+    isNewTask: false,
+    confidence: Math.max(0.85, input.continuation.score),
+    reason: input.continuation.reason,
+    source: "task_continuation",
+    inheritedTaskId: input.continuation.inheritedTaskId ?? input.taskContext?.taskId,
+    previousWorkflowType: input.taskContext?.workflowType,
+    continuationScore: input.continuation.score,
+    continuationSignals: input.continuation.signals,
+  };
+  const resolved = resolveWorkflow({
+    ...input,
+    candidate,
+    candidateSource: "task_continuation",
+  });
+  return {
+    ...resolved,
+    isContinuation: true,
+    isNewTask: false,
+    inheritedTaskId: candidate.inheritedTaskId,
+    previousWorkflowType: candidate.previousWorkflowType,
+    continuationScore: input.continuation.score,
+    continuationSignals: input.continuation.signals,
+    source:
+      resolved.source === "task_boundary" || resolved.source === "intent_adjudicator"
+        ? resolved.source
+        : "task_continuation",
+  };
 }
 
 export { evaluateTaskBoundary, inferRequiredSideEffectsFromMessage };

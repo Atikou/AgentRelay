@@ -120,7 +120,14 @@ export function createIntentClassifierChatFn(deps: {
   return async (input) => {
     const userContent = buildIntentClassifierUserMessage({
       message: input.message,
-      taskContext: input.taskContext,
+      context: {
+        taskContext: input.taskContext,
+        reconciledWorkflowType: input.taskContext?.reconciledWorkflowType,
+        reconciledIntent: input.taskContext?.reconciledIntent,
+        completionStatus: input.taskContext?.lastCompletionStatus,
+        lastStopReason: input.taskContext?.lastStopReason,
+        toolLedgerSummary: formatTaskSideEffectSummary(input.taskContext?.lastSideEffectSummary),
+      },
     });
     const request: ChatRequest = {
       messages: [
@@ -208,4 +215,14 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
         reject(error);
       });
   });
+}
+
+function formatTaskSideEffectSummary(
+  summary?: import("../task/TaskContext.js").TaskSideEffectSummary,
+): string | undefined {
+  if (!summary) return undefined;
+  const parts: string[] = [];
+  if (summary.wroteFiles.length) parts.push(`wrote=${summary.wroteFiles.slice(0, 3).join(",")}`);
+  if (summary.ranShell) parts.push("ranShell=true");
+  return parts.length ? parts.join("; ") : undefined;
 }

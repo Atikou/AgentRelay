@@ -1,3 +1,4 @@
+import fs from "node:fs";
 import { stat } from "node:fs/promises";
 import path from "node:path";
 
@@ -15,6 +16,15 @@ export function resolveInsideWorkspace(workspaceRoot: string, target: string): s
   const inside = rel === "" || (!rel.startsWith("..") && !path.isAbsolute(rel));
   if (!inside) {
     throw new Error(`禁止访问工作区之外的路径：${target}`);
+  }
+  const resolved = resolveExistingRealpathSync(full);
+  if (resolved) {
+    const resolvedRoot = resolveExistingRealpathSync(root) ?? root;
+    const realRel = path.relative(resolvedRoot, resolved);
+    const realInside = realRel === "" || (!realRel.startsWith("..") && !path.isAbsolute(realRel));
+    if (!realInside) {
+      throw new Error(`禁止访问工作区之外的路径（符号链接）：${target}`);
+    }
   }
   return full;
 }
@@ -124,5 +134,20 @@ export async function assertIsFile(fullPath: string, displayPath?: string): Prom
     const code = (err as NodeJS.ErrnoException).code;
     if (code === "ENOENT") throw new Error(`文件不存在：${label}`);
     throw err;
+  }
+}
+
+function resolveExistingRealpathSync(target: string): string | undefined {
+  let current = path.resolve(target);
+  while (true) {
+    try {
+      return fs.realpathSync.native(current);
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code;
+      if (code !== "ENOENT" && code !== "ENOTDIR") return undefined;
+      const parent = path.dirname(current);
+      if (parent === current) return undefined;
+      current = parent;
+    }
   }
 }

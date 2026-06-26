@@ -53,6 +53,10 @@ export class FallbackManager {
       return this.planFromCollaboration(decision, trigger, fromModelId, exclude, context.localOnly);
     }
 
+    if (fromStrategy === "parallel_vote") {
+      return this.planFromSingle(decision, trigger, fromModelId, exclude, context.localOnly);
+    }
+
     if (fromStrategy === "single_model" || fromStrategy === "strong_model_direct") {
       return this.planFromSingle(decision, trigger, fromModelId, exclude, context.localOnly);
     }

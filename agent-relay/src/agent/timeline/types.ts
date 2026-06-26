@@ -43,6 +43,10 @@ export interface ActivityStepMetadata {
   errorMessage?: string;
   outcomeClass?: string;
   outcomeKind?: string;
+  crossWorkspace?: boolean;
+  matchedRoot?: string;
+  grantId?: string;
+  pathRisk?: string;
   retryCount?: number;
   collapsible?: boolean;
   durationMs?: number;

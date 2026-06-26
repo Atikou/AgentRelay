@@ -13,12 +13,14 @@ import {
   shouldGuardrailOverrideAiClassifier,
   type TaskContinuationDecision,
 } from "./TaskContinuationEngine.js";
-import { evaluateTaskBoundary, workflowSatisfiesSideEffects } from "./TaskBoundaryDecision.js";
+import { evaluateTaskBoundary } from "./TaskBoundaryDecision.js";
 import type { IntentDecision } from "./IntentDecision.js";
 import { resolveLegacyIntentFallback } from "./LegacyIntentFallback.js";
 import type { SessionTaskManager } from "../task/SessionTaskManager.js";
 import { defaultSessionTaskManager } from "../task/SessionTaskManager.js";
-import { resolveWorkflow } from "./WorkflowResolver.js";
+import { resolveForContinuation, resolveWorkflow } from "./WorkflowResolver.js";
+import { buildRoutingSnapshot, shouldMarkSessionInactive } from "./RoutingSnapshot.js";
+import { enrichIntentDecision } from "./IntentDecisionEnrichment.js";
 
 export interface EntryIntentRouteInput {
   requestedMode?: string;
@@ -31,8 +33,7 @@ export interface EntryIntentRouteInput {
 
 /**
  * 入口意图路由：
- * MessageSignalExtractor → TaskBoundary → TaskContinuation → AI/Legacy 语义候选
- * → WorkflowResolver（IntentSemanticAdjudicator + 副作用兼容重解析）
+ * RoutingSnapshot → WorkflowResolver（含续写 workflow 重解析）
  */
 export class EntryIntentRouter {
   constructor(private readonly sessionTasks: SessionTaskManager = defaultSessionTaskManager) {}
@@ -67,27 +68,46 @@ export class EntryIntentRouter {
         taskType: input.taskType,
       });
       const intent = intentForExplicitMode(explicit);
-      return {
-        ...fallback,
-        mode: explicit,
-        intent,
-        modeSource: "explicit",
-        source: "explicit_mode",
-        reason: "显式 mode 覆盖",
-        confidence: 1,
-      };
+      return enrichIntentDecision(
+        {
+          ...fallback,
+          mode: explicit,
+          intent,
+          modeSource: "explicit",
+          source: "explicit_mode",
+          reason: "显式 mode 覆盖",
+          confidence: 1,
+        },
+        {
+          boundary: {
+            hasExplicitActionAnchor: true,
+            requiredSideEffects: [],
+            breaksContinuation: false,
+            reason: "",
+          },
+          effectiveTaskContext: undefined,
+        },
+        fallback,
+      );
     }
 
     const sessionId = input.sessionId?.trim();
-    const taskContext =
+    const rawTaskContext =
       input.taskContext ?? (sessionId ? this.sessionTasks.getContext(sessionId) : undefined);
     const message = input.message ?? "";
     const signals = extractMessageContinuationSignals(message);
-    const boundary = evaluateTaskBoundary(message, taskContext, signals);
-    let continuation = evaluateTaskContinuation(message, taskContext, signals);
+    const boundary = evaluateTaskBoundary(message, rawTaskContext, signals);
+    let continuation = evaluateTaskContinuation(message, rawTaskContext, signals);
+
+    const snapshot = buildRoutingSnapshot({
+      taskContext: rawTaskContext,
+      signals,
+      boundary,
+      continuation,
+      aiDecision,
+    });
 
     if (boundary.breaksContinuation) {
-      if (sessionId) this.sessionTasks.markInactive(sessionId);
       continuation = {
         kind: "new_task",
         score: 1,
@@ -98,137 +118,145 @@ export class EntryIntentRouter {
           boundaryBreak: true,
         },
       };
-    } else if (sessionId && continuation.kind === "new_task") {
-      this.sessionTasks.markInactive(sessionId);
+      snapshot.continuation = continuation;
+      snapshot.effectiveTaskContext = undefined;
     }
 
-    if (
-      sessionId &&
-      continuation.kind === "inherit" &&
-      continuation.inheritIntent &&
-      continuation.inheritWorkflowType &&
-      workflowSatisfiesSideEffects(continuation.inheritWorkflowType, boundary.requiredSideEffects)
-    ) {
-      return this.buildContinuationDecision({
-        continuation,
-        taskContext,
-        reason: continuation.reason,
-        source: "task_continuation",
-      });
+    if (sessionId && shouldMarkSessionInactive(snapshot)) {
+      this.sessionTasks.markInactive(sessionId);
+      snapshot.effectiveTaskContext = undefined;
     }
+
+    const effectiveCtx = snapshot.effectiveTaskContext;
 
     const legacy = resolveLegacyIntentFallback({
       message,
       taskType: input.taskType,
     });
+    snapshot.legacyDecision = legacy;
 
     recordIntentClassifierDiff({
       sessionId,
       message,
       aiDecision,
-      legacyIntent: legacy.intent,
+      legacyIntent: legacy.legacyIntentHint ?? legacy.intent,
     });
 
-    if (aiDecision && aiDecision.confidence >= 0.6) {
-      if (aiDecision.isNewTask && sessionId) {
-        this.sessionTasks.markInactive(sessionId);
-      }
+    if (
+      sessionId &&
+      continuation.kind === "inherit" &&
+      continuation.inheritIntent &&
+      continuation.inheritWorkflowType
+    ) {
+      return enrichIntentDecision(
+        resolveForContinuation({
+          message,
+          continuation,
+          candidate: {} as IntentDecision,
+          candidateSource: "task_continuation",
+          signals,
+          boundary,
+          taskContext: effectiveCtx,
+          taskType: input.taskType,
+        }),
+        snapshot,
+        legacy,
+      );
+    }
 
+    if (aiDecision && aiDecision.confidence >= 0.6) {
       if (
-        taskContext &&
+        effectiveCtx &&
         !boundary.breaksContinuation &&
         shouldGuardrailOverrideAiClassifier({
-          ctx: taskContext,
+          ctx: effectiveCtx,
           aiIntent: aiDecision.intent,
           aiIsContinuation: aiDecision.isContinuation === true,
           continuation,
         })
       ) {
-        return this.buildContinuationDecision({
-          continuation: {
-            ...continuation,
-            kind: "inherit",
-            inheritIntent: taskContext.intent,
-            inheritWorkflowType: taskContext.workflowType,
-            inheritedTaskId: taskContext.taskId,
-            reason: `AI 降级为 ${aiDecision.intent}，任务延续守卫继承活跃任务`,
-          },
-          taskContext,
-          reason: `AI 降级为 ${aiDecision.intent}，任务延续守卫继承活跃任务`,
-          source: "task_continuation",
-          aiOverridden: true,
-        });
+        return enrichIntentDecision(
+          resolveForContinuation({
+            message,
+            continuation: {
+              ...continuation,
+              kind: "inherit",
+              inheritIntent: effectiveCtx.intent,
+              inheritWorkflowType: effectiveCtx.workflowType,
+              inheritedTaskId: effectiveCtx.taskId,
+              reason: `AI 降级为 ${aiDecision.intent}，任务延续守卫继承活跃任务`,
+            },
+            candidate: aiDecision,
+            candidateSource: "task_continuation",
+            signals,
+            boundary,
+            taskContext: effectiveCtx,
+            taskType: input.taskType,
+          }),
+          snapshot,
+          legacy,
+        );
       }
 
-      return resolveWorkflow({
+      const decision = resolveWorkflow({
         message,
         candidate: aiDecision,
         candidateSource: "ai_classifier",
         signals,
         boundary,
-        taskContext,
+        taskContext: effectiveCtx,
         taskType: input.taskType,
       });
+      return enrichIntentDecision(
+        { ...decision, aiOverridden: decision.source === "intent_adjudicator" },
+        snapshot,
+        legacy,
+      );
     }
 
     if (
       sessionId &&
-      taskContext?.isActive &&
+      effectiveCtx?.isActive &&
       !boundary.breaksContinuation &&
-      shouldInheritActiveTaskOnUncertain(taskContext, legacy.intent)
+      shouldInheritActiveTaskOnUncertain(effectiveCtx, legacy.legacyIntentHint ?? legacy.intent)
     ) {
-      return this.buildContinuationDecision({
-        continuation: {
-          kind: "inherit",
-          score: continuation.score,
-          reason: `活跃任务覆盖 legacy ${legacy.intent}`,
-          inheritIntent: taskContext.intent,
-          inheritWorkflowType: taskContext.workflowType,
-          inheritedTaskId: taskContext.taskId,
-          signals: continuation.signals,
-        },
-        taskContext,
-        reason: `活跃任务覆盖 legacy ${legacy.intent}`,
-        source: "session_continuation",
-      });
+      return enrichIntentDecision(
+        resolveForContinuation({
+          message,
+          continuation: {
+            kind: "inherit",
+            score: continuation.score,
+            reason: `活跃任务覆盖 legacy ${legacy.legacyIntentHint ?? legacy.intent}`,
+            inheritIntent: effectiveCtx.intent,
+            inheritWorkflowType: effectiveCtx.workflowType,
+            inheritedTaskId: effectiveCtx.taskId,
+            signals: continuation.signals,
+          },
+          candidate: legacy,
+          candidateSource: "session_continuation",
+          signals,
+          boundary,
+          taskContext: effectiveCtx,
+          taskType: input.taskType,
+        }),
+        snapshot,
+        legacy,
+      );
     }
 
-    return resolveWorkflow({
-      message,
-      candidate: legacy,
-      candidateSource: "legacy_fallback",
-      signals,
-      boundary,
-      taskContext,
-      taskType: input.taskType,
-    });
-  }
-
-  private buildContinuationDecision(input: {
-    continuation: TaskContinuationDecision;
-    taskContext?: TaskContext;
-    reason: string;
-    source: IntentDecision["source"];
-    aiOverridden?: boolean;
-  }): IntentDecision {
-    const intent = input.continuation.inheritIntent!;
-    return {
-      mode: runModeForIntent(intent),
-      modeSource: "inferred",
-      intent,
-      workflowType: input.continuation.inheritWorkflowType!,
-      workflowPlan: null,
-      isContinuation: true,
-      isNewTask: false,
-      confidence: Math.max(0.85, input.continuation.score),
-      reason: input.reason,
-      source: input.source,
-      inheritedTaskId: input.continuation.inheritedTaskId ?? input.taskContext?.taskId,
-      previousWorkflowType: input.taskContext?.workflowType,
-      continuationScore: input.continuation.score,
-      continuationSignals: input.continuation.signals,
-      aiOverridden: input.aiOverridden,
-    };
+    return enrichIntentDecision(
+      resolveWorkflow({
+        message,
+        candidate: legacy,
+        candidateSource: "legacy_fallback",
+        signals,
+        boundary,
+        taskContext: effectiveCtx,
+        taskType: input.taskType,
+      }),
+      snapshot,
+      legacy,
+    );
   }
 }
 

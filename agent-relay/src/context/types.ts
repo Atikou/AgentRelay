@@ -67,6 +67,9 @@ export interface MessageRecord {
   trusted?: boolean;
   source?: import("./messageEnvelope.js").MessageSource;
   runId?: string;
+  ledgerBacked?: boolean;
+  outcomeClass?: string;
+  outcomeKind?: string;
   createdAt: string;
 }
 

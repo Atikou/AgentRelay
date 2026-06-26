@@ -25,7 +25,8 @@ export type ExecutionStrategy =
   | "rule_only"
   | "single_model"
   | "strong_model_direct"
-  | "local_draft_remote_review";
+  | "local_draft_remote_review"
+  | "parallel_vote";
 
 /** V2 FallbackManager 触发原因（见 Agent_Model_Router_Auto_Upgrade_Roadmap §5.2）。 */
 export type FallbackTrigger =
@@ -128,6 +129,10 @@ export interface RouterDecision {
   draftModelId?: string;
   reviewModelId?: string;
   finalModelId?: string;
+  /** parallel_vote：并行作答的模型 id（2 个）。 */
+  voteModelIds?: string[];
+  /** parallel_vote：裁决模型 id。 */
+  judgeModelId?: string;
   requireUserConfirmation: boolean;
   candidates: string[];
   createdAt: string;

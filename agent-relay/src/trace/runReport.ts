@@ -70,6 +70,13 @@ function accumulateUsage(events: TraceEvent[]): RunUsageReport {
     toolExecutionErrors: 0,
   };
 
+  const requestedToolCallIds = new Set<string>();
+  const terminalByToolCallId = new Map<
+    string,
+    { outcomeClass?: string; ok?: boolean; status?: string }
+  >();
+  let legacyToolAuditCount = 0;
+
   for (const event of events) {
     const e = event as Record<string, unknown>;
     if (e.type === "agent_model_turn") {
@@ -78,17 +85,28 @@ function accumulateUsage(events: TraceEvent[]): RunUsageReport {
       usage.totalOutputTokens += Number(e.outputTokens ?? 0);
       usage.totalCostUsd += Number(e.costUsd ?? 0);
     }
-    if (e.type === "agent_tool" || e.type === "tool_audit") {
-      usage.toolCalls += 1;
-      const outcomeClass = typeof e.outcomeClass === "string" ? e.outcomeClass : undefined;
-      if (outcomeClass === "observation_failure") {
-        usage.toolObservationFailures += 1;
-        usage.toolFailures += 1;
-      } else if (outcomeClass === "execution_error") {
-        usage.toolExecutionErrors += 1;
-        usage.toolFailures += 1;
-      } else if (e.success === false || e.ok === false || e.status === "error") {
-        usage.toolFailures += 1;
+    if (e.type === "agent_tool" && typeof e.toolCallId === "string") {
+      requestedToolCallIds.add(e.toolCallId);
+    }
+    if (e.type === "tool_audit") {
+      if (typeof e.toolCallId === "string") {
+        terminalByToolCallId.set(e.toolCallId, {
+          outcomeClass: typeof e.outcomeClass === "string" ? e.outcomeClass : undefined,
+          ok: typeof e.ok === "boolean" ? e.ok : undefined,
+          status: typeof e.status === "string" ? e.status : undefined,
+        });
+      } else {
+        legacyToolAuditCount += 1;
+        const outcomeClass = typeof e.outcomeClass === "string" ? e.outcomeClass : undefined;
+        if (outcomeClass === "observation_failure") {
+          usage.toolObservationFailures += 1;
+          usage.toolFailures += 1;
+        } else if (outcomeClass === "execution_error") {
+          usage.toolExecutionErrors += 1;
+          usage.toolFailures += 1;
+        } else if (e.success === false || e.ok === false || e.status === "error") {
+          usage.toolFailures += 1;
+        }
       }
     }
     if (e.type === "run_usage_summary") {
@@ -100,6 +118,27 @@ function accumulateUsage(events: TraceEvent[]): RunUsageReport {
       usage.toolFailures = Number(e.toolFailures ?? usage.toolFailures);
       usage.toolObservationFailures = Number(e.toolObservationFailures ?? usage.toolObservationFailures);
       usage.toolExecutionErrors = Number(e.toolExecutionErrors ?? usage.toolExecutionErrors);
+    }
+  }
+
+  if (requestedToolCallIds.size > 0) {
+    usage.toolCalls = requestedToolCallIds.size;
+  } else if (terminalByToolCallId.size > 0) {
+    usage.toolCalls = terminalByToolCallId.size;
+  } else {
+    usage.toolCalls = legacyToolAuditCount;
+  }
+
+  for (const terminal of terminalByToolCallId.values()) {
+    const outcomeClass = terminal.outcomeClass;
+    if (outcomeClass === "observation_failure") {
+      usage.toolObservationFailures += 1;
+      usage.toolFailures += 1;
+    } else if (outcomeClass === "execution_error") {
+      usage.toolExecutionErrors += 1;
+      usage.toolFailures += 1;
+    } else if (terminal.ok === false || terminal.status === "error") {
+      usage.toolFailures += 1;
     }
   }
 
@@ -117,6 +156,25 @@ function str(value: unknown): string | undefined {
 
 function num(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function workspaceAccessOf(event: Record<string, unknown>):
+  | {
+      crossWorkspace?: boolean;
+      matchedRoot?: string;
+      grantId?: string;
+      pathRisk?: string;
+    }
+  | undefined {
+  const access = event.workspaceAccess;
+  if (!access || typeof access !== "object" || Array.isArray(access)) return undefined;
+  const record = access as Record<string, unknown>;
+  return {
+    crossWorkspace: typeof record.crossWorkspace === "boolean" ? record.crossWorkspace : undefined,
+    matchedRoot: str(record.matchedRoot),
+    grantId: str(record.grantId),
+    pathRisk: str(record.pathRisk),
+  };
 }
 
 /** 将单条 trace 事件映射为时间线条目。 */
@@ -196,26 +254,36 @@ export function mapTraceEventToTimelineEntry(event: TraceEvent): RunTimelineEntr
     };
   }
   if (type === "agent_tool") {
+    const access = workspaceAccessOf(e);
     return {
       time,
       category: "tool",
       type,
-      title: `Agent 工具 · ${str(e.tool) ?? "unknown"}`,
+      title: `${access?.crossWorkspace ? "跨工作区工具" : "Agent 工具"} · ${str(e.tool) ?? "unknown"}`,
       status: "requested",
-      refs: { iteration: num(e.iteration), toolCallId: str(e.toolCallId) },
+      detail: access?.crossWorkspace ? `root=${access.matchedRoot ?? "-"}` : undefined,
+      refs: {
+        iteration: num(e.iteration),
+        toolCallId: str(e.toolCallId),
+        crossWorkspace: access?.crossWorkspace,
+        matchedRoot: access?.matchedRoot,
+        grantId: access?.grantId,
+        pathRisk: access?.pathRisk,
+      },
     };
   }
   if (type === "tool_audit") {
     const outcomeClass = str(e.outcomeClass);
     const outcomeKind = str(e.outcomeKind);
+    const access = workspaceAccessOf(e);
     return {
       time,
       category: "tool",
       type,
-      title: `工具审计 · ${str(e.tool) ?? "unknown"}`,
+      title: `${access?.crossWorkspace ? "跨工作区审计" : "工具审计"} · ${str(e.tool) ?? "unknown"}`,
       status: outcomeClass ?? str(e.status) ?? "unknown",
       detail: outcomeKind
-        ? `${outcomeKind}${str(e.error) ? ` · ${str(e.error)}` : ""}`
+        ? `${outcomeKind}${access?.matchedRoot ? ` · root=${access.matchedRoot}` : ""}${str(e.error) ? ` · ${str(e.error)}` : ""}`
         : str(e.error) ?? str(e.code),
       refs: {
         toolCallId: str(e.toolCallId),
@@ -224,6 +292,29 @@ export function mapTraceEventToTimelineEntry(event: TraceEvent): RunTimelineEntr
         durationMs: num(e.durationMs),
         outcomeClass,
         outcomeKind,
+        crossWorkspace: access?.crossWorkspace,
+        matchedRoot: access?.matchedRoot,
+        grantId: access?.grantId,
+        pathRisk: access?.pathRisk,
+      },
+    };
+  }
+  if (type === "path_access_decision") {
+    return {
+      time,
+      category: "tool",
+      type,
+      title: `${e.crossWorkspace === true ? "跨工作区路径决策" : "路径决策"} · ${str(e.tool) ?? "unknown"}`,
+      status: e.allowed === true ? "allowed" : e.needsConfirmation === true ? "permission_required" : "denied",
+      detail: `${str(e.reason) ?? "unknown"} · ${str(e.normalizedPath) ?? ""}`,
+      refs: {
+        toolCallId: str(e.toolCallId),
+        operation: str(e.operation),
+        matchedRoot: str(e.matchedRoot),
+        workspaceScopeId: str(e.workspaceScopeId),
+        grantId: str(e.grantId),
+        pathRisk: str(e.pathRisk),
+        crossWorkspace: e.crossWorkspace === true,
       },
     };
   }

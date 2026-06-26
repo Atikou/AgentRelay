@@ -27,6 +27,7 @@ test("verify workflow executes a safe command and collects output", async () => 
     registry: createDefaultRegistry(),
     workspaceRoot: sandbox,
     allowedPermissions: ["read", "shell"],
+    permissionPolicy: "autoRun",
     budget: {
       maxModelTurns: 1,
       maxToolCalls: 1,
@@ -45,6 +46,30 @@ test("verify workflow executes a safe command and collects output", async () => 
   assert.match(result?.modelContext ?? "", /verifyWorkflow automatic verification result/);
 });
 
+test("confirmBeforeRun 下 verify preflight 不自动执行 shell", async () => {
+  const workflow = new RunVerifyWorkflow({
+    registry: createDefaultRegistry(),
+    workspaceRoot: sandbox,
+    allowedPermissions: ["read", "shell"],
+    permissionPolicy: "confirmBeforeRun",
+    budget: {
+      maxModelTurns: 1,
+      maxToolCalls: 1,
+      maxReadCalls: 0,
+      maxWriteCalls: 0,
+      maxShellCalls: 1,
+      maxRuntimeMs: 60000,
+      maxPreflightTools: 2,
+      maxRecoveryTurns: 2,
+      maxRepeatedToolFailures: 1,
+    },
+  });
+  const result = await workflow.run("run npm test to verify", "verify");
+  assert.equal(result?.executed, false);
+  assert.equal(result?.steps.length, 0);
+  assert.match(result?.fallbackReason ?? "", /JIT confirmation/i);
+});
+
 test("workflow falls back when shell permission is unavailable", async () => {
   const workflow = new RunVerifyWorkflow({
     registry: createDefaultRegistry(),
@@ -57,6 +82,9 @@ test("workflow falls back when shell permission is unavailable", async () => {
       maxWriteCalls: 0,
       maxShellCalls: 1,
       maxRuntimeMs: 60000,
+      maxPreflightTools: 2,
+      maxRecoveryTurns: 2,
+      maxRepeatedToolFailures: 1,
     },
   });
   const result = await workflow.run("run node --version to verify env", "verify");

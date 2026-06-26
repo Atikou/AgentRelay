@@ -1,6 +1,7 @@
 import type { AppContext } from "../../app/createAppContext.js";
 import type { ApiResult } from "../../orchestrator/Orchestrator.js";
 import type { EvalSetCase, EvalSetScope } from "../../model-router/eval-set-types.js";
+import { buildPipelineGraph } from "../../model-router/pipeline-graph.js";
 import { RuntimeStatsCollector } from "../../model-router/runtime-stats.js";
 
 export function handleRoutingProfiles(app: AppContext): ApiResult {
@@ -18,13 +19,17 @@ export function handleRoutingLogs(app: AppContext, url: URL): ApiResult {
     if (!route) {
       return { status: 404, body: { error: "路由记录不存在" } };
     }
+    const calls = app.modelCallLogStore.listByRoute(routeLogId);
+    const collaborations = app.collaborationRunStore.listByRoute(routeLogId);
+    const fallbacks = app.fallbackLogStore.listByRoute(routeLogId);
     return {
       status: 200,
       body: {
         route,
-        calls: app.modelCallLogStore.listByRoute(routeLogId),
-        collaborations: app.collaborationRunStore.listByRoute(routeLogId),
-        fallbacks: app.fallbackLogStore.listByRoute(routeLogId),
+        calls,
+        collaborations,
+        fallbacks,
+        pipelineGraph: buildPipelineGraph({ route, calls, collaborations, fallbacks }),
       },
     };
   }

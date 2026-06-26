@@ -46,6 +46,10 @@ export function mapMessage(row: Record<string, unknown>): MessageRecord {
       ? (String(row.source) as MessageSource)
       : inferred?.source,
     runId: row.run_id ? String(row.run_id) : undefined,
+    ledgerBacked:
+      row.ledger_backed != null ? Number(row.ledger_backed) === 1 : undefined,
+    outcomeClass: row.outcome_class ? String(row.outcome_class) : undefined,
+    outcomeKind: row.outcome_kind ? String(row.outcome_kind) : undefined,
     createdAt: String(row.created_at),
   };
 }

@@ -1,4 +1,5 @@
 import type { ContextManager } from "../context/ContextManager.js";
+import { claimsCompletionInText } from "../context/contextTrust.js";
 import type { CorrelationContext } from "../core/correlation.js";
 import type { ModelOrchestrator } from "../model-orchestrator/index.js";
 import type { OrchestratorInput } from "../model-orchestrator/types.js";
@@ -19,6 +20,20 @@ import { AgentRunRegistry, isRunCancelledError } from "./AgentRunRegistry.js";
 import type { ChatStreamEvent } from "./ChatStream.js";
 import type { ApiResult } from "./Orchestrator.js";
 import type { RunStore } from "./RunStore.js";
+
+function persistChatFinalAnswer(
+  contextManager: ContextManager,
+  sessionId: string,
+  content: string,
+  runId?: string,
+  model?: { clientName?: string; modelName?: string },
+): void {
+  if (claimsCompletionInText(content)) {
+    contextManager.saveRawModelFinal(sessionId, content, runId, model);
+  } else {
+    contextManager.saveTrustedModelFinalAnswer(sessionId, content, runId, model);
+  }
+}
 
 type ChatRoutingPayload = {
   sensitive?: boolean;
@@ -207,6 +222,7 @@ export class ChatService {
       let executionStrategy: string | undefined;
       let fallbackCount: number | undefined;
       let fallbackLogIds: string[] | undefined;
+      let voteResult: unknown;
 
       if (useSmart) {
         const smart = this.buildSmartOrchestratorInput({
@@ -231,6 +247,7 @@ export class ChatService {
         executionStrategy = orchestrated.usedStrategy;
         fallbackCount = orchestrated.fallbackCount;
         fallbackLogIds = orchestrated.fallbackLogIds;
+        voteResult = orchestrated.voteResult;
       } else {
         const response = await this.deps.directChat(
           { messages, temperature: 0.3 },
@@ -249,7 +266,10 @@ export class ChatService {
       }
 
       if (persist && sessionId) {
-        this.deps.contextManager.saveAssistantMessage(sessionId, content);
+        persistChatFinalAnswer(this.deps.contextManager, sessionId, content, run.id, {
+          clientName,
+          modelName,
+        });
       }
 
       const finalized =
@@ -270,6 +290,7 @@ export class ChatService {
         routerDecision,
         collaborationRunId,
         executionStrategy,
+        voteResult,
         fallbackCount,
         fallbackLogIds,
         compressed: finalized?.compressed ? true : undefined,
@@ -376,7 +397,13 @@ export class ChatService {
         const orchestrated = await this.deps.modelOrchestrator!.run(smart.orchestratorInput);
 
         if (persist && sessionId) {
-          this.deps.contextManager.saveAssistantMessage(sessionId, orchestrated.finalAnswer);
+          persistChatFinalAnswer(
+            this.deps.contextManager,
+            sessionId,
+            orchestrated.finalAnswer,
+            run.id,
+            { clientName: orchestrated.clientName, modelName: orchestrated.modelName },
+          );
           await this.deps.contextManager.finalizeTurn(sessionId, message);
         }
 
@@ -396,6 +423,11 @@ export class ChatService {
           location: orchestrated.location,
           latencyMs: Math.round(orchestrated.latencyMs ?? 0),
           routerDecision: smart.routerDecision,
+          executionStrategy: orchestrated.usedStrategy,
+          collaborationRunId: orchestrated.collaborationRunId,
+          voteResult: orchestrated.voteResult,
+          fallbackCount: orchestrated.fallbackCount,
+          fallbackLogIds: orchestrated.fallbackLogIds,
         });
         return;
       }
@@ -417,7 +449,10 @@ export class ChatService {
       );
 
       if (persist && sessionId) {
-        this.deps.contextManager.saveAssistantMessage(sessionId, response.content);
+        persistChatFinalAnswer(this.deps.contextManager, sessionId, response.content, run.id, {
+          clientName: response.clientName,
+          modelName: response.modelName,
+        });
         await this.deps.contextManager.finalizeTurn(sessionId, message);
       }
 

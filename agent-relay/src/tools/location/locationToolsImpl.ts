@@ -7,6 +7,7 @@ import { ExplorationProgressTracker, type ExplorationProgressSnapshot } from "..
 import { DEFAULT_READ_MAX_BYTES } from "../constants.js";
 import { resolveInsideWorkspace } from "../pathSafe.js";
 import type { Tool, ToolContext } from "../types.js";
+import { classifyPathRisk } from "../../policy/PathRiskClassifier.js";
 import { DEFAULT_SOURCE_ROOTS, CONFIG_FILE_NAMES } from "./locationHeuristics.js";
 import { analyzeTaskQuery } from "./locationQueryAnalyzer.js";
 import type { LocateBudget, ProjectFileMeta, SearchPlan } from "./locationTypes.js";
@@ -457,19 +458,21 @@ export const symbolSearchTool: Tool<
 
 export const contextPackTool: Tool<
   typeof contextPackInputSchema,
-  {
-    files: Array<{
-      path: string;
-      summary: string;
-      content?: string;
-      importantSections?: string[];
-      truncated: boolean;
-    }>;
-    combinedSummary: string;
-    tokenEstimate: number;
-    skippedFiles: string[];
-  }
-> = {
+    {
+      files: Array<{
+        path: string;
+        summary: string;
+        content?: string;
+        importantSections?: string[];
+        truncated: boolean;
+      }>;
+      combinedSummary: string;
+      tokenEstimate: number;
+      skippedFiles: string[];
+      redactedFiles: Array<{ path: string; reason: string; riskTier: string }>;
+      skippedSensitiveFiles: string[];
+    }
+  > = {
   name: "context_pack",
   description: "一次性读取并摘要多个相关文件，减少连续 read_file 调用。",
   permission: "read",
@@ -477,13 +480,21 @@ export const contextPackTool: Tool<
   timeoutMs: 20_000,
   inputSchema: contextPackInputSchema,
   async execute(input, ctx) {
-    const packed = [];
-    const skippedFiles: string[] = [];
-    let tokenEstimate = 0;
+      const packed = [];
+      const skippedFiles: string[] = [];
+      const redactedFiles: Array<{ path: string; reason: string; riskTier: string }> = [];
+      const skippedSensitiveFiles: string[] = [];
+      let tokenEstimate = 0;
     const perFileChars = Math.max(1200, Math.floor((input.maxTokens * 4) / Math.min(input.maxFiles, input.files.length)));
-    for (const file of unique(input.files).slice(0, input.maxFiles)) {
-      const full = resolveInsideWorkspace(ctx.workspaceRoot, file);
-      let content: string;
+      for (const file of unique(input.files).slice(0, input.maxFiles)) {
+        const full = resolveInsideWorkspace(ctx.workspaceRoot, file);
+        const risk = classifyPathRisk(file);
+        if (risk.kind !== "normal") {
+          redactedFiles.push({ path: file, reason: risk.reasons.join(", ") || risk.kind, riskTier: risk.tier });
+          skippedSensitiveFiles.push(file);
+          continue;
+        }
+        let content: string;
       try {
         const buf = await fs.readFile(full);
         if (buf.includes(0)) {
@@ -514,11 +525,13 @@ export const contextPackTool: Tool<
       tokenEstimate += itemTokens;
       packed.push(item);
     }
-    return {
-      files: packed,
-      combinedSummary: packed.map((f) => `- ${f.path}: ${f.summary}`).join("\n"),
-      tokenEstimate,
-      skippedFiles,
-    };
+      return {
+        files: packed,
+        combinedSummary: packed.map((f) => `- ${f.path}: ${f.summary}`).join("\n"),
+        tokenEstimate,
+        skippedFiles,
+        redactedFiles,
+        skippedSensitiveFiles,
+      };
   },
 };

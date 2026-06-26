@@ -100,11 +100,13 @@ test("generate_file 活跃任务 + 安装依赖 → task_boundary 进入 runWork
   });
   const router = new EntryIntentRouter(manager);
   const decision = router.resolve({ sessionId, message: "安装依赖" });
-  assert.equal(decision.source, "task_boundary");
   assert.equal(decision.intent, "run");
   assert.equal(decision.workflowType, "runWorkflow");
   assert.equal(decision.isContinuation, false);
   assert.equal(decision.needsRunCommand, true);
+  assert.ok(
+    decision.source === "task_boundary" || decision.source === "intent_adjudicator",
+  );
 });
 
 test("edit 活跃任务 + 再好看壮观一点 → task_continuation 继承", () => {

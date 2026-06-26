@@ -1,5 +1,6 @@
 import type { ToolPermission } from "../core/permissions.js";
 import type { PermissionConfirmationRequest } from "../policy/PermissionGuard.js";
+import type { WorkspaceAccessAudit } from "../policy/PathPolicy.js";
 import type { StructuredToolRisk } from "../policy/ToolRiskAssessment.js";
 import type { SuggestedToolAction, ToolOutcomeClass } from "../tools/toolOutcome.js";
 import type { ToolResultLayers } from "../util/toolResultLayers.js";
@@ -43,4 +44,6 @@ export interface AgentToolStep {
   blockedReasonKind?: "workflow" | "permission" | "budget";
   risk?: StructuredToolRisk;
   confirmationRequest?: PermissionConfirmationRequest;
+  /** 多工作区授权沙箱审计信息。 */
+  workspaceAccess?: WorkspaceAccessAudit;
 }

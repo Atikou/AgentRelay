@@ -8,11 +8,12 @@ import { inferRequiredSideEffectsFromMessage } from "./SideEffectInference.js";
 import type { MessageContinuationSignals } from "./MessageSignalExtractor.js";
 import type { TaskBoundaryDecision } from "./TaskBoundaryDecision.js";
 
-const READONLY_SEMANTIC_INTENTS = new Set<AgentIntentType>([
+const NON_EXECUTABLE_INTENTS = new Set<AgentIntentType>([
   "answer",
   "summarize",
   "search",
   "review",
+  "plan",
 ]);
 
 const EXECUTION_INTENTS = new Set<AgentIntentType>(["run", "verify", "debug"]);
@@ -38,7 +39,7 @@ export function adjudicateIntentCandidate(input: AdjudicateIntentInput): IntentD
   let source: IntentDecisionSource = input.candidateSource;
   let corrected = false;
 
-  if (required.includes("write") && READONLY_SEMANTIC_INTENTS.has(intent)) {
+  if (required.includes("write") && NON_EXECUTABLE_INTENTS.has(intent)) {
     intent = "edit";
     corrected = true;
     reason = `语义候选为 ${input.candidate.intent}，但任务需要修改产物（write），纠偏为 edit`;
@@ -57,7 +58,7 @@ export function adjudicateIntentCandidate(input: AdjudicateIntentInput): IntentD
   if (
     input.taskContext?.isActive &&
     isSideEffectIntent(input.taskContext.intent) &&
-    READONLY_SEMANTIC_INTENTS.has(intent) &&
+    NON_EXECUTABLE_INTENTS.has(intent) &&
     !required.includes("shell")
   ) {
     intent = input.taskContext.intent;

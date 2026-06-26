@@ -65,6 +65,20 @@ function defaultAllowedTasks(level: 1 | 2 | 3): TaskType[] {
   return [...ALL_TASK_TYPES];
 }
 
+function normalizeProfileLevel(level: ModelProfile["defaultLevel"]): 1 | 2 | 3 {
+  if (level <= 1) return 1;
+  if (level === 2) return 2;
+  return 3;
+}
+
+function defaultMaxInputTokens(level: 1 | 2 | 3): number {
+  return level === 1 ? 8192 : level === 2 ? 32000 : 128000;
+}
+
+function defaultMaxOutputTokens(level: 1 | 2 | 3): number {
+  return level === 1 ? 2048 : level === 2 ? 4096 : 8192;
+}
+
 function inferDefaults(client: ModelClientConfig): Omit<
   ModelProfile,
   "id" | "displayName" | "provider"
@@ -86,8 +100,8 @@ function inferDefaults(client: ModelClientConfig): Omit<
     supportsTools: !isLocal,
     supportsVision: strong && client.provider === "anthropic",
     supportsJsonMode: !isLocal,
-    maxInputTokens: level === 1 ? 8192 : level === 2 ? 32000 : 128000,
-    maxOutputTokens: level === 1 ? 2048 : level === 2 ? 4096 : 8192,
+    maxInputTokens: defaultMaxInputTokens(level),
+    maxOutputTokens: defaultMaxOutputTokens(level),
     relativeCost: cost,
     avgLatencyMs: isLocal ? 800 : strong ? 2500 : 1500,
     allowedTaskTypes: defaultAllowedTasks(level),
@@ -105,6 +119,8 @@ export function buildModelProfiles(clients: ModelClientConfig[]): ModelProfile[]
     const inferred = inferDefaults(client);
     const rp = client.routerProfile;
     const level = (rp?.defaultLevel ?? inferred.defaultLevel) as ModelProfile["defaultLevel"];
+    const profileLevel = normalizeProfileLevel(level);
+    const levelWasOverridden = rp?.defaultLevel !== undefined && rp.defaultLevel !== inferred.defaultLevel;
     return {
       id: client.name,
       displayName: rp?.displayName ?? client.name,
@@ -115,11 +131,13 @@ export function buildModelProfiles(clients: ModelClientConfig[]): ModelProfile[]
       supportsTools: rp?.supportsTools ?? inferred.supportsTools,
       supportsVision: rp?.supportsVision ?? inferred.supportsVision,
       supportsJsonMode: rp?.supportsJsonMode ?? inferred.supportsJsonMode,
-      maxInputTokens: rp?.maxInputTokens ?? inferred.maxInputTokens,
-      maxOutputTokens: rp?.maxOutputTokens ?? inferred.maxOutputTokens,
+      maxInputTokens: rp?.maxInputTokens ?? (levelWasOverridden ? defaultMaxInputTokens(profileLevel) : inferred.maxInputTokens),
+      maxOutputTokens: rp?.maxOutputTokens ?? (levelWasOverridden ? defaultMaxOutputTokens(profileLevel) : inferred.maxOutputTokens),
       relativeCost: rp?.relativeCost ?? inferred.relativeCost,
       avgLatencyMs: rp?.avgLatencyMs ?? inferred.avgLatencyMs,
-      allowedTaskTypes: (rp?.allowedTaskTypes as TaskType[] | undefined) ?? inferred.allowedTaskTypes,
+      allowedTaskTypes:
+        (rp?.allowedTaskTypes as TaskType[] | undefined) ??
+        (levelWasOverridden ? defaultAllowedTasks(profileLevel) : inferred.allowedTaskTypes),
       allowedRoles: (rp?.allowedRoles as ModelRole[] | undefined) ?? inferred.allowedRoles,
       canDraft: rp?.canDraft ?? inferred.canDraft,
       canReview: rp?.canReview ?? inferred.canReview,

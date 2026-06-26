@@ -153,7 +153,82 @@ export class DecisionEngine {
       };
     }
 
+    if (
+      strategy === "local_draft_remote_review" &&
+      input.qualityMode === "deep" &&
+      !input.localOnly
+    ) {
+      const parallel = this.decideParallelVote(effectiveRule, input, base, context, contextNote);
+      if (parallel) return parallel;
+    }
+
     return this.decideCollaboration(effectiveRule, input, base, context, contextNote);
+  }
+
+  private decideParallelVote(
+    rule: RuleRouteResult,
+    input: RouterInput,
+    base: Omit<RouterDecision, "source" | "executionStrategy" | "candidates"> & { candidates: string[] },
+    routingContext?: RoutingContext,
+    contextNote = "",
+  ): RouterDecision | null {
+    const tokenNeed = routingContext?.effectiveTokenEstimate ?? input.contextTokenEstimate;
+    const merged = this.findParallelVotePool(rule, input, tokenNeed);
+    const ranked = this.rankCandidates(merged, input, rule.taskType, tokenNeed);
+    if (ranked.candidates.length < 2) return null;
+
+    const reviewRanked = this.rankCandidates(
+      this.registry.findReviewCandidates(rule, input.localOnly),
+      input,
+      rule.taskType,
+      tokenNeed,
+    );
+    const voters = ranked.candidates.slice(0, 2);
+    const judge =
+      reviewRanked.candidates.find((p) => !voters.some((v) => v.id === p.id)) ??
+      reviewRanked.candidates[0];
+    if (!judge) return null;
+
+    const voteModelIds = voters.map((v) => v.id);
+    const feedbackNote =
+      ranked.statsSignals.length > 0 ? `；V8 运行反馈：${ranked.statsSignals.join("，")}` : "";
+    const costNote = ranked.costSignals.length > 0 ? `；V8 成本预算：${ranked.costSignals.join("，")}` : "";
+
+    return {
+      ...base,
+      source: "rule",
+      executionStrategy: "parallel_vote",
+      voteModelIds,
+      judgeModelId: judge.id,
+      draftModelId: voteModelIds[0],
+      finalModelId: voteModelIds[1],
+      reviewModelId: judge.id,
+      candidates: [...new Set([...voteModelIds, judge.id])],
+      contextSignals: [
+        ...(routingContext?.signals ?? []),
+        ...ranked.statsSignals.map((s) => `stats:${s}`),
+        ...ranked.costSignals.map((s) => `cost:${s}`),
+        "parallel_vote",
+      ],
+      reason: `${base.reason}；deep 模式并行投票（${voteModelIds.join(" vs ")}，裁决 ${judge.id}）${feedbackNote}${costNote}${contextNote}`,
+    };
+  }
+
+  private findParallelVotePool(
+    rule: RuleRouteResult,
+    input: RouterInput,
+    tokenNeed?: number,
+  ): ModelProfile[] {
+    const primary = this.registry.findPrimaryCandidates(rule, input.localOnly);
+    const relaxed = this.registry.findDraftCandidates(rule, input.localOnly, tokenNeed);
+    const seen = new Set<string>();
+    const merged: ModelProfile[] = [];
+    for (const profile of [...primary, ...relaxed]) {
+      if (seen.has(profile.id)) continue;
+      seen.add(profile.id);
+      merged.push(profile);
+    }
+    return merged;
   }
 
   private rankCandidates(

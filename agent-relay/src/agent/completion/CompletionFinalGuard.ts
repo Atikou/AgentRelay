@@ -10,16 +10,23 @@ export type CompletionStatus =
   | "completed_partial"
   | "awaiting_permission"
   | "blocked_by_policy"
-  | "misleading_completion";
+  | "misleading_completion"
+  | "historical_reference";
 
 export interface CompletionGuardResult {
-  /** 是否接受本轮模型 raw final 作为 trusted final_answer。 */
+  /** @deprecated 使用 trustedForMemory */
   accepted: boolean;
   status: CompletionStatus;
   stopReason: AgentStopReason;
   reason: string;
   contract: ReturnType<typeof buildTaskCompletionContract>;
   ledger: ReturnType<typeof buildToolLedger>;
+  /** UI 应展示的回答（优先于 rawModelAnswer / result.answer）。 */
+  visibleAnswer?: string;
+  /** 是否允许作为 AI 主回答展示。 */
+  trustedVisible: boolean;
+  /** 是否允许进入 ContextRestorer / trusted memory。 */
+  trustedForMemory: boolean;
   /** 仅 role=system 回灌模型（当前 run 继续时）。 */
   systemFeedback?: string;
   /** Guard 后用户可见、可持久化的可信回答（source=guard）。 */
@@ -108,6 +115,15 @@ export function buildGuardedFinalAnswer(input: {
     ].join("\n");
   }
 
+  if (input.status === "historical_reference") {
+    return [
+      `任务「${input.goal}」的历史完成状态尚未在本轮验证。`,
+      input.reason,
+      `Tool Ledger：shell 成功 ${input.ledger.successfulShellCalls} 次 / 写成功 ${input.ledger.successfulWriteCalls} 次。`,
+      `请执行必要工具完成副作用，或向用户说明需要重新确认历史状态。`,
+    ].join("\n");
+  }
+
   const lines = [
     `任务「${input.goal}」尚未真实完成。`,
     input.reason,
@@ -170,25 +186,40 @@ export function evaluateCompletionGuard(input: {
   const ledger = buildToolLedger(input.steps);
 
   if (input.awaitingPermission || input.stopReason === "awaiting_permission") {
-    return {
-      accepted: true,
-      status: "awaiting_permission",
-      stopReason: "awaiting_permission",
-      reason: "等待用户授权必要副作用工具",
-      contract,
-      ledger,
-    };
+    return withGuardTrust(
+      {
+        accepted: false,
+        status: "awaiting_permission",
+        stopReason: "awaiting_permission",
+        reason: "等待用户授权必要副作用工具",
+        contract,
+        ledger,
+        guardedAnswer: buildGuardedFinalAnswer({
+          goal: input.goal,
+          status: "awaiting_permission",
+          reason: "等待用户授权必要副作用工具",
+          ledger,
+          blockedSteps: blockedRequiredSideEffectSteps(input.steps, "shell").concat(
+            blockedRequiredSideEffectSteps(input.steps, "write"),
+          ),
+        }),
+      },
+      input.answer,
+    );
   }
 
   if (!contract.requiresSideEffect) {
-    return {
-      accepted: true,
-      status: "completed_success",
-      stopReason: input.stopReason ?? "completed",
-      reason: "问答/只读任务，无需副作用校验",
-      contract,
-      ledger,
-    };
+    return withGuardTrust(
+      {
+        accepted: true,
+        status: "completed_success",
+        stopReason: input.stopReason ?? "completed",
+        reason: "问答/只读任务，无需副作用校验",
+        contract,
+        ledger,
+      },
+      input.answer,
+    );
   }
 
   const needsShell = contract.requiredSideEffects.includes("shell");
@@ -197,26 +228,48 @@ export function evaluateCompletionGuard(input: {
   const writeOk = !needsWrite || ledger.successfulWriteCalls > 0;
 
   if (shellOk && writeOk) {
-    return {
-      accepted: true,
-      status: "completed_success",
-      stopReason: "completed",
-      reason: "所需副作用已在 Tool Ledger 中成功执行",
-      contract,
-      ledger,
-    };
+    return withGuardTrust(
+      {
+        accepted: true,
+        status: "completed_success",
+        stopReason: "completed",
+        reason: "所需副作用已在 Tool Ledger 中成功执行",
+        contract,
+        ledger,
+      },
+      input.answer,
+    );
   }
 
-  // 模型基于历史/上下文说明先前已完成，而非声称本轮刚执行 shell/write → 接受模型 final
+  // 历史引用：副作用任务无 ledger 证明时不得标记 completed_success
   if (claimsHistoricalOrPriorCompletion(input.answer) && !claimsCurrentRunSideEffectSuccess(input.answer)) {
-    return {
-      accepted: true,
-      status: "completed_success",
-      stopReason: "completed",
-      reason: "模型基于历史或上下文说明任务状态，本轮未重新执行副作用",
-      contract,
+    const guardedAnswer = buildGuardedFinalAnswer({
+      goal: input.goal,
+      status: "historical_reference",
+      reason: "模型引用历史完成状态，但本轮 Tool Ledger 无对应成功副作用，需重新验证或执行",
       ledger,
-    };
+      blockedSteps: [],
+    });
+    return withGuardTrust(
+      {
+        accepted: false,
+        status: "historical_reference",
+        stopReason: "completed_partial",
+        reason: "历史完成声明未通过 Tool Ledger 校验",
+        contract,
+        ledger,
+        rawModelAnswer: input.answer,
+        guardedAnswer,
+        systemFeedback: buildGuardSystemFeedback({
+          goal: input.goal,
+          reason: "历史完成声明未通过 Tool Ledger 校验",
+          status: "historical_reference",
+          ledger,
+          blockedSteps: [],
+        }),
+      },
+      input.answer,
+    );
   }
 
   const blockedShell = blockedRequiredSideEffectSteps(input.steps, "shell");
@@ -246,40 +299,104 @@ export function evaluateCompletionGuard(input: {
     reason = "模型声称本轮任务已完成，但 Tool Ledger 无对应成功副作用";
   }
 
-  // 未虚假声称本轮完成：保留模型原文，仅以 executionMeta 标记 partial
+  // 未虚假声称本轮完成：partial / blocked 不标记 trusted
   if (!claimsCurrentRunSideEffectSuccess(input.answer)) {
-    return {
-      accepted: true,
+    if (status === "awaiting_permission") {
+      const guardedAnswer = buildGuardedFinalAnswer({
+        goal: input.goal,
+        status,
+        reason,
+        ledger,
+        blockedSteps: [...blockedShell, ...blockedWrite],
+      });
+      return withGuardTrust(
+        {
+          accepted: false,
+          status,
+          stopReason,
+          reason,
+          contract,
+          ledger,
+          guardedAnswer,
+          rawModelAnswer: input.answer,
+        },
+        input.answer,
+      );
+    }
+    const guardedAnswer =
+      status === "completed_partial" || status === "blocked_by_policy"
+        ? buildGuardedFinalAnswer({
+            goal: input.goal,
+            status,
+            reason,
+            ledger,
+            blockedSteps: [...blockedShell, ...blockedWrite],
+          })
+        : undefined;
+    return withGuardTrust(
+      {
+        accepted: false,
+        status,
+        stopReason,
+        reason,
+        contract,
+        ledger,
+        rawModelAnswer: input.answer,
+        guardedAnswer,
+      },
+      input.answer,
+    );
+  }
+
+  return withGuardTrust(
+    {
+      accepted: false,
       status,
       stopReason,
       reason,
       contract,
       ledger,
-    };
-  }
+      rawModelAnswer: input.answer,
+      guardedAnswer: buildGuardedFinalAnswer({
+        goal: input.goal,
+        status,
+        reason,
+        ledger,
+        blockedSteps: [...blockedShell, ...blockedWrite],
+      }),
+      systemFeedback: buildGuardSystemFeedback({
+        goal: input.goal,
+        reason,
+        status,
+        ledger,
+        blockedSteps: [...blockedShell, ...blockedWrite],
+      }),
+    },
+    input.answer,
+  );
+}
 
+function withGuardTrust(
+  partial: Omit<CompletionGuardResult, "trustedVisible" | "trustedForMemory" | "visibleAnswer">,
+  rawAnswer: string,
+): CompletionGuardResult {
+  const trustedForMemory = partial.status === "completed_success";
+  const hideRaw =
+    partial.status === "misleading_completion" ||
+    partial.status === "awaiting_permission" ||
+    partial.status === "blocked_by_policy" ||
+    partial.status === "historical_reference";
+  const visibleAnswer =
+    partial.guardedAnswer ??
+    (hideRaw ? partial.guardedAnswer : rawAnswer) ??
+    rawAnswer;
+  const trustedVisible = Boolean(visibleAnswer?.trim());
   return {
-    accepted: false,
-    status,
-    stopReason,
-    reason,
-    contract,
-    ledger,
-    rawModelAnswer: input.answer,
-    guardedAnswer: buildGuardedFinalAnswer({
-      goal: input.goal,
-      status,
-      reason,
-      ledger,
-      blockedSteps: [...blockedShell, ...blockedWrite],
-    }),
-    systemFeedback: buildGuardSystemFeedback({
-      goal: input.goal,
-      reason,
-      status,
-      ledger,
-      blockedSteps: [...blockedShell, ...blockedWrite],
-    }),
+    ...partial,
+    accepted: trustedForMemory,
+    trustedForMemory,
+    trustedVisible,
+    visibleAnswer,
   };
 }
 
