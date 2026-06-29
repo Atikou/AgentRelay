@@ -7,7 +7,7 @@ export const DEFAULT_LIFECYCLE_POLICY: LifecyclePolicy = {
   version: 1,
   mode: "local-first",
   cleanup: {
-    autoEnabled: false,
+    autoEnabled: true,
     autoIntervalHours: 24,
     requireDryRunBeforeApply: true,
     skipActiveRuns: true,
@@ -40,7 +40,7 @@ export const DEFAULT_LIFECYCLE_POLICY: LifecyclePolicy = {
   trace: {
     rotationMaxBytes: 104_857_600,
     rotationMaxAgeHours: 24,
-    compressOldSegments: false,
+    compressOldSegments: true,
     compression: "gzip",
     keepIndex: true,
   },

@@ -1,10 +1,20 @@
+import {
+  explainNoAvailableModel,
+  profileSatisfiesDeclaredCapabilities,
+  profileSatisfiesPrivacy,
+  resolveTaskRequirement,
+  type DeclaredCapabilityKey,
+} from "./model-capability-profile.js";
 import type {
   ModelLevel,
   ModelProfile,
   ModelRole,
+  RouterInput,
   RuleRouteResult,
   TaskType,
 } from "./types.js";
+
+export { explainNoAvailableModel, resolveTaskRequirement };
 
 /** 模型侧可匹配的能力字段（V5 能力矩阵）。 */
 export interface ModelCapabilityFlags {
@@ -41,7 +51,7 @@ export const TASK_CAPABILITY_MATRIX: readonly TaskCapabilityRequirement[] = [
   { taskType: "debug", minLevel: 2, description: "调试分析" },
   { taskType: "document_qa", minLevel: 2, description: "文档/TodoList 整理" },
   { taskType: "code_edit", minLevel: 3, supportsTools: true, description: "代码修改" },
-  { taskType: "architecture", minLevel: 3, supportsJsonMode: true, description: "架构/方案设计" },
+  { taskType: "architecture", minLevel: 3, description: "架构/方案设计" },
   { taskType: "image_qa", minLevel: 3, supportsVision: true, description: "图片理解" },
   { taskType: "tool_action", minLevel: 2, supportsTools: true, description: "工具调用任务" },
   {
@@ -138,6 +148,8 @@ export function profileSatisfiesRequirements(
     localOnly?: boolean;
     contextTokenEstimate?: number;
     allowDraftGeneralTypes?: boolean;
+    rule?: RuleRouteResult;
+    routerInput?: Pick<RouterInput, "userInput" | "hasAttachments" | "attachmentTypes">;
   },
 ): boolean {
   if (!profile.enabled) return false;
@@ -160,14 +172,41 @@ export function profileSatisfiesRequirements(
     return false;
   }
 
+  if (opts?.rule) {
+    const taskReq = resolveTaskRequirement(opts.rule, {
+      userInput: opts.routerInput?.userInput ?? "",
+      localOnly: opts.localOnly,
+      hasAttachments: opts.routerInput?.hasAttachments,
+      attachmentTypes: opts.routerInput?.attachmentTypes,
+    });
+    const requiredCaps: DeclaredCapabilityKey[] =
+      role === "draft"
+        ? [
+            "text",
+            ...(taskReq.requiredCapabilities.includes("image") ? (["image"] as const) : []),
+          ]
+        : taskReq.requiredCapabilities;
+    if (!profileSatisfiesDeclaredCapabilities(profile, requiredCaps)) return false;
+    if (!profileSatisfiesPrivacy(profile, { sensitive: taskReq.sensitive, localOnly: taskReq.localOnly })) {
+      return false;
+    }
+  }
+
   return true;
+}
+
+export interface ListProfilesForRoleOptions {
+  localOnly?: boolean;
+  contextTokenEstimate?: number;
+  allowDraftGeneralTypes?: boolean;
+  routerInput?: Pick<RouterInput, "userInput" | "hasAttachments" | "attachmentTypes">;
 }
 
 export function listProfilesForRole(
   profiles: ModelProfile[],
   rule: RuleRouteResult,
   role: ModelRole,
-  opts?: { localOnly?: boolean; contextTokenEstimate?: number; allowDraftGeneralTypes?: boolean },
+  opts?: ListProfilesForRoleOptions,
 ): ModelProfile[] {
   const requirement = resolveRoleRequirements(rule, role);
   return profiles.filter((profile) =>
@@ -176,6 +215,8 @@ export function listProfilesForRole(
       localOnly: opts?.localOnly,
       contextTokenEstimate: opts?.contextTokenEstimate,
       allowDraftGeneralTypes: opts?.allowDraftGeneralTypes,
+      rule,
+      routerInput: opts?.routerInput,
     }),
   );
 }
@@ -225,7 +266,9 @@ export interface TaskCapabilityCoverage {
 }
 
 export interface CapabilityMatrixSnapshot {
-  profiles: Array<ModelProfile & { capabilities: ModelCapabilityFlags }>;
+  profiles: Array<
+    ModelProfile & { capabilities: ModelCapabilityFlags; declaredCapabilities: ModelProfile["declaredCapabilities"] }
+  >;
   matrix: TaskCapabilityRequirement[];
   coverage: TaskCapabilityCoverage[];
   validationWarnings: string[];
@@ -264,6 +307,7 @@ export function buildCapabilityMatrixSnapshot(profiles: ModelProfile[]): Capabil
     profiles: profiles.map((profile) => ({
       ...profile,
       capabilities: extractCapabilityFlags(profile),
+      declaredCapabilities: profile.declaredCapabilities,
     })),
     matrix: [...TASK_CAPABILITY_MATRIX],
     coverage,

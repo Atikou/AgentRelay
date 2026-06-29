@@ -1,4 +1,8 @@
 import type { ModelClientConfig } from "../config/types.js";
+import {
+  buildModelDeclaredCapabilitiesFromClient,
+  buildModelPrivacyFromClient,
+} from "./model-capability-profile.js";
 import type { ModelProfile, ModelRole, TaskType } from "./types.js";
 
 const ALL_TASK_TYPES: TaskType[] = [
@@ -81,7 +85,7 @@ function defaultMaxOutputTokens(level: 1 | 2 | 3): number {
 
 function inferDefaults(client: ModelClientConfig): Omit<
   ModelProfile,
-  "id" | "displayName" | "provider"
+  "id" | "displayName" | "provider" | "declaredCapabilities" | "privacy"
 > {
   const isLocal = client.location === "local";
   const strong = !isLocal && isStrongRemote(client.name, client.model);
@@ -121,6 +125,15 @@ export function buildModelProfiles(clients: ModelClientConfig[]): ModelProfile[]
     const level = (rp?.defaultLevel ?? inferred.defaultLevel) as ModelProfile["defaultLevel"];
     const profileLevel = normalizeProfileLevel(level);
     const levelWasOverridden = rp?.defaultLevel !== undefined && rp.defaultLevel !== inferred.defaultLevel;
+    const supportsVision = rp?.supportsVision ?? inferred.supportsVision;
+    const supportsTools = rp?.supportsTools ?? inferred.supportsTools;
+    const supportsJsonMode = rp?.supportsJsonMode ?? inferred.supportsJsonMode;
+    const maxInputTokens =
+      rp?.maxInputTokens ??
+      (levelWasOverridden ? defaultMaxInputTokens(profileLevel) : inferred.maxInputTokens);
+    const maxOutputTokens =
+      rp?.maxOutputTokens ??
+      (levelWasOverridden ? defaultMaxOutputTokens(profileLevel) : inferred.maxOutputTokens);
     return {
       id: client.name,
       displayName: rp?.displayName ?? client.name,
@@ -128,11 +141,11 @@ export function buildModelProfiles(clients: ModelClientConfig[]): ModelProfile[]
       defaultLevel: level,
       enabled: rp?.enabled ?? inferred.enabled,
       supportsStreaming: rp?.supportsStreaming ?? inferred.supportsStreaming,
-      supportsTools: rp?.supportsTools ?? inferred.supportsTools,
-      supportsVision: rp?.supportsVision ?? inferred.supportsVision,
-      supportsJsonMode: rp?.supportsJsonMode ?? inferred.supportsJsonMode,
-      maxInputTokens: rp?.maxInputTokens ?? (levelWasOverridden ? defaultMaxInputTokens(profileLevel) : inferred.maxInputTokens),
-      maxOutputTokens: rp?.maxOutputTokens ?? (levelWasOverridden ? defaultMaxOutputTokens(profileLevel) : inferred.maxOutputTokens),
+      supportsTools,
+      supportsVision,
+      supportsJsonMode,
+      maxInputTokens,
+      maxOutputTokens,
       relativeCost: rp?.relativeCost ?? inferred.relativeCost,
       avgLatencyMs: rp?.avgLatencyMs ?? inferred.avgLatencyMs,
       allowedTaskTypes:
@@ -143,6 +156,14 @@ export function buildModelProfiles(clients: ModelClientConfig[]): ModelProfile[]
       canReview: rp?.canReview ?? inferred.canReview,
       canFinal: rp?.canFinal ?? inferred.canFinal,
       tags: rp?.tags ?? inferred.tags,
+      declaredCapabilities: buildModelDeclaredCapabilitiesFromClient(client, {
+        defaultLevel: level,
+        supportsVision,
+        supportsTools,
+        supportsJsonMode,
+        maxInputTokens,
+      }),
+      privacy: buildModelPrivacyFromClient(client),
     };
   });
 }

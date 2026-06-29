@@ -46,6 +46,28 @@ test("架构文档登记入口路由", async () => {
   assert.ok(md.includes("intentDecisionSource"));
 });
 
+test("默认执行元信息不暴露 mode/intent", async () => {
+  const js = await readFile(path.join(publicDir, "app.js"), "utf-8");
+  assert.ok(js.includes("function formatExecutionMetaSummary"));
+  assert.ok(js.includes("if (!DEV_MODE) return usagePart"));
+  assert.ok(js.includes("formatAgentExecutionMetaDetail"));
+});
+
+test("权限面板展示风险与预览字段", async () => {
+  const js = await readFile(path.join(publicDir, "app.js"), "utf-8");
+  assert.ok(js.includes("perm-item-risk"));
+  assert.ok(js.includes("inputPreview"));
+  assert.ok(js.includes("blockedTool"));
+  assert.ok(js.includes("permissionPanelHasShellOnly"));
+});
+
+test("续跑成功后再关闭权限/计划面板", async () => {
+  const js = await readFile(path.join(publicDir, "app.js"), "utf-8");
+  assert.ok(js.includes("hidePermissionRequestPanel();"));
+  assert.match(js, /resume[\s\S]{0,400}hidePermissionRequestPanel\(\)/);
+  assert.match(js, /resume-plan-handoff[\s\S]{0,400}hidePlanHandoffPanel\(\)/);
+});
+
 test("Agent 结果卡展示自然状态标签", async () => {
   const js = await readFile(path.join(publicDir, "app.js"), "utf-8");
   assert.ok(js.includes("userFacingLabel"));
@@ -130,6 +152,16 @@ test("测试台历史会话支持重命名与删除", async () => {
   assert.ok(!js.includes("renameHistorySession"));
   assert.ok(css.includes(".session-menu-popover"));
   assert.ok(css.includes(".sidebar-session-more"));
+});
+
+test("计划全流程审阅阶段展示编译与激活按钮", async () => {
+  const js = await readFile(path.join(publicDir, "app.js"), "utf-8");
+  const css = await readFile(path.join(publicDir, "styles.css"), "utf-8");
+  assert.ok(js.includes("plan-review-actions"));
+  assert.ok(js.includes("plan-compile-btn-review"));
+  assert.ok(js.includes("plan-activate-btn-review"));
+  assert.ok(js.includes("unlockSectionsUpTo(2, 1)"));
+  assert.ok(css.includes(".plan-review-actions"));
 });
 
 test("app.js 时间显示经 parseTimestamp 转本地时区", async () => {

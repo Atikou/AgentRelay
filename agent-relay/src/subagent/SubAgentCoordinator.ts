@@ -74,6 +74,8 @@ export class SubAgentCoordinator {
           grantedPermissions: options.grantedPermissions,
           timeoutMs,
           sensitive: options.sensitive,
+          parentIntent: options.parentIntent,
+          parentWorkflowType: options.parentWorkflowType,
           dispatchDepth: options.dispatchDepth,
           executionRoute: entry.route,
         }),

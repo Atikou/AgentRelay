@@ -15,8 +15,8 @@
 | P2 | `AIIntentClassifier` 结构化意图 + 双轨 diff 日志 | [x] |
 | P3 | `LegacyIntentFallback` 仅兜底，缩小关键词主路径 | [x] |
 | P4 | UI 完全隐藏 mode，仅 `userFacingLabel` + 权限策略 | [x] |
-| P5 | 收敛 `mode` / `intent` / `workflowType` 词汇 | [ ] |
-| P6 | 清理遗留路由规则与重复正则 | [ ] |
+| P5 | 收敛 `mode` / `intent` / `workflowType` 词汇 | [~] 映射表见 `docs/架构设计.md` §3；`RunPolicy` 仍保留 entry/effective 双轨观测字段 |
+| P6 | 清理遗留路由规则与重复正则 | [x] `intentPatterns.ts` SSOT；`defaultIntentRouter` 已移除；Workflow 检测复用导出正则 |
 
 ### P0 验收（会话连续性）
 
@@ -69,7 +69,7 @@
 - [x] `FallbackManager`、路由/调用/协作日志
 - [x] V3–V8 部分（evaluator、prompt strategy、cost、availability…）
 - [x] V9 路由管线可视化（`pipelineGraph` + 测试台面板）
-- [x] 并行投票（`parallel_vote` + deep 模式架构/文档类任务）
+- [x] 并行投票（`parallel_vote`；**仅** `POST /api/chat` / `/api/chat/stream`，Agent 主循环强制单模型）
 
 ### M3 计划与任务
 
@@ -77,7 +77,7 @@
 - [x] Plan analyze / compile / approve / execute API
 - [x] `TaskRunner` 状态机 + resume
 - [x] planHandoff（循环内 plan → execute）
-- [ ] 计划模型进一步收敛（退役遗留 `Plan` 转换）
+- [~] 计划模型进一步收敛（`PlanService.createDraftFromPlanner` / `createExecutableDraftFromPlanner` 已统一落盘入口；Planner 仍输出 legacy `Plan`）
 
 ### M4 后台与通知
 
@@ -88,25 +88,25 @@
 
 - [x] `dispatch_subagent` + `DelegatedTask`
 - [x] Smart 路由子 Agent
-- [ ] 子 Agent 动态路由增强（按需）
+- [x] 子 Agent 继承主 Agent intent/workflow 路由提示（`parentAgentIntent` → `buildDelegatedTaskRouterInput`）
 
 ### M6 上下文与记忆
 
 - [x] `ContextManager` + FTS5 + LanceDB
 - [x] `ProjectIndex` / 语义召回 / `RunState.location`
 - [x] 上下文去污：`contextTrust` + `RunFactsLookup` + `ContextRestorer` 过滤/纠偏 + 记忆 `trustLevel`
-- [ ] 上下文层与 agent 格式化彻底解耦
+- [~] 上下文层与 agent 格式化解耦（`AgentSystemPromptBuilder` + `AgentWorkflowCapabilityHint` 已抽出；主循环仍 ~2.8k 行）
 
 ### M7 安全与审计
 
 - [x] 脱敏、Shell 风险、trace 回放
 - [x] JIT 权限 + 会话 grant 持久化
-- [ ] trace 段 gzip
+- [x] trace 段 gzip（默认 `compressOldSegments: true`；lifecycle 轮转）
 
 ### M8 调度
 
 - [x] Scheduler cron/interval/event
-- [ ] scheduler journal 与 lifecycle purge 关联
+- [~] scheduler journal 与 lifecycle purge 关联（`CleanupPlanner.compactSchedulerJournal` 已接线；`cleanup.autoEnabled` 默认 **true**）
 
 ### 未开始 / 远期
 
@@ -120,12 +120,12 @@
 
 | 项 | 状态 |
 | --- | --- |
-| 拆分 `AgentLoop` god-object | [ ] |
-| `RunPolicyManager` 职责拆分（预算 vs 展示） | [ ] |
-| 合并 `IntentRouter` / `WorkflowPlanner` 重复正则 | [ ] |
-| 退役遗留 `AgentMode plan\|task` 词汇 | [ ] |
-| `locationTools` 项目专属启发式外置 | [ ] |
-| `api-spec.json` 与 handler 自动同步 | [~] |
+| 拆分 `AgentLoop` god-object | [~] `AgentSystemPromptBuilder` + `AgentWorkflowCapabilityHint` 已拆出；主循环仍 ~2.8k 行 |
+| `RunPolicyManager` 职责拆分（预算 vs 展示） | [x] 展示/权限推导 → `RunPolicyPresentation.ts` |
+| 合并 `IntentRouter` / `WorkflowPlanner` 重复正则 | [x] `intentPatterns.ts` |
+| 退役遗留 `AgentMode plan\|task` 词汇 | [x] → `TaskRunnerPermissionMode`（`AgentMode` 保留 deprecated 别名） |
+| `locationTools` 项目专属启发式外置 | [x] 可选 `.agentrelay/location-hints.json` + `locationHintConfig.ts` |
+| `api-spec.json` 与 handler 自动同步 | [x] `httpRouteRegistry.ts` + `api-spec.test`；含 `plan-handoffs` 三路径 |
 
 ---
 
@@ -148,6 +148,11 @@ npm test
 ## 五、验收清单（仅人类勾选）
 
 > **模块是否可验收以本节为准**；TodoList 的 `[x]` 不代表验收通过。
+>
+> **自动化已覆盖（仍须人类在测试台走通后勾选）**：
+> - 续跑恢复：`test:startup-recovery`、`test:orchestrator-resume`
+> - 会话连续性：`test:entry-intent-router`、`test:context-trust-continuation`
+> - 权限安全：`test:permission-guard`、`test:permission-request`、`http-e2e` shell/续跑用例
 
 ### 总闭环
 
@@ -197,4 +202,7 @@ npm test
 | 计划交接 | `policy/PlanHandoffStore.ts` |
 | JIT 权限 | `policy/PermissionRequestStore.ts`、`agent/PausedRunStore.ts` |
 | 主循环 | `agent/AgentLoop.ts` |
+| ReAct 协议 | `agent/AgentSystemPromptBuilder.ts` |
+| 策略展示 | `agent/RunPolicyPresentation.ts` |
+| HTTP 路由登记 | `server/httpRouteRegistry.ts`（`HTTP_ROUTE_PATHS`） |
 | HTTP 入口 | `orchestrator/Orchestrator.ts` |

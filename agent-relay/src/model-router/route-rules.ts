@@ -97,6 +97,8 @@ export class RuleRouter {
         risk: "medium",
         reason: "含图片附件，需 vision 模型",
         requireVision: true,
+        requiredCapabilities: ["text", "image"],
+        preferredCapabilities: ["ocr"],
         preferredStrategy: "single_model",
         preferCollaboration: false,
       };
@@ -108,6 +110,8 @@ export class RuleRouter {
         requiredLevel: 3,
         risk: "medium",
         reason: "架构/方案类任务",
+        requiredCapabilities: ["text", "code", "architecture"],
+        preferredCapabilities: ["jsonMode", "longContext"],
         preferCollaboration: true,
         preferredStrategy: "local_draft_remote_review",
       };

@@ -12,56 +12,9 @@ const specPath = path.join(__dirname, "../public/api-spec.json");
 const apiDocsHtml = path.join(__dirname, "../public/api-docs.html");
 const scalarJs = path.join(__dirname, "../public/vendor/scalar-api-reference.js");
 
-const REQUIRED_PATHS = [
-  "/api/config",
-  "/api/models/catalog",
-  "/api/chat",
-  "/api/chat/stream",
-  "/api/agent",
-  "/api/agent/resume",
-  "/api/agent/stream",
-  "/api/agent/runs/{runId}",
-  "/api/agent/runs/{runId}/events",
-  "/api/plan",
-  "/api/plans/draft",
-  "/api/plans/analyze",
-  "/api/plans/import-preview",
-  "/api/plans/{userVisiblePlanId}/compile",
-  "/api/plans/{planId}",
-  "/api/plans/{planId}/revise",
-  "/api/plans/{planId}/preview",
-  "/api/plans/{planId}/approve",
-  "/api/plans/{planId}/reject",
-  "/api/plans/{planId}/execute",
-  "/api/runs",
-  "/api/runs/running",
-  "/api/runs/cancel",
-  "/api/runs/{runId}",
-  "/api/runs/{runId}/report",
-  "/api/tasks",
-  "/api/tasks/{taskId}",
-  "/api/tasks/{taskId}/resume",
-  "/api/routing/logs",
-  "/api/routing/profiles",
-  "/api/routing/stats",
-  "/api/routing/eval/run",
-  "/api/routing/eval/runs",
-  "/api/tools",
-  "/api/tools/run",
-  "/api/background",
-  "/api/background/start",
-  "/api/notifications",
-  "/api/scheduler/triggers",
-  "/api/subagent/run",
-  "/api/context/sessions",
-  "/api/trace/recent",
-  "/api/trace/replay",
-  "/api/trace/rotate",
-  "/api/storage/usage",
-  "/api/storage/cleanup/preview",
-  "/api/storage/cleanup/apply",
-  "/api/docs",
-];
+import { HTTP_ROUTE_PATHS } from "../src/server/httpRouteRegistry.js";
+
+const REQUIRED_PATHS = [...HTTP_ROUTE_PATHS];
 
 const tests: Array<{ name: string; fn: () => Promise<void> }> = [];
 function test(name: string, fn: () => Promise<void>) {
@@ -134,6 +87,28 @@ test("M2 并行投票与管线图字段进入 API 规范", async () => {
   assert.ok(vote.winnerModelId);
   assert.ok(graph.mermaid);
   assert.ok(spec.paths["/api/routing/logs"]?.get?.responses?.["200"]);
+});
+
+test("权限与续跑 API 规范登记 JIT / shell allow_workspace", async () => {
+  const raw = await readFile(specPath, "utf-8");
+  const spec = JSON.parse(raw) as {
+    paths: Record<string, Record<string, { responses?: Record<string, unknown>; description?: string }>>;
+    components: { schemas: Record<string, unknown> };
+  };
+  const respond = spec.paths["/api/permission-requests/{requestId}/respond"]?.post;
+  assert.ok(respond);
+  const respondDoc = respond!.description ?? "";
+  assert.ok(respondDoc.includes("allow_workspace") && respondDoc.includes("shell"));
+  assert.ok(spec.paths["/api/runs/{runId}/resume-permission"]?.post);
+  assert.ok(spec.paths["/api/runs/{runId}/resume-plan-handoff"]?.post);
+  assert.ok(spec.paths["/api/plan-handoffs/pending"]?.get);
+  assert.ok(spec.paths["/api/plan-handoffs/{handoffId}/respond"]?.post);
+  assert.ok(spec.components.schemas.PermissionRequestPayload);
+  assert.ok(spec.components.schemas.ToolRunError);
+  const resume = spec.components.schemas.AgentResumeRequest as {
+    properties?: { permissionPolicy?: { description?: string } };
+  };
+  assert.match(resume.properties?.permissionPolicy?.description ?? "", /忽略/);
 });
 
 test("api-docs 页面使用 Scalar 官方 script 集成", async () => {

@@ -44,6 +44,10 @@ export interface ToolContext {
   maxSubAgentDispatchDepth?: number;
   /** 隐私模式：子 Agent 模型调用继承该标记。 */
   sensitive?: boolean;
+  /** 主 Agent 当前 intent（dispatch_subagent 路由提示）。 */
+  parentAgentIntent?: string;
+  /** 主 Agent 当前 workflowType（dispatch_subagent 路由提示）。 */
+  parentAgentWorkflowType?: string;
   /** 项目级权限上限（子 Agent grantedPermissions 收敛）。 */
   projectAllowedPermissions?: ToolPermission[];
   /** 路径授权审计摘要，由 ToolExecutionGateway 注入，供 trace / run report 串联。 */

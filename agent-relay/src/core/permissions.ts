@@ -14,11 +14,14 @@ export const ALL_PERMISSIONS: ToolPermission[] = [
   "dangerous",
 ];
 
-/** Agent 运行模式。 */
-export type AgentMode = "plan" | "task";
+/** TaskRunner / 计划步骤声明用的二值权限轮廓（非 AgentRunMode）。 */
+export type TaskRunnerPermissionMode = "plan" | "task";
+
+/** @deprecated 请使用 `TaskRunnerPermissionMode`；保留 plan/task 别名供 TaskRunner 边界。 */
+export type AgentMode = TaskRunnerPermissionMode;
 
 /** 各模式允许的权限边界。 */
-export const MODE_PERMISSIONS: Record<AgentMode, ToolPermission[]> = {
+export const MODE_PERMISSIONS: Record<TaskRunnerPermissionMode, ToolPermission[]> = {
   // 计划模式：只读分析，绝不修改文件或执行命令。
   plan: ["read"],
   // 任务模式：可读写、执行命令、联网；但 write/shell/network/dangerous 需经确认（见 needsConfirmation）。
@@ -28,7 +31,7 @@ export const MODE_PERMISSIONS: Record<AgentMode, ToolPermission[]> = {
 /** 默认需要用户确认的高风险权限。 */
 export const CONFIRMATION_REQUIRED: ToolPermission[] = ["write", "shell", "network", "dangerous"];
 
-export function isPermissionAllowed(mode: AgentMode, permission: ToolPermission): boolean {
+export function isPermissionAllowed(mode: TaskRunnerPermissionMode, permission: ToolPermission): boolean {
   return MODE_PERMISSIONS[mode].includes(permission);
 }
 

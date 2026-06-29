@@ -2,6 +2,7 @@ import type { TraceLogger } from "../trace/TraceLogger.js";
 import type { ToolRegistry } from "../tools/ToolRegistry.js";
 import type { ToolPermission } from "../core/permissions.js";
 import type { PlanExecutionMode } from "../plan/PlanActivationWorkflow.js";
+import type { UserPermissionPolicy } from "./RunPolicyTypes.js";
 import { DryRunExecutor, TaskRunner, type StepExecutor } from "./TaskRunner.js";
 import { PlanStepAgentExecutor, type AgentLoopRunFn } from "./PlanStepAgentExecutor.js";
 import { ToolStepExecutor } from "./ToolStepExecutor.js";
@@ -23,6 +24,7 @@ export interface TaskExecutionWorkflowRunInput {
   plan: Plan;
   dryRun?: boolean;
   autoConfirm?: boolean;
+  permissionPolicy?: UserPermissionPolicy;
   taskId?: string;
   sessionId?: string;
   runId?: string;
@@ -110,7 +112,9 @@ export class TaskExecutionWorkflow {
       requireToolBinding: input.requireToolBinding,
       budgetManager,
       budgetBucket: "main",
-      permissionPolicy: input.autoConfirm ? "autoEdit" : "confirmBeforeRun",
+      permissionPolicy:
+        input.permissionPolicy ??
+        (input.autoConfirm ? "autoEdit" : "confirmBeforeRun"),
     });
   }
 

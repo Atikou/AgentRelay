@@ -882,6 +882,39 @@
       }
     },
     {
+      "id": "m1-agent-permission-respond-api-spec",
+      "title": "api-spec 登记 permission-requests respond 与 shell allow_workspace 拒绝",
+      "purpose": "确认 OpenAPI 暴露 JIT 权限响应端点，并文档化 shell 类申请禁止 allow_workspace（400）。",
+      "method": "GET",
+      "path": "/api/api-spec.json",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyContains": [
+          "/api/permission-requests/{requestId}/respond",
+          "shell 权限不支持长期工作区授权",
+          "PermissionRequestRespondInput"
+        ]
+      }
+    },
+    {
+      "id": "m1-agent-resume-permission-api-spec",
+      "title": "api-spec 登记 resume-permission 且续跑忽略 permissionPolicy",
+      "purpose": "确认集成方可发现 JIT 续跑端点，并知悉 body permissionPolicy 被服务端忽略。",
+      "method": "GET",
+      "path": "/api/api-spec.json",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyContains": [
+          "/api/runs/{runId}/resume-permission",
+          "/api/runs/{runId}/resume-plan-handoff",
+          "忽略",
+          "RunState.permissionPolicy"
+        ]
+      }
+    },
+    {
       "id": "m1-agent-plan-mode-explicit-auto-edit-meta",
       "title": "plan mode 可显式声明 autoEdit 权限策略",
       "purpose": "确认 mode=plan 与 permissionPolicy=autoEdit 可同时进入 executionMeta，验证模式选择与权限策略已拆分为两个可观测维度。",

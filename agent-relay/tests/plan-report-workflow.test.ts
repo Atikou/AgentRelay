@@ -30,10 +30,16 @@ test("PlanReportWorkflow runs plan agent and saves UserVisiblePlan", async () =>
           runId: "run-plan-report",
           sessionId: "session-1",
           answer: [
-            "# Plan",
+            "# 计划模式分析结果",
+            "## 1. 任务理解",
+            "organize plan service into workflow layer",
+            "## 2. 只读扫描结果",
+            "已扫描 plan 模块与 agent 工作流目录，确认 PlanReportWorkflow、PlanService、PlanCompileWorkflow 分层边界。",
+            "主要入口：src/agent/PlanReportWorkflow.ts、src/plan/PlanService.ts；建议将报告生成与 internal 落盘彻底分离。",
+            "当前测试覆盖 plan-report-workflow 与 plan-compile-workflow，缺少 analyze 质量门回归。",
             "## 6. TodoList",
             "- [ ] P0 Keep workflow layered: goal / acceptance / risk",
-            "This turn only creates a plan and changes no files.",
+            "本次仅生成计划，未修改任何文件。",
           ].join("\n"),
           executionMeta: { mode: "plan", workflowType: "planWorkflow" },
         },
@@ -60,7 +66,74 @@ test("PlanReportWorkflow runs plan agent and saves UserVisiblePlan", async () =>
   assert.equal(seenBody?.clientName, "local-test");
   assert.equal(seenBody?.autoConfirm, false);
   assert.equal(seenBody?.sensitive, true);
+  assert.equal(seenBody?.skipPlanHandoff, true);
+  assert.equal(seenBody?.forceMode, true);
   assert.match(String(seenBody?.message), /organize plan service into workflow layer/);
+});
+
+test("PlanReportWorkflow rejects empty model answer without tool steps", async () => {
+  const saved: UserVisiblePlan[] = [];
+  const workflow = new PlanReportWorkflow({
+    planService: {
+      saveUserVisiblePlan(plan) {
+        saved.push(plan);
+        return plan;
+      },
+    },
+    async runAgent() {
+      return {
+        status: 200,
+        body: {
+          runId: "run-empty",
+          answer: "",
+          steps: [],
+        },
+      };
+    },
+  });
+
+  const result = await workflow.run({ goal: "analyze architecture" });
+  assert.equal(result.status, 422);
+  assert.equal(saved.length, 0);
+  assert.equal((result.body as { code?: string }).code, "PLAN_REPORT_QUALITY_LOW");
+});
+
+test("PlanReportWorkflow enriches from tool steps when model answer is empty", async () => {
+  const saved: UserVisiblePlan[] = [];
+  const workflow = new PlanReportWorkflow({
+    planService: {
+      saveUserVisiblePlan(plan) {
+        saved.push(plan);
+        return plan;
+      },
+    },
+    async runAgent() {
+      return {
+        status: 200,
+        body: {
+          runId: "run-enrich",
+          answer: "",
+          steps: [
+            {
+              iteration: 0,
+              tool: "project_scan",
+              input: {},
+              ok: true,
+              preflight: true,
+              output: "app/\npages/",
+            },
+          ],
+        },
+      };
+    },
+  });
+
+  const result = await workflow.run({ goal: "analyze nextjs app" });
+  assert.equal(result.status, 200);
+  assert.equal(saved.length, 1);
+  assert.ok(saved[0]!.todos.length >= 1);
+  assert.match(saved[0]!.markdown, /只读扫描结果/);
+  assert.equal((result.body as { reportEnriched?: boolean }).reportEnriched, true);
 });
 
 test("PlanReportWorkflow returns non-200 agent result without saving", async () => {

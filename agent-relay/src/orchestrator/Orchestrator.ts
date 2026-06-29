@@ -144,6 +144,8 @@ export interface OrchestratorDeps {
   sessionPermissionGrants?: SessionPermissionGrants;
   workspaceGrantStore?: WorkspaceGrantStore;
   pausedRunStore?: PausedRunStore;
+  shellPolicy?: import("../policy/ShellPolicy.js").ShellPolicy;
+  networkPolicy?: import("../policy/NetworkPolicy.js").NetworkPolicy;
 }
 
 
@@ -408,6 +410,7 @@ export class Orchestrator {
     version: number,
     payload: {
       autoConfirm?: boolean;
+      permissionPolicy?: import("../agent/RunPolicyTypes.js").UserPermissionPolicy;
       sessionId?: string;
       runId?: string;
       rollbackOnFailure?: boolean;
@@ -503,6 +506,7 @@ export class Orchestrator {
         plan,
         dryRun,
         autoConfirm: payload.autoConfirm ?? false,
+        permissionPolicy: payload.permissionPolicy,
         taskId: task.id,
         sessionId,
         runId: run.id,
@@ -810,7 +814,7 @@ export class Orchestrator {
       requestedMode: state.mode,
       forceMode: true,
       sessionId: state.sessionId,
-      requestedPermissionPolicy: payload.permissionPolicy,
+      requestedPermissionPolicy: state.permissionPolicy,
       autoConfirm: payload.autoConfirm,
       budget: payload.budget,
       taskType: taskTypeParsed.taskType,
@@ -856,6 +860,8 @@ export class Orchestrator {
       maxCostUsdPerRun: this.deps.maxCostUsdPerRun,
       subAgentDispatchDepth: 0,
       maxSubAgentDispatchDepth: this.deps.maxSubAgentDispatchDepth ?? 1,
+      shellPolicy: this.deps.shellPolicy,
+      networkPolicy: this.deps.networkPolicy,
       signal: abortController.signal,
     });
 
@@ -939,9 +945,6 @@ export class Orchestrator {
     // 续跑策略：工具级续跑沿用原模式/策略；计划→执行交接切到 implement。
     // 写入是否再次逐次确认，由用户的批准粒度决定：本次会话都允许 → autoEdit；仅允许一次 → confirmBeforeEdit。
     const isHandoff = !snapshot.pendingAction;
-    const explicitPermissionPolicy = payload.permissionPolicy
-      ? defaultRunPolicyManager.parsePermissionPolicy(payload.permissionPolicy)
-      : undefined;
     const handoffPolicy = request.decision === "allow_session" ? "autoEdit" : "confirmBeforeEdit";
     const policy = defaultRunPolicyManager.resolve({
       requestedMode: snapshot.resumeMode ?? snapshot.mode,
@@ -949,8 +952,9 @@ export class Orchestrator {
       sessionId,
       message: snapshot.goal,
       autoConfirm: payload.autoConfirm,
-      requestedPermissionPolicy: explicitPermissionPolicy
-        ?? (isHandoff ? handoffPolicy : snapshot.permissionPolicy),
+      requestedPermissionPolicy: isHandoff
+        ? handoffPolicy
+        : snapshot.permissionPolicy,
     });
 
     const task = run.taskId
@@ -1004,6 +1008,8 @@ export class Orchestrator {
       maxCostUsdPerRun: this.deps.maxCostUsdPerRun,
       subAgentDispatchDepth: 0,
       maxSubAgentDispatchDepth: this.deps.maxSubAgentDispatchDepth ?? 1,
+      shellPolicy: this.deps.shellPolicy,
+      networkPolicy: this.deps.networkPolicy,
       signal: abortController.signal,
       timeline,
     });
@@ -1069,16 +1075,13 @@ export class Orchestrator {
     }
 
     const sessionId = run.sessionId;
-    const explicitPermissionPolicy = payload.permissionPolicy
-      ? defaultRunPolicyManager.parsePermissionPolicy(payload.permissionPolicy)
-      : undefined;
     const policy = defaultRunPolicyManager.resolve({
       requestedMode: snapshot.resumeMode ?? snapshot.mode,
       forceMode: true,
       sessionId,
       message: snapshot.goal,
       autoConfirm: payload.autoConfirm,
-      requestedPermissionPolicy: explicitPermissionPolicy ?? snapshot.permissionPolicy ?? "confirmBeforeEdit",
+      requestedPermissionPolicy: snapshot.permissionPolicy ?? "confirmBeforeEdit",
     });
 
     const task = run.taskId
@@ -1131,6 +1134,8 @@ export class Orchestrator {
       maxCostUsdPerRun: this.deps.maxCostUsdPerRun,
       subAgentDispatchDepth: 0,
       maxSubAgentDispatchDepth: this.deps.maxSubAgentDispatchDepth ?? 1,
+      shellPolicy: this.deps.shellPolicy,
+      networkPolicy: this.deps.networkPolicy,
       signal: abortController.signal,
       timeline,
     });
@@ -1179,7 +1184,6 @@ export class Orchestrator {
       {
         runId: pending.runId,
         planHandoffId: pending.id,
-        permissionPolicy: payload.permissionPolicy,
         autoConfirm: payload.autoConfirm,
       },
       makeChat,
@@ -1371,6 +1375,9 @@ export class Orchestrator {
       subAgentDispatchDepth: 0,
 
       maxSubAgentDispatchDepth: this.deps.maxSubAgentDispatchDepth ?? 1,
+
+      shellPolicy: this.deps.shellPolicy,
+      networkPolicy: this.deps.networkPolicy,
 
       signal: abortController.signal,
 
@@ -1677,6 +1684,7 @@ export class Orchestrator {
       budget?: Partial<RunBudget>;
       sessionId?: string;
       persist?: boolean;
+      skipPlanHandoff?: boolean;
     };
     const message = (payload.message ?? "").trim();
     if (!message) return { error: { status: 400, body: { error: "message 不能为空" } } };
@@ -1801,6 +1809,9 @@ export class Orchestrator {
       workspaceConfigScopes: this.workspaceConfigScopesForSession(sessionId),
       pausedRunStore: this.deps.pausedRunStore,
       pauseOnPermissionRequest: payload.autoConfirm !== true,
+      skipPlanHandoff: payload.skipPlanHandoff === true,
+      shellPolicy: this.deps.shellPolicy,
+      networkPolicy: this.deps.networkPolicy,
     });
 
     return {

@@ -1,4 +1,4 @@
-/** 规则路由与协作策略类型（见 Agent_Model_Router_Collaboration_Spec）。 */
+import type { ModelDeclaredCapabilities, ModelPrivacyPolicy } from "./model-capability-profile.js";
 
 export type TaskType =
   | "casual_chat"
@@ -74,6 +74,9 @@ export interface ModelProfile {
   canReview: boolean;
   canFinal: boolean;
   tags?: string[];
+  /** 细粒度能力（会不会）；与 defaultLevel（强不强）分层。 */
+  declaredCapabilities: ModelDeclaredCapabilities;
+  privacy: ModelPrivacyPolicy;
 }
 
 export interface RouterInput {
@@ -113,6 +116,9 @@ export interface RuleRouteResult {
   requireUserConfirmation?: boolean;
   preferCollaboration?: boolean;
   preferredStrategy?: ExecutionStrategy;
+  /** 任务必须具备的能力键（见 model-capability-profile.ts）。 */
+  requiredCapabilities?: Array<keyof ModelDeclaredCapabilities>;
+  preferredCapabilities?: Array<keyof ModelDeclaredCapabilities>;
 }
 
 export interface RouterDecision {

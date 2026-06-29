@@ -9,7 +9,21 @@
         "location": "remote",
         "baseUrl": "https://api.openai.com/v1",
         "apiKeyEnv": "OPENAI_API_KEY",
-        "model": "gpt-4o-mini"
+        "model": "gpt-4o-mini",
+        "routerProfile": {
+          "defaultLevel": 2,
+          "relativeCost": "medium",
+          "supportsVision": true,
+          "capabilities": {
+            "text": true,
+            "code": true,
+            "toolCalling": true,
+            "jsonMode": true,
+            "image": true,
+            "ocr": true,
+            "uiScreenshot": true
+          }
+        }
       },
       {
         "name": "cloud-deepseek",
@@ -17,7 +31,23 @@
         "location": "remote",
         "baseUrl": "https://api.deepseek.com/v1",
         "apiKeyEnv": "OPENAI_API_KEY",
-        "model": "deepseek-chat"
+        "model": "deepseek-chat",
+        "routerProfile": {
+          "defaultLevel": 3,
+          "relativeCost": "medium",
+          "canDraft": true,
+          "canReview": true,
+          "allowedRoles": ["primary", "draft", "review", "final"],
+          "capabilities": {
+            "text": true,
+            "code": true,
+            "architecture": true,
+            "toolCalling": true,
+            "jsonMode": true,
+            "longContext": true,
+            "image": false
+          }
+        }
       },
       {
         "name": "cloud-anthropic",
@@ -26,7 +56,23 @@
         "baseUrl": "https://api.anthropic.com",
         "apiKeyEnv": "ANTHROPIC_API_KEY",
         "model": "claude-3-5-sonnet-latest",
-        "maxTokens": 4096
+        "maxTokens": 4096,
+        "routerProfile": {
+          "defaultLevel": 3,
+          "relativeCost": "high",
+          "supportsVision": true,
+          "capabilities": {
+            "text": true,
+            "code": true,
+            "architecture": true,
+            "toolCalling": true,
+            "jsonMode": true,
+            "image": true,
+            "ocr": true,
+            "uiScreenshot": true,
+            "diagramUnderstanding": true
+          }
+        }
       },
       {
         "name": "local-qwen35",
@@ -34,7 +80,11 @@
         "location": "local",
         "baseUrl": "http://localhost:11434",
         "model": "qwen3.5:0.8b",
-        "think": false
+        "think": false,
+        "routerProfile": {
+          "defaultLevel": 1,
+          "capabilities": { "text": true, "image": false }
+        }
       },
       {
         "name": "local-phi4",
@@ -42,7 +92,18 @@
         "location": "local",
         "baseUrl": "http://localhost:11434",
         "model": "phi4",
-        "think": false
+        "think": false,
+        "routerProfile": {
+          "defaultLevel": 3,
+          "capabilities": {
+            "text": true,
+            "code": true,
+            "architecture": true,
+            "toolCalling": true,
+            "jsonMode": true,
+            "image": false
+          }
+        }
       },
       {
         "name": "local-qwen25vl",
@@ -50,7 +111,20 @@
         "location": "local",
         "baseUrl": "http://localhost:11434",
         "model": "qwen2.5vl:7b",
-        "think": false
+        "think": false,
+        "routerProfile": {
+          "defaultLevel": 3,
+          "supportsVision": true,
+          "capabilities": {
+            "text": true,
+            "code": true,
+            "architecture": true,
+            "image": true,
+            "ocr": true,
+            "uiScreenshot": true,
+            "diagramUnderstanding": true
+          }
+        }
       }
     ]
   },

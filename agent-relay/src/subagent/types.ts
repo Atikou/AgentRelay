@@ -22,6 +22,8 @@ export interface DelegatedTaskRunOptions {
   grantedPermissions?: ToolPermission[];
   timeoutMs?: number;
   sensitive?: boolean;
+  parentIntent?: string;
+  parentWorkflowType?: string;
   dispatchDepth?: number;
   executionRoute?: ExecutionRoute;
 }
@@ -57,6 +59,8 @@ export interface SubAgentBatchOptions {
   grantedPermissions?: ToolPermission[];
   timeoutMs?: number;
   sensitive?: boolean;
+  parentIntent?: string;
+  parentWorkflowType?: string;
   dispatchDepth?: number;
   arbitrateConflicts?: boolean;
   autoMergeWrites?: boolean;

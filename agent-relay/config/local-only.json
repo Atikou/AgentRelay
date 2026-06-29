@@ -9,7 +9,11 @@
         "location": "local",
         "baseUrl": "http://localhost:11434",
         "model": "qwen3.5:0.8b",
-        "think": false
+        "think": false,
+        "routerProfile": {
+          "defaultLevel": 1,
+          "capabilities": { "text": true, "image": false }
+        }
       },
       {
         "name": "local-phi4",
@@ -17,7 +21,20 @@
         "location": "local",
         "baseUrl": "http://localhost:11434",
         "model": "phi4",
-        "think": false
+        "think": false,
+        "routerProfile": {
+          "defaultLevel": 3,
+          "allowedRoles": ["primary", "draft", "review", "final"],
+          "capabilities": {
+            "text": true,
+            "code": true,
+            "architecture": true,
+            "toolCalling": true,
+            "jsonMode": true,
+            "longContext": true,
+            "image": false
+          }
+        }
       },
       {
         "name": "local-qwen25vl",
@@ -25,7 +42,20 @@
         "location": "local",
         "baseUrl": "http://localhost:11434",
         "model": "qwen2.5vl:7b",
-        "think": false
+        "think": false,
+        "routerProfile": {
+          "defaultLevel": 3,
+          "supportsVision": true,
+          "capabilities": {
+            "text": true,
+            "code": true,
+            "architecture": true,
+            "image": true,
+            "ocr": true,
+            "uiScreenshot": true,
+            "diagramUnderstanding": true
+          }
+        }
       },
       {
         "name": "local-lmstudio",
@@ -33,7 +63,11 @@
         "location": "local",
         "baseUrl": "http://localhost:1234/v1",
         "apiKey": "lm-studio",
-        "model": "local-model"
+        "model": "local-model",
+        "routerProfile": {
+          "defaultLevel": 2,
+          "capabilities": { "text": true, "code": true, "image": false }
+        }
       }
     ]
   },

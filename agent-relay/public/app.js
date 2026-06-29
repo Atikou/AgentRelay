@@ -89,6 +89,16 @@ function getSelectedPermissionPolicy() {
   return permissionPolicySelect?.value || "confirmBeforeEdit";
 }
 
+function planExecutionPayload(extra = {}) {
+  return {
+    sessionId: activeSessionId,
+    permissionPolicy: getSelectedPermissionPolicy(),
+    ...extra,
+  };
+}
+
+const TERMINAL_PLAN_STATUSES = new Set(["failed", "completed", "cancelled", "rejected", "superseded"]);
+
 function getExplicitRunMode() {
   if (!DEV_MODE) return undefined;
   const value = explicitModeSelect?.value?.trim();
@@ -1260,7 +1270,7 @@ function createAgentStreamPanel(initialLabel) {
           ? `\nlocation=${m.location.usedLocateSteps ?? 0} steps · found=${(m.location.locatedFiles || []).slice(0, 4).join(",") || "-"}`
           : "";
         metaBox.innerHTML = `${workflowStatus}<strong>执行元信息</strong><br>${escapeHtml(
-          `mode=${m.mode} · stop=${m.stopReason} · model=${u.modelTurns ?? m.usedModelTurns}/${b.maxModelTurns ?? "-"} · tools=${u.toolCalls ?? m.usedToolCalls}/${b.maxToolCalls ?? "-"}${u.toolObservationFailures != null ? ` · obsFail=${u.toolObservationFailures} execErr=${u.toolExecutionErrors ?? 0}` : ""}`,
+          formatExecutionMetaSummary(m, u, b),
         )}${escapeHtml(locationInfo)}`;
       }
       if (result.answer?.trim()) {
@@ -2234,6 +2244,30 @@ function mountInternalPlanPreviewCard(card, data, hooks = {}) {
     card.appendChild(warn);
   }
 
+  const failedBanner = document.createElement("p");
+  failedBanner.className = "plan-warn plan-failed-banner";
+  failedBanner.hidden = true;
+  failedBanner.textContent =
+    "该版本计划已失败，无法再次执行。请使用下方「生成修订版」得到 v+1 并重新审批，或回到 §② 重新编译。";
+  card.appendChild(failedBanner);
+
+  function refreshActionAvailability() {
+    const terminal = TERMINAL_PLAN_STATUSES.has(current.status);
+    const failed = current.status === "failed";
+    failedBanner.hidden = !failed;
+    approveBtn.disabled = terminal && current.status !== "awaiting_approval";
+    rejectBtn.disabled = terminal && current.status !== "awaiting_approval";
+    dryRunBtn.disabled = terminal;
+    execBtn.disabled = terminal;
+    if (failed) {
+      dryRunBtn.title = "失败版本不可重试，请生成修订版";
+      execBtn.title = dryRunBtn.title;
+    } else {
+      dryRunBtn.removeAttribute("title");
+      execBtn.removeAttribute("title");
+    }
+  }
+
   const actions = document.createElement("div");
   actions.className = "plan-actions";
   const autoLabel = document.createElement("label");
@@ -2272,6 +2306,7 @@ function mountInternalPlanPreviewCard(card, data, hooks = {}) {
   async function paintPreview() {
     statusBadge.textContent = `${PLAN_STATUS_LABEL[current.status] || current.status || "未知"} · v${current.version ?? 1}`;
     card.dataset.planVersion = String(current.version ?? 1);
+    refreshActionAvailability();
     if (showingJson && current.publicPlanJson) {
       previewBox.classList.remove("markdown-body");
       previewBox.textContent = JSON.stringify(current.publicPlanJson, null, 2);
@@ -2366,27 +2401,43 @@ function mountInternalPlanPreviewCard(card, data, hooks = {}) {
 
   async function runExecute(dryRun) {
     if (!current.planId) return;
+    if (TERMINAL_PLAN_STATUSES.has(current.status)) {
+      addSystemError(
+        current.status === "failed"
+          ? "计划状态 failed 不可执行，需要 approved 或 scheduled。请生成修订版（version++）后重新审批。"
+          : `计划状态 ${current.status} 不可执行。`,
+      );
+      return;
+    }
     const btn = dryRun ? dryRunBtn : execBtn;
     btn.disabled = true;
     try {
-      if (current.status !== "approved") {
+      if (current.status !== "approved" && current.status !== "scheduled") {
         await api(`/api/plans/${current.planId}/approve`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ version: current.version ?? 1 }),
         }).catch(() => undefined);
+        current.status = "approved";
+        refreshActionAvailability();
       }
       const exec = await api(`/api/plans/${current.planId}/execute`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          version: current.version ?? 1,
-          dryRun,
-          autoConfirm: autoLabel.querySelector("input").checked,
-          sessionId: activeSessionId,
-        }),
+        body: JSON.stringify(
+          planExecutionPayload({
+            version: current.version ?? 1,
+            dryRun,
+            autoConfirm: autoLabel.querySelector("input").checked,
+          }),
+        ),
       });
       addMessage("system", `${dryRun ? "dry-run" : "正式"}执行完成 · runId=${exec.runId ?? ""}`);
+      if (exec.plan?.status || exec.status) {
+        current.status = exec.plan?.status ?? exec.status ?? current.status;
+        await loadVersions();
+        await paintPreview();
+      }
       hooks.onExecuted?.(exec, current);
     } catch (err) {
       addSystemError(String(err.message || err));
@@ -2526,12 +2577,23 @@ async function handlePlanWorkflow() {
   const internalHost = sectionInternal.querySelector(".plan-internal-host");
   let internalController = null;
 
-  function enableFrom(index) {
-    const sections = [sectionAnalyze, sectionReview, sectionCompile, sectionInternal, sectionRevise];
-    sections.forEach((section, i) => {
-      section.classList.toggle("disabled", i > index);
+  const workflowSections = [
+    sectionAnalyze,
+    sectionReview,
+    sectionCompile,
+    sectionInternal,
+    sectionRevise,
+  ];
+
+  function unlockSectionsUpTo(maxIndex, activeStepIndex = maxIndex) {
+    workflowSections.forEach((section, i) => {
+      section.classList.toggle("disabled", i > maxIndex);
     });
-    setWorkflowStepState(stepEls, index);
+    setWorkflowStepState(stepEls, activeStepIndex);
+  }
+
+  function enableFrom(index) {
+    unlockSectionsUpTo(index, index);
   }
 
   function renderUserVisibleReview(plan) {
@@ -2560,6 +2622,35 @@ async function handlePlanWorkflow() {
       todoList.appendChild(row);
     }
     reviewBody.appendChild(todoList);
+
+    const reviewActions = document.createElement("div");
+    reviewActions.className = "plan-actions plan-review-actions";
+    reviewActions.innerHTML = `
+      <button type="button" class="action-btn plan-compile-btn-review">编译选中 Todo</button>
+      <button type="button" class="action-btn secondary plan-activate-dry-btn-review">一键 dry-run 激活（P0）</button>
+      <button type="button" class="action-btn plan-activate-btn-review">一键激活执行（Agent Loop）</button>`;
+    reviewBody.appendChild(reviewActions);
+    reviewActions.querySelector(".plan-compile-btn-review")?.addEventListener("click", () => {
+      void compileSelectedTodos(reviewActions.querySelector(".plan-compile-btn-review"));
+    });
+    reviewActions.querySelector(".plan-activate-dry-btn-review")?.addEventListener("click", () => {
+      void runPlanActivate({
+        dryRun: true,
+        autoApprove: true,
+        executionMode: "static",
+        label: "dry-run 激活",
+        btn: reviewActions.querySelector(".plan-activate-dry-btn-review"),
+      });
+    });
+    reviewActions.querySelector(".plan-activate-btn-review")?.addEventListener("click", () => {
+      void runPlanActivate({
+        dryRun: false,
+        autoApprove: false,
+        executionMode: "agent_loop",
+        label: "激活执行",
+        btn: reviewActions.querySelector(".plan-activate-btn-review"),
+      });
+    });
 
     const reportRevise = document.createElement("div");
     reportRevise.className = "plan-revise-box";
@@ -2618,17 +2709,30 @@ async function handlePlanWorkflow() {
         void loadHistorySessions();
       }
       renderUserVisibleReview(state.userVisiblePlan);
-      enableFrom(1);
-      addMessage("system", `UserVisiblePlan 已生成：${state.userVisiblePlan.id}`);
+      // 审阅阶段同时解锁「编译 / 激活」；步骤条仍高亮 ②
+      unlockSectionsUpTo(2, 1);
+      const qualityNote =
+        data.reportEnriched && data.warning
+          ? `（${data.warning}）`
+          : data.reportQuality?.score != null && data.reportQuality.score < 80
+            ? `（质量分 ${data.reportQuality.score}，建议审阅后修订）`
+            : "";
+      addMessage("system", `UserVisiblePlan 已生成：${state.userVisiblePlan.id}${qualityNote}`);
     } catch (err) {
-      addSystemError(String(err.message || err));
+      if (err.status === 422 && err.data?.code === "PLAN_REPORT_QUALITY_LOW") {
+        addSystemError(
+          `${err.message}\n质量：${(err.data.quality?.issues ?? []).join(", ") || "不足"}；只读工具成功 ${err.data.readToolSteps ?? 0} 次。${err.data.hint ? `\n${err.data.hint}` : ""}`,
+        );
+      } else {
+        addSystemError(String(err.message || err));
+      }
     } finally {
       btn.disabled = false;
       btn.textContent = "生成计划报告";
     }
   });
 
-  async function runPlanActivate({ dryRun, autoApprove, executionMode, label, btnSelector }) {
+  async function compileSelectedTodos(triggerBtn) {
     if (!state.userVisiblePlan?.id) {
       addSystemError("请先生成用户可见计划");
       return;
@@ -2640,7 +2744,44 @@ async function handlePlanWorkflow() {
       addSystemError("请至少勾选一个 Todo");
       return;
     }
-    const btn = sectionCompile.querySelector(btnSelector);
+    const btn =
+      triggerBtn || sectionCompile.querySelector(".plan-compile-btn");
+    btn.disabled = true;
+    const prev = btn.textContent;
+    btn.textContent = "编译中…";
+    try {
+      const draft = await api(`/api/plans/${state.userVisiblePlan.id}/compile`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(
+          planExecutionPayload({
+            confirmedTodoIds: selected,
+          }),
+        ),
+      });
+      showInternalDraft(draft);
+      addMessage("system", `内部计划草案 v${draft.version} 已生成（待审批）`);
+    } catch (err) {
+      addSystemError(String(err.message || err));
+    } finally {
+      btn.disabled = false;
+      btn.textContent = prev || "编译选中 Todo";
+    }
+  }
+
+  async function runPlanActivate({ dryRun, autoApprove, executionMode, label, btn }) {
+    if (!state.userVisiblePlan?.id) {
+      addSystemError("请先生成用户可见计划");
+      return;
+    }
+    const selected = [...sectionReview.querySelectorAll(".plan-todo-check:checked")].map(
+      (el) => el.value,
+    );
+    if (selected.length === 0) {
+      addSystemError("请至少勾选一个 Todo");
+      return;
+    }
+    if (!btn) return;
     btn.disabled = true;
     const prev = btn.textContent;
     btn.textContent = `${label}…`;
@@ -2648,14 +2789,15 @@ async function handlePlanWorkflow() {
       const data = await api(`/api/plans/${state.userVisiblePlan.id}/activate`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          confirmedTodoIds: selected,
-          sessionId: activeSessionId,
-          dryRun,
-          autoApprove,
-          autoConfirm: dryRun,
-          executionMode,
-        }),
+        body: JSON.stringify(
+          planExecutionPayload({
+            confirmedTodoIds: selected,
+            dryRun,
+            autoApprove,
+            autoConfirm: dryRun,
+            executionMode,
+          }),
+        ),
       });
       if (data.phase === "compiled") {
         showInternalDraft(data);
@@ -2682,59 +2824,29 @@ async function handlePlanWorkflow() {
     }
   }
 
-  sectionCompile.querySelector(".plan-compile-btn")?.addEventListener("click", async () => {
-    if (!state.userVisiblePlan?.id) {
-      addSystemError("请先生成用户可见计划");
-      return;
-    }
-    const selected = [...sectionReview.querySelectorAll(".plan-todo-check:checked")].map(
-      (el) => el.value,
-    );
-    if (selected.length === 0) {
-      addSystemError("请至少勾选一个 Todo");
-      return;
-    }
-    const btn = sectionCompile.querySelector(".plan-compile-btn");
-    btn.disabled = true;
-    btn.textContent = "编译中…";
-    try {
-      const draft = await api(`/api/plans/${state.userVisiblePlan.id}/compile`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          confirmedTodoIds: selected,
-          sessionId: activeSessionId,
-        }),
-      });
-      showInternalDraft(draft);
-      addMessage("system", `内部计划草案 v${draft.version} 已生成（待审批）`);
-    } catch (err) {
-      addSystemError(String(err.message || err));
-    } finally {
-      btn.disabled = false;
-      btn.textContent = "编译选中 Todo";
-    }
+  sectionCompile.querySelector(".plan-compile-btn")?.addEventListener("click", () => {
+    void compileSelectedTodos(sectionCompile.querySelector(".plan-compile-btn"));
   });
 
-  sectionCompile.querySelector(".plan-activate-dry-btn")?.addEventListener("click", () =>
-    runPlanActivate({
+  sectionCompile.querySelector(".plan-activate-dry-btn")?.addEventListener("click", () => {
+    void runPlanActivate({
       dryRun: true,
       autoApprove: true,
       executionMode: "static",
       label: "dry-run 激活",
-      btnSelector: ".plan-activate-dry-btn",
-    }),
-  );
+      btn: sectionCompile.querySelector(".plan-activate-dry-btn"),
+    });
+  });
 
-  sectionCompile.querySelector(".plan-activate-btn")?.addEventListener("click", () =>
-    runPlanActivate({
+  sectionCompile.querySelector(".plan-activate-btn")?.addEventListener("click", () => {
+    void runPlanActivate({
       dryRun: false,
       autoApprove: false,
       executionMode: "agent_loop",
       label: "激活执行",
-      btnSelector: ".plan-activate-btn",
-    }),
-  );
+      btn: sectionCompile.querySelector(".plan-activate-btn"),
+    });
+  });
 
   addMessage("system", panel);
   messageInput.focus();
@@ -3133,7 +3245,6 @@ async function respondPlanHandoff(handoff, decision) {
     addMessage("system", `已拒绝按计划执行：${escapeHtml(handoff.message || handoff.id)}`);
     return responded;
   }
-  hidePlanHandoffPanel();
   addMessage("system", "已批准按计划执行，正在进入执行阶段…");
   try {
     const resume = await api(`/api/runs/${encodeURIComponent(handoff.runId)}/resume-plan-handoff`, {
@@ -3142,9 +3253,9 @@ async function respondPlanHandoff(handoff, decision) {
       body: JSON.stringify({
         runId: handoff.runId,
         planHandoffId: handoff.id,
-        permissionPolicy: getSelectedPermissionPolicy(),
       }),
     });
+    hidePlanHandoffPanel();
     if (resume.sessionId) {
       setActiveSessionId(resume.sessionId);
       void loadHistorySessions();
@@ -3157,16 +3268,17 @@ async function respondPlanHandoff(handoff, decision) {
   }
 }
 
-function showPlanHandoffPanel(handoff) {
+function showPlanHandoffPanel(handoff, pendingCount) {
   if (!handoff || handoff.status !== "pending") return;
   const panel = ensurePlanHandoffPanel();
-  const preview = (handoff.planMarkdown || "").slice(0, 1200);
+  const planBody = handoff.planMarkdown || "";
+  const countLabel = pendingCount > 1 ? `（共 ${pendingCount} 项，显示第 1 项）` : "";
   panel.innerHTML = `
-    <h3>计划交接</h3>
+    <h3>计划交接${countLabel}</h3>
     <div class="perm-summary">${escapeHtml(handoff.message || "计划已完成，是否按计划执行？")}</div>
     ${
-      preview
-        ? `<div class="perm-group"><div class="perm-group-title">计划摘要</div><div class="perm-item"><div class="perm-item-reason">${escapeHtml(preview)}${handoff.planMarkdown.length > preview.length ? "…" : ""}</div></div></div>`
+      planBody
+        ? `<div class="perm-group"><div class="perm-group-title">计划全文</div><div class="perm-item perm-scroll"><div class="perm-item-reason">${escapeHtml(planBody)}</div></div></div>`
         : ""
     }
     <div class="perm-actions">
@@ -3199,7 +3311,7 @@ async function pollPendingPlanHandoffs() {
     );
     const pending = data.planHandoffs || [];
     if (pending.length > 0) {
-      showPlanHandoffPanel(pending[0]);
+      showPlanHandoffPanel(pending[0], pending.length);
     }
   } catch {
     // 忽略轮询失败
@@ -3256,16 +3368,65 @@ function groupPermissionItems(items) {
   return groups;
 }
 
+function formatExecutionMetaSummary(m, u, b, extra = "") {
+  const usagePart = `stop=${m.stopReason} · model=${u.modelTurns ?? m.usedModelTurns}/${b.maxModelTurns ?? "-"} · tools=${u.toolCalls ?? m.usedToolCalls}/${b.maxToolCalls ?? "-"}${
+    u.toolObservationFailures != null ? ` · obsFail=${u.toolObservationFailures} execErr=${u.toolExecutionErrors ?? 0}` : ""
+  }`;
+  if (!DEV_MODE) return usagePart + extra;
+  return `mode=${m.mode}${m.modeSource ? `/${m.modeSource}` : ""} · intent=${m.intent ?? "-"} · workflow=${m.workflowType ?? "-"} · permissionPolicy=${m.permissionPolicy ?? "-"}${m.permissionPolicySource ? `/${m.permissionPolicySource}` : ""} · ${usagePart}${extra}`;
+}
+
+function formatAgentExecutionMetaDetail(m, u, b, locationInfo) {
+  const base = formatExecutionMetaSummary(m, u, b);
+  if (!DEV_MODE) {
+    const extended = [
+      base,
+      `read=${u.readCalls ?? m.usedReadCalls}/${b.maxReadCalls ?? "-"}`,
+      `write=${u.writeCalls ?? m.usedWriteCalls}/${b.maxWriteCalls ?? "-"}`,
+      `shell=${u.shellCalls ?? m.usedShellCalls}/${b.maxShellCalls ?? "-"}`,
+      `runtime=${u.runtimeMs ?? 0}/${b.maxRuntimeMs ?? "-"}ms`,
+      m.budgetExhausted ? `budget=${m.budgetExhausted}` : "",
+      m.needsMoreBudget && m.suggestedBudget ? `建议预算=${formatBudget(m.suggestedBudget)}` : "",
+      locationInfo,
+    ]
+      .filter(Boolean)
+      .join(" · ");
+    return extended;
+  }
+  return `${base} · read=${u.readCalls ?? m.usedReadCalls}/${b.maxReadCalls ?? "-"} · write=${u.writeCalls ?? m.usedWriteCalls}/${b.maxWriteCalls ?? "-"} · shell=${u.shellCalls ?? m.usedShellCalls}/${b.maxShellCalls ?? "-"} · runtime=${u.runtimeMs ?? 0}/${b.maxRuntimeMs ?? "-"}ms${
+    m.needsMoreBudget && m.suggestedBudget ? ` · 建议预算=${formatBudget(m.suggestedBudget)}` : ""
+  }${locationInfo}`;
+}
+
 function renderPermissionItemList(items) {
   if (!items.length) return "";
   return items
-    .map(
-      (item) => `<div class="perm-item">
+    .map((item) => {
+      const risk = item.riskTier ? `<div class="perm-item-risk">风险：${escapeHtml(item.riskTier)}</div>` : "";
+      const inputPreview = item.inputPreview
+        ? `<div class="perm-item-preview"><strong>输入预览</strong><pre>${escapeHtml(item.inputPreview)}</pre></div>`
+        : "";
+      const diffPreview = item.diffPreview
+        ? `<div class="perm-item-preview"><strong>变更预览</strong><pre>${escapeHtml(item.diffPreview)}</pre></div>`
+        : "";
+      return `<div class="perm-item">
         <div class="perm-item-target">${escapeHtml(item.target)}</div>
         <div class="perm-item-reason">${escapeHtml(item.reason || "")}</div>
-      </div>`,
-    )
+        ${risk}
+        ${inputPreview}
+        ${diffPreview}
+      </div>`;
+    })
     .join("");
+}
+
+function permissionPanelHasShellOnly(groups) {
+  return (
+    groups.shell.length > 0 &&
+    groups.read_file.length === 0 &&
+    groups.write_file.length === 0 &&
+    groups.other.length === 0
+  );
 }
 
 async function respondPermissionRequest(request, decision) {
@@ -3279,7 +3440,6 @@ async function respondPermissionRequest(request, decision) {
     addMessage("system", `已拒绝权限申请：${escapeHtml(request.title || request.id)}`);
     return responded;
   }
-  hidePermissionRequestPanel();
   const decisionLabel =
     decision === "allow_workspace"
       ? "长期工作区"
@@ -3296,9 +3456,9 @@ async function respondPermissionRequest(request, decision) {
       body: JSON.stringify({
         runId: request.runId,
         permissionRequestId: request.id,
-        permissionPolicy: getSelectedPermissionPolicy(),
       }),
     });
+    hidePermissionRequestPanel();
     if (resume.sessionId) {
       setActiveSessionId(resume.sessionId);
       void loadHistorySessions();
@@ -3311,13 +3471,23 @@ async function respondPermissionRequest(request, decision) {
   }
 }
 
-function showPermissionRequestPanel(request) {
+function showPermissionRequestPanel(request, pendingCount) {
   if (!request || request.status !== "pending") return;
   const panel = ensurePermissionRequestPanel();
   const groups = groupPermissionItems(request.requiredPermissions || []);
+  const shellOnly = permissionPanelHasShellOnly(groups);
+  const blocked = request.blockedTool
+    ? `<div class="perm-group"><div class="perm-group-title">被阻塞的工具</div><div class="perm-item"><div class="perm-item-target">${escapeHtml(request.blockedTool.name)}</div>${
+        request.blockedTool.input
+          ? `<div class="perm-item-preview"><pre>${escapeHtml(JSON.stringify(request.blockedTool.input, null, 2))}</pre></div>`
+          : ""
+      }</div></div>`
+    : "";
+  const countLabel = pendingCount > 1 ? `（共 ${pendingCount} 项，显示第 1 项）` : "";
   panel.innerHTML = `
-    <h3>${escapeHtml(request.title || "AI 需要权限继续执行")}</h3>
+    <h3>${escapeHtml(request.title || "AI 需要权限继续执行")}${countLabel}</h3>
     <div class="perm-summary">${escapeHtml(request.summary || "")}</div>
+    ${blocked}
     ${
       groups.read_file.length
         ? `<div class="perm-group"><div class="perm-group-title">跨工作区读取</div>${renderPermissionItemList(groups.read_file)}</div>`
@@ -3342,7 +3512,7 @@ function showPermissionRequestPanel(request) {
       <button type="button" class="btn-allow" data-decision="allow_once">允许一次</button>
       <button type="button" class="btn-session" data-decision="allow_session">本次会话都允许</button>
       <button type="button" class="btn-session" data-decision="allow_project">本项目允许</button>
-      <button type="button" class="btn-session" data-decision="allow_workspace">长期允许</button>
+      ${shellOnly ? "" : '<button type="button" class="btn-session" data-decision="allow_workspace">长期允许</button>'}
       <button type="button" class="btn-deny" data-decision="deny">拒绝</button>
     </div>`;
   panel.classList.add("visible");
@@ -3378,7 +3548,7 @@ async function pollPendingPermissionRequests() {
     );
     const pending = data.permissionRequests || [];
     if (pending.length > 0) {
-      showPermissionRequestPanel(pending[0]);
+      showPermissionRequestPanel(pending[0], pending.length);
     }
   } catch {
     // 忽略轮询失败
@@ -3427,11 +3597,7 @@ function renderAgentRun(result) {
       ? `\nlocation=${m.location.usedLocateSteps ?? 0} steps · found=${(m.location.locatedFiles || []).slice(0, 4).join(",") || "-"} · continue=${m.location.needsContinue ? "yes" : "no"}`
       : "";
     metaBox.innerHTML = `${workflowStatus}<strong>执行元信息</strong><br>${escapeHtml(
-      `mode=${m.mode}${m.modeSource ? `/${m.modeSource}` : ""} · intent=${m.intent ?? "-"} · workflow=${m.workflowType ?? "-"} · permissionPolicy=${m.permissionPolicy ?? "-"}${m.permissionPolicySource ? `/${m.permissionPolicySource}` : ""} · stop=${m.stopReason}${m.budgetExhausted ? `(${m.budgetExhausted})` : ""} · model=${u.modelTurns ?? m.usedModelTurns}/${b.maxModelTurns ?? "-"} · tools=${u.toolCalls ?? m.usedToolCalls}/${b.maxToolCalls ?? "-"} · read=${u.readCalls ?? m.usedReadCalls}/${b.maxReadCalls ?? "-"} · write=${u.writeCalls ?? m.usedWriteCalls}/${b.maxWriteCalls ?? "-"} · shell=${u.shellCalls ?? m.usedShellCalls}/${b.maxShellCalls ?? "-"} · runtime=${u.runtimeMs ?? 0}/${b.maxRuntimeMs ?? "-"}ms${u.toolObservationFailures != null ? ` · obsFail=${u.toolObservationFailures} execErr=${u.toolExecutionErrors ?? 0}` : ""}${
-        m.needsMoreBudget && m.suggestedBudget
-          ? ` · 建议预算=${formatBudget(m.suggestedBudget)}`
-          : ""
-      }${locationInfo}`,
+      formatAgentExecutionMetaDetail(m, u, b, locationInfo),
     )}`;
     card.appendChild(metaBox);
   }

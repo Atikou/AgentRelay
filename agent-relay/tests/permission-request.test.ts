@@ -11,7 +11,7 @@ import { detectPlanExecutionVariant } from "../src/agent/planExecutionVariant.js
 import { ContextManager } from "../src/context/ContextManager.js";
 import { PermissionRequestStore } from "../src/policy/PermissionRequestStore.js";
 import { SessionPermissionGrants } from "../src/policy/SessionPermissionGrants.js";
-import { isToolCallGranted } from "../src/policy/scopedPermissionCheck.js";
+import { isToolCallGranted, isCommandApproved } from "../src/policy/scopedPermissionCheck.js";
 import { evaluatePermissionGuard } from "../src/policy/PermissionGuard.js";
 import { PausedRunStore } from "../src/agent/PausedRunStore.js";
 import { findBlockingAgentPause } from "../src/policy/permissionPauseGate.js";
@@ -103,6 +103,12 @@ test("scoped grants 允许已批准写文件", () => {
     }),
     false,
   );
+});
+
+test("shell grant 仅精确匹配命令，禁止前缀扩展", () => {
+  assert.equal(isCommandApproved("npm test", ["npm test"]), true);
+  assert.equal(isCommandApproved("npm test --watch", ["npm test"]), false);
+  assert.equal(isCommandApproved("npm test", ["npm"]), false);
 });
 
 test("PermissionGuard 在 scoped grants 下放行写入", () => {

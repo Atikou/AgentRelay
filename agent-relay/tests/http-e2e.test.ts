@@ -157,6 +157,34 @@ test("POST /api/tools/run 高风险 shell 未确认时只返回预览", async ()
   assert.equal(body.preview?.risk?.level, "dangerous");
 });
 
+test("POST /api/permission-requests shell 项拒绝 allow_workspace", async () => {
+  const created = app.permissionRequestStore.create({
+    runId: "run-shell-ws",
+    title: "shell grant",
+    summary: "需要运行 npm test",
+    requiredPermissions: [{ type: "shell", target: "npm test", reason: "验证" }],
+  });
+  const res = await postJson(`/api/permission-requests/${encodeURIComponent(created.id)}/respond`, {
+    decision: "allow_workspace",
+  });
+  assert.equal(res.status, 400);
+  const body = (await res.json()) as { error?: string };
+  assert.match(body.error ?? "", /shell.*长期工作区/);
+});
+
+test("POST /api/tools/run git push 确认后仍被强制确认拒绝", async () => {
+  const res = await postJson("/api/tools/run", {
+    name: "shell_run",
+    input: { command: "git push origin main" },
+    confirm: true,
+  });
+  assert.equal(res.status, 400);
+  const body = (await res.json()) as { ok?: boolean; code?: string; error?: string };
+  assert.equal(body.ok, false);
+  assert.equal(body.code, "permission_denied");
+  assert.match(body.error ?? "", /推送|确认/);
+});
+
 test("POST /api/tools/run 高风险 shell 确认后仍被策略拒绝", async () => {
   const res = await postJson("/api/tools/run", {
     name: "shell_run",
@@ -166,9 +194,9 @@ test("POST /api/tools/run 高风险 shell 确认后仍被策略拒绝", async ()
   assert.equal(res.status, 400);
   const body = (await res.json()) as { ok?: boolean; code?: string; category?: string; error?: string };
   assert.equal(body.ok, false);
-  assert.equal(body.code, "error");
+  assert.equal(body.code, "permission_denied");
   assert.equal(body.category, "permission_error");
-  assert.match(body.error ?? "", /高风险命令被拒绝|命令被策略拒绝/);
+  assert.match(body.error ?? "", /高风险命令被拒绝|命令被策略拒绝|递归强制删除|必须人工确认/);
 });
 
 test("POST /api/plans/analyze 空 goal 返回 400", async () => {

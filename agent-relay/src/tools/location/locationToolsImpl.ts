@@ -232,7 +232,7 @@ export const locateRelevantFilesTool: Tool<
   async execute(input, ctx) {
     const budget = { ...DEFAULT_LOCATE_BUDGET, ...input.locateBudget };
     const resumeCtx = input.resumeContext;
-    const basePlan = analyzeTaskQuery(input.goal, input.mode);
+    const basePlan = analyzeTaskQuery(input.goal, input.mode, ctx.workspaceRoot);
     const resumedPlan = resumeCtx?.searchPlan;
     const searchPlan: SearchPlan = {
       ...basePlan,

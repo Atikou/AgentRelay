@@ -37,6 +37,10 @@ export class PlanService {
 
   constructor(private readonly options: PlanServiceOptions) {}
 
+  /**
+   * Planner 输出 → InternalTaskPlan 草案（推荐入口）。
+   * legacy `Plan` JSON 仅作为模型 IO 格式，落盘前必经 `internalPlanFromLegacy`。
+   */
   async createDraftFromPlanner(input: {
     goal: string;
     context?: string;
@@ -44,16 +48,9 @@ export class PlanService {
     requestId?: string;
     mode?: PlanMode;
     planner: Planner;
-  }): Promise<{
-    planId: string;
-    version: number;
-    status: string;
-    planHash: string;
-    previewMarkdown: string;
-    publicPlanJson: PublicPlanJson;
-  }> {
+  }): Promise<ReturnType<PlanService["createDraftFromLegacyPlan"]>> {
     const legacy = await input.planner.generatePlan(input.goal, input.context);
-    return this.persistLegacyAsDraft(bindPlanTools(legacy, { registry: this.options.registry }), {
+    return this.createDraftFromLegacyPlan(bindPlanTools(legacy, { registry: this.options.registry }), {
       sessionId: input.sessionId,
       requestId: input.requestId,
       mode: input.mode,
@@ -61,7 +58,30 @@ export class PlanService {
     });
   }
 
-  persistLegacyAsDraft(
+  /** 可执行编译（带 tool/toolInput）→ InternalTaskPlan 草案。 */
+  async createExecutableDraftFromPlanner(input: {
+    goal: string;
+    context?: string;
+    sessionId?: string;
+    requestId?: string;
+    mode?: PlanMode;
+    planner: Planner;
+    originType?: InternalTaskPlan["origin"]["type"];
+    planId?: string;
+    version?: number;
+  }): Promise<ReturnType<PlanService["createDraftFromLegacyPlan"]>> {
+    const legacy = await input.planner.generateExecutablePlan(input.goal, input.context);
+    return this.createDraftFromLegacyPlan(bindPlanTools(legacy, { registry: this.options.registry }), {
+      sessionId: input.sessionId,
+      requestId: input.requestId,
+      mode: input.mode,
+      originType: input.originType ?? "planner",
+      planId: input.planId,
+      version: input.version,
+    });
+  }
+
+  createDraftFromLegacyPlan(
     legacy: Plan,
     meta: {
       sessionId?: string;
@@ -109,7 +129,15 @@ export class PlanService {
     };
   }
 
-  ingestLegacyPlanBody(planBody: unknown, dryRunOnly: boolean): ReturnType<PlanService["persistLegacyAsDraft"]> {
+  /** @deprecated 使用 `createDraftFromLegacyPlan` */
+  persistLegacyAsDraft(
+    legacy: Plan,
+    meta: Parameters<PlanService["createDraftFromLegacyPlan"]>[1],
+  ): ReturnType<PlanService["createDraftFromLegacyPlan"]> {
+    return this.createDraftFromLegacyPlan(legacy, meta);
+  }
+
+  ingestLegacyPlanBody(planBody: unknown, dryRunOnly: boolean): ReturnType<PlanService["createDraftFromLegacyPlan"]> {
     rejectExecutablePreview(planBody);
     const publicParsed = PublicPlanJsonSchema.safeParse(planBody);
     if (publicParsed.success) {
@@ -128,7 +156,7 @@ export class PlanService {
         "生产执行不接受 body 中的 plan JSON，请使用 planId + version",
       );
     }
-    return this.persistLegacyAsDraft(bindPlanTools(parsed.data, { registry: this.options.registry }), {
+    return this.createDraftFromLegacyPlan(bindPlanTools(parsed.data, { registry: this.options.registry }), {
       originType: "legacy_ingest",
     });
   }
@@ -177,7 +205,7 @@ export class PlanService {
     }
 
     const legacy = await input.planner.generatePlan(goal, context);
-    return this.persistLegacyAsDraft(bindPlanTools(legacy, { registry: this.options.registry }), {
+    return this.createDraftFromLegacyPlan(bindPlanTools(legacy, { registry: this.options.registry }), {
       sessionId: input.sessionId,
       originType: "import_preview",
     });
@@ -259,7 +287,7 @@ export class PlanService {
 
     const legacy = await input.planner.generatePlan(input.goal, contextParts.join("\n\n"));
     const bound = bindPlanTools(legacy, { registry: this.options.registry });
-    const draft = this.persistLegacyAsDraft(bound, {
+    const draft = this.createDraftFromLegacyPlan(bound, {
       planId: input.planId,
       version: nextVersion,
       sessionId: input.sessionId,
@@ -407,7 +435,7 @@ export class PlanService {
     requestId?: string;
     planner?: Planner;
   }): Promise<
-    ReturnType<PlanService["persistLegacyAsDraft"]> & { sourceUserVisiblePlan: UserVisiblePlan }
+    ReturnType<PlanService["createDraftFromLegacyPlan"]> & { sourceUserVisiblePlan: UserVisiblePlan }
   > {
     const userVisiblePlan = this.getUserVisiblePlan(input.userVisiblePlanId);
     if (!userVisiblePlan) {
@@ -422,7 +450,7 @@ export class PlanService {
       userVisiblePlan,
       planner: input.planner,
     });
-    const draft = this.persistLegacyAsDraft(executable, {
+    const draft = this.createDraftFromLegacyPlan(executable, {
       sessionId: input.sessionId ?? userVisiblePlan.sessionId,
       requestId: input.requestId ?? userVisiblePlan.sourceRunId,
       mode: "implement",

@@ -83,18 +83,25 @@ test("buildDelegatedTaskRouterInput 使用任务信号与 tool 模式", () => {
 
 
 test("buildDelegatedTaskRouterInput honors sensitive localOnly", () => {
-
   const delegated = normalizeDelegatedTask({ goal: "分析 npm run test 失败 stderr" });
-
   const input = buildDelegatedTaskRouterInput(delegated, "分析失败日志", { sensitive: true });
-
   assert.equal(input.localOnly, true);
-
   assert.equal(input.taskTypeOverride, "debug");
-
 });
 
-
+test("buildDelegatedTaskRouterInput 继承主 Agent edit/debug 工作流路由提示", () => {
+  const delegated = normalizeDelegatedTask({ goal: "检查 utils 模块" });
+  const debugInput = buildDelegatedTaskRouterInput(delegated, "检查 utils 模块", {
+    parentIntent: "debug",
+    parentWorkflowType: "debugWorkflow",
+  });
+  assert.equal(debugInput.taskTypeOverride, "debug");
+  const editInput = buildDelegatedTaskRouterInput(delegated, "检查 utils 模块", {
+    parentIntent: "edit",
+    parentWorkflowType: "editWorkflow",
+  });
+  assert.equal(editInput.taskTypeOverride, "code_edit");
+});
 
 test("subagent source files do not hardcode model client names", () => {
 

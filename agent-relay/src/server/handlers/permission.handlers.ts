@@ -107,6 +107,20 @@ export function handlePermissionRequestRespond(
     };
   }
 
+  const existing = app.permissionRequestStore.get(id.trim());
+  if (!existing) {
+    return { status: 404, body: { error: "权限申请不存在或已处理", id } };
+  }
+  if (
+    decision === "allow_workspace" &&
+    existing.requiredPermissions.some((item) => item.type === "shell")
+  ) {
+    return {
+      status: 400,
+      body: { error: "shell 权限不支持长期工作区授权，请使用允许一次或本次会话" },
+    };
+  }
+
   const responded = app.permissionRequestStore.respond(id.trim(), {
     decision,
     approvedPermissions: parseApprovedItems(payload.approvedPermissions),

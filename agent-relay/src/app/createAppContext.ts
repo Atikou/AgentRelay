@@ -762,6 +762,8 @@ export function createAppContext(): AppContext {
     sessionPermissionGrants,
     workspaceGrantStore,
     pausedRunStore,
+    shellPolicy,
+    networkPolicy,
   });
   orchestratorHolder.current = orchestrator;
 

@@ -12,9 +12,10 @@ import {
 } from "../src/model-router/model-capabilities.js";
 import { buildModelProfiles } from "../src/model-router/model-profiles.js";
 import { ModelRegistry } from "../src/model-router/model-registry.js";
+import { withDeclaredCapabilities } from "../src/model-router/test-profile-helpers.js";
 import type { ModelProfile, RuleRouteResult } from "../src/model-router/types.js";
 
-const localDraft: ModelProfile = {
+const localDraft: ModelProfile = withDeclaredCapabilities({
   id: "local-small",
   displayName: "本地轻量",
   provider: "local",
@@ -32,9 +33,9 @@ const localDraft: ModelProfile = {
   canDraft: true,
   canReview: false,
   canFinal: true,
-};
+});
 
-const apiStrong: ModelProfile = {
+const apiStrong: ModelProfile = withDeclaredCapabilities({
   id: "api-strong",
   displayName: "强 API",
   provider: "api",
@@ -52,14 +53,52 @@ const apiStrong: ModelProfile = {
   canDraft: false,
   canReview: true,
   canFinal: true,
-};
+  declaredCapabilities: {
+    text: true,
+    image: true,
+    code: true,
+    architecture: true,
+    toolCalling: true,
+    jsonMode: true,
+    longContext: true,
+    audio: false,
+    video: false,
+    file: true,
+    ocr: true,
+    uiScreenshot: true,
+    chartUnderstanding: true,
+    diagramUnderstanding: true,
+    spatialReasoning: true,
+    imageGeneration: false,
+    imageEditing: false,
+  },
+});
 
-const noVisionApi: ModelProfile = {
+const noVisionApi: ModelProfile = withDeclaredCapabilities({
   ...apiStrong,
   id: "api-no-vision",
   supportsVision: false,
   allowedTaskTypes: ["technical_qa"],
-};
+  declaredCapabilities: {
+    text: true,
+    image: false,
+    code: true,
+    architecture: false,
+    toolCalling: true,
+    jsonMode: true,
+    longContext: true,
+    audio: false,
+    video: false,
+    file: true,
+    ocr: false,
+    uiScreenshot: false,
+    chartUnderstanding: false,
+    diagramUnderstanding: false,
+    spatialReasoning: false,
+    imageGeneration: false,
+    imageEditing: false,
+  },
+});
 
 const tests: Array<{ name: string; fn: () => void }> = [];
 function test(name: string, fn: () => void) {
@@ -100,6 +139,7 @@ test("ModelRegistry findPrimaryCandidates 使用能力矩阵过滤", () => {
     risk: "medium",
     reason: "图片",
     requireVision: true,
+    requiredCapabilities: ["text", "image"],
   };
   const primary = registry.findPrimaryCandidates(rule);
   assert.deepEqual(

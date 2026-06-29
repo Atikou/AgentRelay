@@ -12,6 +12,8 @@ import type { AgentStepPlan } from "../plan/types.js";
 import { assertWithinCostBudget, sumModelTurnCost } from "../util/costBudget.js";
 import { wrapUntrustedToolOutput } from "../util/injection.js";
 import { redactPreview } from "../util/redact.js";
+import { buildAgentSystemPrompt } from "./AgentSystemPromptBuilder.js";
+import { buildWorkflowCapabilityHint } from "./AgentWorkflowCapabilityHint.js";
 import { FailedActionMemory } from "./recovery/FailedActionMemory.js";
 import { RunToolResultCache } from "./recovery/RunToolResultCache.js";
 import {
@@ -42,12 +44,11 @@ import {
 import type { PausedRunRuntimeState } from "./PausedRunStore.js";
 import {
   evaluateCapabilityEscalation,
-  expectedSideEffectsFromRoute,
   renderCapabilityEscalationContext,
   type CapabilityEscalation,
   type CapabilityEscalationRecord,
 } from "./CapabilityEscalation.js";
-import { isSoftWorkflow, defaultWorkflowRouter } from "./WorkflowRouter.js";
+import { defaultWorkflowRouter } from "./WorkflowRouter.js";
 import { assessWorkflowToolAccess, type WorkflowCapabilityAssessment } from "./WorkflowCapability.js";
 import { extractSideEffectSummary } from "./sideEffectFromSteps.js";
 import { evaluateCompletionGuard, type CompletionGuardResult } from "./completion/CompletionFinalGuard.js";
@@ -280,6 +281,10 @@ export interface AgentLoopOptions {
   pausedRunStore?: PausedRunStore;
   /** 恢复执行：从该快照忠实续跑同一段对话（执行被批准工具或按计划进入执行阶段）。 */
   pausedRun?: PausedRunSnapshot;
+  /** 计划报告 analyze API：产出 final 后不冻结 planHandoff，直接返回完整 answer。 */
+  skipPlanHandoff?: boolean;
+  shellPolicy?: import("../policy/ShellPolicy.js").ShellPolicy;
+  networkPolicy?: import("../policy/NetworkPolicy.js").NetworkPolicy;
 }
 
 interface ToolAction {
@@ -1244,6 +1249,8 @@ export class AgentLoop {
         input: action.input ?? {},
         allowedPermissions: this.allowed,
         scopedGrants: this.resolveScopedGrants(),
+        shellPolicy: this.options.shellPolicy,
+        networkPolicy: this.options.networkPolicy,
       });
       if (permissionDecision.decision !== "allow") {
         return this.buildPermissionBlockedStep(
@@ -1702,6 +1709,8 @@ export class AgentLoop {
       input: action.input ?? {},
       allowedPermissions: this.allowed,
       scopedGrants: this.resolveScopedGrants(),
+      shellPolicy: this.options.shellPolicy,
+      networkPolicy: this.options.networkPolicy,
     });
 
     if (permissionDecision.decision === "deny") {
@@ -1760,6 +1769,8 @@ export class AgentLoop {
         subAgentDispatchDepth: this.options.subAgentDispatchDepth ?? 0,
         maxSubAgentDispatchDepth: this.options.maxSubAgentDispatchDepth ?? 1,
         projectAllowedPermissions: this.options.projectAllowedPermissions,
+        parentAgentIntent: this.getEffectiveIntent(),
+        parentAgentWorkflowType: this.reconciledWorkflowType ?? this.policy.workflowType,
       },
     });
 
@@ -2013,6 +2024,8 @@ export class AgentLoop {
         input: input.action.input ?? {},
         allowedPermissions: this.allowed,
         scopedGrants: this.resolveScopedGrants(),
+        shellPolicy: this.options.shellPolicy,
+        networkPolicy: this.options.networkPolicy,
       });
       if (permissionDecision.decision === "deny") {
         const step = this.buildPermissionBlockedStep(
@@ -2139,24 +2152,6 @@ export class AgentLoop {
         filePath: targetPath,
       },
     });
-  }
-
-  private buildWorkflowCapabilityHint(): string {
-    const intent = this.getEffectiveIntent();
-    const route = defaultWorkflowRouter.routeIntent(intent);
-    if (!isSoftWorkflow(route)) return "";
-    const expected = expectedSideEffectsFromRoute(route).join(", ") || "read";
-    const lines = [
-      "【工作流能力】本任务为可执行类工作流（soft workflow）。",
-      `默认预期侧重：${expected}。`,
-      "若完成任务必须写入文件或执行命令，可调用相应工具；系统将动态升级任务能力，并由 PermissionGuard 与用户权限策略决定是否执行。",
-    ];
-    if (this.reconciledWorkflowType && this.reconciledIntent) {
-      lines.push(
-        `本轮已升级为：${this.reconciledWorkflowType}（${this.reconciledIntent}）。后续步骤与续写将按升级后的工作流理解任务。`,
-      );
-    }
-    return lines.join("\n");
   }
 
   private buildWorkflowBlockedStep(
@@ -2319,38 +2314,18 @@ export class AgentLoop {
   }
 
   private buildSystemPrompt(extra?: string): string {
-    const specs = this.options.registry
-      .list()
-      .filter((t) => this.allowed.includes(t.permission) && this.isToolExposedToModel(t.name))
-      .map((t) => {
-        const side = t.hasSideEffect ? " [副作用]" : "";
-        return `- ${t.name}(${t.inputHint ?? ""}) [权限:${t.permission}]${side}：${t.description}`;
-      })
-      .join("\n");
-
-    return [
-      "你是一个本地优先的编程助手，可以使用工具读取/搜索/修改工作区文件、执行命令来完成用户任务。",
-      "",
-      "可用工具：",
-      specs,
-      "",
-      "严格遵守以下协议：",
-      '1. 每次回复必须且只能输出一个 JSON 对象，禁止输出 JSON 以外的任何文字或 Markdown 代码围栏。',
-      '1.1 严禁把 JSON 对象再包成字符串（错误："{\\"action\\":\\"final\\"...}"）。必须直接输出对象本体（正确：{"action":"final","answer":"..."}）。',
-      '2. 需要使用工具时输出：{"action":"tool","tool":"工具名","input":{参数},"thought":"简述原因"}',
-      '3. 已能回答用户时输出：{"action":"final","answer":"给用户的最终中文回答"}',
-      "4. 一次只能调用一个工具；根据工具返回结果再决定下一步。",
-      "5. 不要臆测文件内容或命令输出，先用工具查看再下结论。",
-      "6. tool 字段只能填写上方“可用工具”列表中逐字出现的工具名；不要调用内部流程名或编排类名。",
-      "7. 大任务可拆成若干可独立推进的小步骤时，使用 dispatch_subagent；子 Agent 是独立任务执行单元，接收目标、约束、最小上下文和可用工具，独立分析/搜索/编辑/验证，并以结构化结果返回，由你判断采纳并汇总。",
-      "8. dispatch_subagent 只能传 tasks: DelegatedTask[]，不要传 roles、role、task 字符串或 patch_worker/code_review/test_analyze 之类固定角色。用户明确要求 N 个子 Agent 时，优先一次传入 N 个独立 tasks，每个 task 都要有不同 goal/instructions。",
-      "9. 非工程/非文件任务的子 Agent 默认不要读取项目文件，toolPolicy.allowedTools 可设为空数组或只读工具；只有用户任务明确涉及当前项目、代码、文件、测试或命令时，才使用 locate_relevant_files/context_pack/read_file 等项目工具。",
-      "10. 需要查找相关文件时，优先使用 project_scan / symbol_search / locate_relevant_files / context_pack；写入文件后可用 project_index_update 增量刷新索引；避免连续用 list_files、search_text、read_file 逐个试探。",
-      "11. 已知类名/函数名时优先 symbol_search；locate_relevant_files 已返回 primaryFiles 时，优先用 context_pack 打包这些文件，再分析或修改。",
-      this.policy.systemHint,
-      this.buildWorkflowCapabilityHint(),
-      extra ? `\n补充要求：${extra}` : "",
-    ].join("\n");
+    return buildAgentSystemPrompt({
+      registry: this.options.registry,
+      allowedPermissions: this.allowed,
+      isToolExposed: (toolName) => this.isToolExposedToModel(toolName),
+      systemHint: this.policy.systemHint,
+      workflowCapabilityHint: buildWorkflowCapabilityHint({
+        intent: this.getEffectiveIntent(),
+        reconciledWorkflowType: this.reconciledWorkflowType,
+        reconciledIntent: this.reconciledIntent,
+      }),
+      extra,
+    });
   }
 
   /** 子 Agent 内循环按派生深度门控 dispatch_subagent，不支持无限递归。 */
@@ -2512,6 +2487,7 @@ export class AgentLoop {
 
   /** 计划阶段产出 final 后是否生成交接（凡 plan 意图均生成交接面板）。 */
   private shouldCreatePlanHandoff(): boolean {
+    if (this.options.skipPlanHandoff) return false;
     return this.policy.mode === "plan" && this.policy.intent === "plan";
   }
 

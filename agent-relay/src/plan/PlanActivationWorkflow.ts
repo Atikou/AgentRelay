@@ -20,6 +20,7 @@ export interface PlanActivationWorkflowOptions {
     version: number,
     payload: {
       autoConfirm?: boolean;
+      permissionPolicy?: import("../agent/RunPolicyTypes.js").UserPermissionPolicy;
       sessionId?: string;
       runId?: string;
       rollbackOnFailure?: boolean;
@@ -39,6 +40,7 @@ export interface PlanActivationInput {
   dryRun?: boolean;
   autoApprove?: boolean;
   autoConfirm?: boolean;
+  permissionPolicy?: import("../agent/RunPolicyTypes.js").UserPermissionPolicy;
   executionMode?: PlanExecutionMode;
   approvedBy?: string;
   rollbackOnFailure?: boolean;
@@ -150,6 +152,7 @@ export class PlanActivationWorkflow {
       compiled.version,
       {
         autoConfirm: input.autoConfirm ?? dryRun,
+        permissionPolicy: input.permissionPolicy,
         sessionId: input.sessionId ?? uvp.sessionId,
         rollbackOnFailure: input.rollbackOnFailure,
         fallbackToPlanOnUncertainty: input.fallbackToPlanOnUncertainty,

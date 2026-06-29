@@ -73,6 +73,8 @@ test("policy 首次加载写入默认 policy.json", async () => {
   const policy = loadLifecyclePolicy(dataDir);
   assert.equal(policy.version, 1);
   assert.equal(policy.retentionDays.temp, 1);
+  assert.equal(policy.cleanup.autoEnabled, true);
+  assert.equal(policy.trace.compressOldSegments, true);
   assert.ok(existsSync(path.join(dataDir, "lifecycle", "policy.json")));
 });
 
@@ -216,19 +218,29 @@ test("CleanupPlanner 可压紧过期 scheduler journal", async () => {
   );
 
   const policy = loadLifecyclePolicy(dataDir);
+  const tracesDir = path.join(dataDir, "traces");
+  mkdirSync(tracesDir, { recursive: true });
+  const mgr = new ContextManager({
+    dataDir,
+    useLanceDb: false,
+    vectorStore: new InMemoryVectorStore(),
+  });
   const planner = new CleanupPlanner(
     {
       dataDir,
       workspaceRoot: path.join(tmpRoot, "ws-sched"),
-      traceFile: path.join(dataDir, "traces", "trace.jsonl"),
+      traceFile: path.join(tracesDir, "trace.jsonl"),
+      tracesDir,
       notificationFile: path.join(dataDir, "notifications", "notifications.jsonl"),
       schedulerJournalFile: journalFile,
+      memoryDb: mgr.db,
       getActiveRunIds: () => [],
     },
     policy,
   );
   const actions = planner.plan({ scope: "safe" });
   assert.ok(actions.some((a) => a.category === "scheduler" && a.type === "compact_jsonl"));
+  mgr.close();
 });
 
 test("CleanupPlanner 过期 timeline events 进入 medium 预览", async () => {
@@ -252,19 +264,29 @@ test("CleanupPlanner 过期 timeline events 进入 medium 预览", async () => {
   writeFileSync(path.join(workspace, ".agent", "runs", "run-old", "events.jsonl"), "{}\n", "utf-8");
 
   const policy = loadLifecyclePolicy(dataDir);
+  const tracesDir = path.join(dataDir, "traces");
+  mkdirSync(tracesDir, { recursive: true });
+  const mgr = new ContextManager({
+    dataDir,
+    useLanceDb: false,
+    vectorStore: new InMemoryVectorStore(),
+  });
   const planner = new CleanupPlanner(
     {
       dataDir,
       workspaceRoot: workspace,
-      traceFile: path.join(dataDir, "traces", "trace.jsonl"),
+      traceFile: path.join(tracesDir, "trace.jsonl"),
+      tracesDir,
       notificationFile: path.join(dataDir, "notifications", "notifications.jsonl"),
       schedulerJournalFile: path.join(dataDir, "scheduler", "scheduler-journal.jsonl"),
+      memoryDb: mgr.db,
       getActiveRunIds: () => [],
     },
     policy,
   );
   const actions = planner.plan({ scope: "all", maxRisk: "medium" });
   assert.ok(actions.some((a) => a.path.includes("events.jsonl") && a.risk === "medium"));
+  mgr.close();
 });
 
 test("隐私清除重写 trace 并清理 tools/routing", async () => {

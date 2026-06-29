@@ -35,19 +35,34 @@ export { AnswerEvaluator } from "./answer-evaluator.js";
 export {
   TASK_CAPABILITY_MATRIX,
   buildCapabilityMatrixSnapshot,
+  explainNoAvailableModel,
   extractCapabilityFlags,
   listProfilesForRole,
   profileSatisfiesRequirements,
+  resolveTaskRequirement,
   resolveEffectiveRequirements,
   resolveRoleRequirements,
   validateCapabilityMatrixCoverage,
 } from "./model-capabilities.js";
 export type {
   CapabilityMatrixSnapshot,
+  ListProfilesForRoleOptions,
   ModelCapabilityFlags,
   TaskCapabilityCoverage,
   TaskCapabilityRequirement,
 } from "./model-capabilities.js";
+export {
+  inferDeclaredCapabilities,
+  profileHasDeclaredCapability,
+  profileSatisfiesDeclaredCapabilities,
+  profileSatisfiesPrivacy,
+} from "./model-capability-profile.js";
+export type {
+  ModelDeclaredCapabilities,
+  ModelPrivacyPolicy,
+  TaskRequirement,
+  DeclaredCapabilityKey,
+} from "./model-capability-profile.js";
 export { RuntimeStatsCollector } from "./runtime-stats.js";
 export { RuntimeStatsFeedback } from "./runtime-stats-feedback.js";
 export { CostBudgetManager, defaultCostBudgetManager } from "./cost-budget-manager.js";

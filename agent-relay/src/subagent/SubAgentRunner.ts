@@ -34,7 +34,12 @@ export interface SubAgentRunnerDeps {
   chat: LoopChatFn;
   createChatForDelegatedTask?: (
     task: DelegatedTask,
-    ctx: { sensitive?: boolean; parentTaskId?: string },
+    ctx: {
+      sensitive?: boolean;
+      parentTaskId?: string;
+      parentIntent?: string;
+      parentWorkflowType?: string;
+    },
   ) => LoopChatFn;
   registry: ToolRegistry;
   workspaceRoot: string;
@@ -89,6 +94,8 @@ export class SubAgentRunner {
         budget,
         parentTaskId,
         sensitive: options.sensitive,
+        parentIntent: options.parentIntent,
+        parentWorkflowType: options.parentWorkflowType,
         dispatchDepth: options.dispatchDepth,
         signal,
         start,
@@ -107,16 +114,18 @@ export class SubAgentRunner {
     budget: RunBudget;
     parentTaskId?: string;
     sensitive?: boolean;
+    parentIntent?: string;
+    parentWorkflowType?: string;
     dispatchDepth?: number;
     signal?: AbortSignal;
     start: number;
     executionRoute?: DelegatedTaskRunOptions["executionRoute"];
   }): Promise<SubAgentRunResult> {
-    const { id, task, granted, timeoutMs, budget, parentTaskId, sensitive, dispatchDepth, signal, start, executionRoute } =
+    const { id, task, granted, timeoutMs, budget, parentTaskId, sensitive, parentIntent, parentWorkflowType, dispatchDepth, signal, start, executionRoute } =
       input;
 
     const chatCapture: { routingMeta?: SubAgentRunResult["routingMeta"] } = {};
-    const chat = this.resolveChat(task, { sensitive, parentTaskId }, chatCapture);
+    const chat = this.resolveChat(task, { sensitive, parentTaskId, parentIntent, parentWorkflowType }, chatCapture);
 
     const preloadText = [task.goal, task.input, ...(task.context?.files ?? [])].join("\n");
     const preloaded = await preloadReferencedFiles(preloadText, this.deps.registry, this.deps.workspaceRoot);
@@ -282,7 +291,12 @@ export class SubAgentRunner {
 
   private resolveChat(
     task: DelegatedTask,
-    ctx: { sensitive?: boolean; parentTaskId?: string },
+    ctx: {
+      sensitive?: boolean;
+      parentTaskId?: string;
+      parentIntent?: string;
+      parentWorkflowType?: string;
+    },
     capture?: { routingMeta?: SubAgentRunResult["routingMeta"] },
   ): LoopChatFn {
     const base = this.deps.createChatForDelegatedTask?.(task, ctx) ?? this.deps.chat;

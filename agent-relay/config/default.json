@@ -19,7 +19,15 @@
           "relativeCost": "free",
           "canDraft": true,
           "canReview": false,
-          "allowedRoles": ["primary", "draft"]
+          "allowedRoles": ["primary", "draft"],
+          "capabilities": {
+            "text": true,
+            "code": false,
+            "architecture": false,
+            "toolCalling": false,
+            "jsonMode": false,
+            "image": false
+          }
         }
       },
       {
@@ -35,7 +43,20 @@
           "canDraft": true,
           "canReview": true,
           "canFinal": true,
-          "allowedRoles": ["primary", "draft", "review", "final"]
+          "allowedRoles": ["primary", "draft", "review", "final"],
+          "capabilities": {
+            "text": true,
+            "code": true,
+            "architecture": true,
+            "toolCalling": true,
+            "jsonMode": true,
+            "longContext": true,
+            "image": false,
+            "ocr": false,
+            "uiScreenshot": false,
+            "diagramUnderstanding": false,
+            "imageGeneration": false
+          }
         }
       },
       {
@@ -52,7 +73,22 @@
           "supportsVision": true,
           "canDraft": true,
           "canReview": true,
-          "allowedRoles": ["primary", "draft", "review"]
+          "allowedRoles": ["primary", "draft", "review", "final"],
+          "capabilities": {
+            "text": true,
+            "code": true,
+            "architecture": true,
+            "toolCalling": true,
+            "jsonMode": true,
+            "image": true,
+            "ocr": true,
+            "uiScreenshot": true,
+            "chartUnderstanding": true,
+            "diagramUnderstanding": true,
+            "spatialReasoning": true,
+            "imageGeneration": false,
+            "imageEditing": false
+          }
         }
       },
       {
@@ -61,7 +97,22 @@
         "location": "local",
         "baseUrl": "http://localhost:1234/v1",
         "apiKey": "lm-studio",
-        "model": "local-model"
+        "model": "local-model",
+        "routerProfile": {
+          "defaultLevel": 2,
+          "relativeCost": "free",
+          "canDraft": true,
+          "canReview": false,
+          "allowedRoles": ["primary", "draft"],
+          "capabilities": {
+            "text": true,
+            "code": true,
+            "architecture": false,
+            "toolCalling": false,
+            "jsonMode": false,
+            "image": false
+          }
+        }
       },
       {
         "name": "cloud-openai",
@@ -71,7 +122,32 @@
         "apiKeyEnv": "OPENAI_API_KEY",
         "model": "gpt-4o-mini",
         "pricePer1kInputUsd": 0.00015,
-        "pricePer1kOutputUsd": 0.0006
+        "pricePer1kOutputUsd": 0.0006,
+        "routerProfile": {
+          "defaultLevel": 2,
+          "relativeCost": "medium",
+          "supportsVision": true,
+          "canDraft": true,
+          "canReview": true,
+          "allowedRoles": ["primary", "draft", "review", "final"],
+          "capabilities": {
+            "text": true,
+            "code": true,
+            "architecture": false,
+            "toolCalling": true,
+            "jsonMode": true,
+            "longContext": true,
+            "image": true,
+            "ocr": true,
+            "uiScreenshot": true,
+            "chartUnderstanding": true,
+            "imageGeneration": false
+          },
+          "privacy": {
+            "remote": true,
+            "allowSensitive": false
+          }
+        }
       },
       {
         "name": "cloud-deepseek",
@@ -81,7 +157,31 @@
         "apiKeyEnv": "OPENAI_API_KEY",
         "model": "deepseek-chat",
         "pricePer1kInputUsd": 0.00027,
-        "pricePer1kOutputUsd": 0.0011
+        "pricePer1kOutputUsd": 0.0011,
+        "routerProfile": {
+          "defaultLevel": 3,
+          "relativeCost": "medium",
+          "canDraft": true,
+          "canReview": true,
+          "allowedRoles": ["primary", "draft", "review", "final"],
+          "capabilities": {
+            "text": true,
+            "code": true,
+            "architecture": true,
+            "toolCalling": true,
+            "jsonMode": true,
+            "longContext": true,
+            "image": false,
+            "ocr": false,
+            "uiScreenshot": false,
+            "diagramUnderstanding": false,
+            "imageGeneration": false
+          },
+          "privacy": {
+            "remote": true,
+            "allowSensitive": false
+          }
+        }
       },
       {
         "name": "cloud-anthropic",
@@ -99,7 +199,27 @@
           "supportsVision": true,
           "canDraft": true,
           "canReview": true,
-          "allowedRoles": ["primary", "review", "final"]
+          "allowedRoles": ["primary", "review", "final"],
+          "capabilities": {
+            "text": true,
+            "code": true,
+            "architecture": true,
+            "toolCalling": true,
+            "jsonMode": true,
+            "longContext": true,
+            "image": true,
+            "ocr": true,
+            "uiScreenshot": true,
+            "chartUnderstanding": true,
+            "diagramUnderstanding": true,
+            "spatialReasoning": true,
+            "imageGeneration": false,
+            "imageEditing": false
+          },
+          "privacy": {
+            "remote": true,
+            "allowSensitive": false
+          }
         }
       }
     ]

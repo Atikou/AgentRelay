@@ -9,7 +9,7 @@ import { PlanRuntime } from "../../plan/PlanRuntime.js";
 import { PlanValidationError } from "../../plan/index.js";
 import { detectPlanReportRequest } from "../../plan/planIntent.js";
 import type { PlanMode } from "../../plan/types.js";
-import type { RunBudget } from "../../agent/RunPolicyTypes.js";
+import { parseUserPermissionPolicyValue, type RunBudget } from "../../agent/RunPolicyTypes.js";
 
 export async function handlePlanGet(app: AppContext, planId: string): Promise<ApiResult> {
   const summary = app.planService.getPlanSummary(planId);
@@ -212,6 +212,7 @@ export async function handlePlanActivate(
     dryRun?: boolean;
     autoApprove?: boolean;
     autoConfirm?: boolean;
+    permissionPolicy?: string;
     executionMode?: PlanExecutionMode;
     approvedBy?: string;
     rollbackOnFailure?: boolean;
@@ -237,6 +238,7 @@ export async function handlePlanActivate(
       dryRun: payload.dryRun,
       autoApprove: payload.autoApprove,
       autoConfirm: payload.autoConfirm,
+      permissionPolicy: parseUserPermissionPolicyValue(payload.permissionPolicy),
       executionMode: payload.executionMode,
       approvedBy: payload.approvedBy,
       rollbackOnFailure: payload.rollbackOnFailure,
@@ -373,6 +375,7 @@ export async function handlePlanExecute(app: AppContext, planId: string, body: u
     version,
     {
       autoConfirm: payload.autoConfirm as boolean | undefined,
+      permissionPolicy: parseUserPermissionPolicyValue(payload.permissionPolicy as string | undefined),
       sessionId: payload.sessionId as string | undefined,
       rollbackOnFailure: payload.rollbackOnFailure as boolean | undefined,
       fallbackToPlanOnUncertainty: payload.fallbackToPlanOnUncertainty as boolean | undefined,

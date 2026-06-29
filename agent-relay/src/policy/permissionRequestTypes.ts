@@ -72,6 +72,36 @@ export function toScopedApprovedPermissions(
   return scoped;
 }
 
+/** 测试台手动确认后的一次性 scoped grant（精确匹配 path/command）。 */
+export function buildManualToolScopedGrant(
+  toolName: string,
+  permission: string,
+  input: Record<string, unknown>,
+): ScopedApprovedPermissions {
+  const scoped: ScopedApprovedPermissions = {};
+  const path = readGrantString(input.path) ?? readGrantString(input.file);
+  const command = readGrantString(input.command);
+  if (permission === "write" || toolName === "write_file" || toolName === "apply_patch") {
+    if (path) scoped.write_file = [path];
+  }
+  if (permission === "shell" || toolName === "shell_run") {
+    if (command) scoped.shell = [command];
+  }
+  if (permission === "network") {
+    const target = readGrantString(input.url) ?? readGrantString(input.endpoint);
+    if (target) scoped.network = [target];
+  }
+  if (permission === "dangerous") {
+    if (command) scoped.dangerous = [command];
+    else if (path) scoped.dangerous = [path];
+  }
+  return scoped;
+}
+
+function readGrantString(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
 export function normalizePermissionTarget(target: string): string {
   return target.replace(/\\/g, "/").trim();
 }

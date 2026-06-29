@@ -170,6 +170,33 @@ test("autoRun 允许普通安全命令", () => {
   assert.equal(decision.decision, "allow");
 });
 
+test("scoped grant 不得绕过 git push 强制确认", () => {
+  const decision = evaluatePermissionGuard({
+    intent: "run",
+    permissionPolicy: "autoRun",
+    toolName: "shell_run",
+    permission: "shell",
+    input: { command: "git push origin main" },
+    allowedPermissions: ALL_PERMISSIONS,
+    scopedGrants: { shell: ["git push origin main"] },
+  });
+  assert.equal(decision.decision, "needsConfirmation");
+  assert.match(decision.reason ?? "", /推送/);
+});
+
+test("scoped grant 命令须精确匹配", () => {
+  const decision = evaluatePermissionGuard({
+    intent: "verify",
+    permissionPolicy: "confirmBeforeRun",
+    toolName: "shell_run",
+    permission: "shell",
+    input: { command: "npm test --watch" },
+    allowedPermissions: ALL_PERMISSIONS,
+    scopedGrants: { shell: ["npm test"] },
+  });
+  assert.equal(decision.decision, "needsConfirmation");
+});
+
 test("allowedPermissions 是硬上限", () => {
   const decision = evaluatePermissionGuard({
     intent: "edit",

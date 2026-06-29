@@ -62,6 +62,8 @@ export interface ToolExecutionContext {
   skipWorkflowCheck?: boolean;
   skipPermissionCheck?: boolean;
   skipBudgetCheck?: boolean;
+  shellPolicy?: import("../policy/ShellPolicy.js").ShellPolicy;
+  networkPolicy?: import("../policy/NetworkPolicy.js").NetworkPolicy;
 }
 
 export interface ToolExecutionEvaluateInput extends ToolExecutionContext {
@@ -163,6 +165,8 @@ export class ToolExecutionGateway {
         input: input.input ?? {},
         allowedPermissions: input.allowedPermissions,
         scopedGrants: input.scopedGrants,
+        shellPolicy: input.shellPolicy,
+        networkPolicy: input.networkPolicy,
       });
       if (permissionDecision.decision === "deny") {
         return {

@@ -4,7 +4,9 @@
  */
 import assert from "node:assert/strict";
 
-import { defaultIntentRouter } from "../src/agent/IntentRouter.js";
+import { IntentRouter } from "../src/agent/IntentRouter.js";
+
+const intentRouter = new IntentRouter();
 
 const tests: Array<{ name: string; fn: () => void }> = [];
 function test(name: string, fn: () => void) {
@@ -12,7 +14,7 @@ function test(name: string, fn: () => void) {
 }
 
 test("route 默认按文案推断，忽略未强制的 requestedMode", () => {
-  const route = defaultIntentRouter.route({
+  const route = intentRouter.route({
     requestedMode: "chat",
     message: "请进入计划模式，只读分析当前项目",
   });
@@ -23,7 +25,7 @@ test("route 默认按文案推断，忽略未强制的 requestedMode", () => {
 });
 
 test("route 在 forceRequestedMode=true 时强制指定模式", () => {
-  const route = defaultIntentRouter.route({
+  const route = intentRouter.route({
     requestedMode: "chat",
     forceRequestedMode: true,
     message: "请进入计划模式，只读分析当前项目",
@@ -36,7 +38,7 @@ test("route 在 forceRequestedMode=true 时强制指定模式", () => {
 });
 
 test("route 从计划类文案推断 plan 与 planWorkflow", () => {
-  const route = defaultIntentRouter.route({
+  const route = intentRouter.route({
     message: "请进入计划模式，只读分析当前项目模型路由",
   });
   assert.equal(route.mode, "plan");
@@ -47,7 +49,7 @@ test("route 从计划类文案推断 plan 与 planWorkflow", () => {
 });
 
 test("route 实现类任务推断 editWorkflow 与 implement_locate", () => {
-  const route = defaultIntentRouter.route({
+  const route = intentRouter.route({
     requestedMode: "implement",
     message: "修改 AgentLoop.ts 中的预算耗尽逻辑",
   });
@@ -60,27 +62,27 @@ test("route 实现类任务推断 editWorkflow 与 implement_locate", () => {
 
 test("inferMode codegen taskType 映射 implement", () => {
   assert.equal(
-    defaultIntentRouter.inferMode({ message: "优化路由", taskType: "codegen" }),
+    intentRouter.inferMode({ message: "优化路由", taskType: "codegen" }),
     "implement",
   );
 });
 
 test("inferIntent 区分 verify / run / refactor / summarize / generate_file", () => {
-  assert.equal(defaultIntentRouter.route({ message: "运行测试看看" }).intent, "verify");
-  assert.equal(defaultIntentRouter.route({ message: "启动服务" }).intent, "run");
-  assert.equal(defaultIntentRouter.route({ message: "先解耦这个模块" }).intent, "refactor");
-  assert.equal(defaultIntentRouter.route({ message: "总结当前项目进度" }).intent, "summarize");
-  assert.equal(defaultIntentRouter.route({ message: "生成文件 README 草稿" }).workflowType, "generateFileWorkflow");
+  assert.equal(intentRouter.route({ message: "运行测试看看" }).intent, "verify");
+  assert.equal(intentRouter.route({ message: "启动服务" }).intent, "run");
+  assert.equal(intentRouter.route({ message: "先解耦这个模块" }).intent, "refactor");
+  assert.equal(intentRouter.route({ message: "总结当前项目进度" }).intent, "summarize");
+  assert.equal(intentRouter.route({ message: "生成文件 README 草稿" }).workflowType, "generateFileWorkflow");
 });
 
 test("inferIntent supports real UTF-8 Chinese edit and generate-file messages", () => {
-  const edit = defaultIntentRouter.route({
+  const edit = intentRouter.route({
     message: "\u4fee\u6539 src/agent/AgentLoop.ts \u7684\u63d0\u793a\u6587\u6848",
   });
   assert.equal(edit.intent, "edit");
   assert.equal(edit.workflowPlan?.id, "edit_locate");
 
-  const generateFile = defaultIntentRouter.route({
+  const generateFile = intentRouter.route({
     message: "\u751f\u6210\u6587\u4ef6 src/agent/NewWorkflow.ts",
   });
   assert.equal(generateFile.intent, "generate_file");
@@ -88,7 +90,7 @@ test("inferIntent supports real UTF-8 Chinese edit and generate-file messages", 
 });
 
 test("general subagent collaboration request stays in answer workflow", () => {
-  const route = defaultIntentRouter.route({
+  const route = intentRouter.route({
     message: "调用3子agnet实现我每天应该如何提升自我，三个子agent每个都写一个条，主angent负责汇总",
   });
   assert.equal(route.mode, "chat");
@@ -103,7 +105,7 @@ test("pasted agent step failure infers debug instead of answer/chat", () => {
     '入参 {"path":"testTS/vite.config.ts"}',
     "[error] Error: ENOENT: no such file or directory",
   ].join("\n");
-  const route = defaultIntentRouter.route({ message: pasted });
+  const route = intentRouter.route({ message: pasted });
   assert.equal(route.intent, "debug");
   assert.equal(route.mode, "debug");
   assert.equal(route.workflowType, "debugWorkflow");

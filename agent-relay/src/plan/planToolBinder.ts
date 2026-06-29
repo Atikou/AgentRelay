@@ -17,17 +17,24 @@ export function bindPlanTools(plan: Plan, options: BindPlanToolsOptions): Plan {
 
 function bindStep(step: PlanStep, options: BindPlanToolsOptions): PlanStep {
   if (step.tool && step.toolInput && Object.keys(step.toolInput).length > 0) {
-    return step;
+    return syncBindingPermissions(step);
   }
   const binding = inferToolBinding(step, options);
-  return {
+  return syncBindingPermissions({
     ...step,
     tool: binding.tool,
     toolInput: binding.toolInput,
     availableTools: step.availableTools?.length
       ? step.availableTools
       : [binding.tool],
-  };
+  });
+}
+
+function syncBindingPermissions(step: PlanStep): PlanStep {
+  const perms = new Set(step.requiredPermissions ?? ["read"]);
+  if (step.tool === "shell_run") perms.add("shell");
+  if (step.tool === "write_file" || step.tool === "apply_patch") perms.add("write");
+  return { ...step, requiredPermissions: [...perms] as PlanStep["requiredPermissions"] };
 }
 
 function inferToolBinding(

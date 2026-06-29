@@ -4,6 +4,7 @@ import type { ModelRegistry } from "./model-registry.js";
 import { applyRoutingContext, type RoutingContext } from "./context-analyzer.js";
 import { CostBudgetManager, defaultCostBudgetManager } from "./cost-budget-manager.js";
 import { RouterModelEvaluator } from "./router-model-evaluator.js";
+import { explainNoAvailableModel } from "./model-capabilities.js";
 import type { RuntimeStatsFeedback } from "./runtime-stats-feedback.js";
 import {
   RouterError,
@@ -23,11 +24,36 @@ export class DecisionEngine {
     private readonly costBudget: CostBudgetManager = defaultCostBudgetManager,
   ) {}
 
+  private routerContext(input: RouterInput) {
+    return {
+      userInput: input.userInput,
+      localOnly: input.localOnly,
+      hasAttachments: input.hasAttachments,
+      attachmentTypes: input.attachmentTypes,
+    };
+  }
+
+  private throwNoAvailableModel(rule: RuleRouteResult, input: RouterInput): never {
+    throw new RouterError(
+      "NO_AVAILABLE_MODEL",
+      explainNoAvailableModel(
+        rule,
+        this.routerContext(input),
+        this.registry.listAll(),
+        this.registry.listEnabled(input.localOnly),
+      ),
+    );
+  }
+
   decide(rule: RuleRouteResult, input: RouterInput, routingContext?: RoutingContext): RouterDecision {
     const context = routingContext;
     let effectiveRule = context ? applyRoutingContext(rule, context) : rule;
     if (context?.suggestedLevelBump) {
-      const probe = this.registry.findPrimaryCandidates(effectiveRule, input.localOnly);
+      const probe = this.registry.findPrimaryCandidates(
+        effectiveRule,
+        input.localOnly,
+        this.routerContext(input),
+      );
       if (probe.length === 0) {
         effectiveRule = rule;
       }
@@ -93,9 +119,13 @@ export class DecisionEngine {
     }
 
     if (strategy === "single_model") {
-      const primary = this.registry.findPrimaryCandidates(effectiveRule, input.localOnly);
+      const primary = this.registry.findPrimaryCandidates(
+        effectiveRule,
+        input.localOnly,
+        this.routerContext(input),
+      );
       if (primary.length === 0) {
-        throw new RouterError("NO_AVAILABLE_MODEL", "没有可用模型满足当前任务要求");
+        this.throwNoAvailableModel(effectiveRule, input);
       }
       const ranked = this.rankCandidates(
         primary,
@@ -178,7 +208,7 @@ export class DecisionEngine {
     if (ranked.candidates.length < 2) return null;
 
     const reviewRanked = this.rankCandidates(
-      this.registry.findReviewCandidates(rule, input.localOnly),
+      this.registry.findReviewCandidates(rule, input.localOnly, this.routerContext(input)),
       input,
       rule.taskType,
       tokenNeed,
@@ -219,8 +249,17 @@ export class DecisionEngine {
     input: RouterInput,
     tokenNeed?: number,
   ): ModelProfile[] {
-    const primary = this.registry.findPrimaryCandidates(rule, input.localOnly);
-    const relaxed = this.registry.findDraftCandidates(rule, input.localOnly, tokenNeed);
+    const primary = this.registry.findPrimaryCandidates(
+      rule,
+      input.localOnly,
+      this.routerContext(input),
+    );
+    const relaxed = this.registry.findDraftCandidates(
+      rule,
+      input.localOnly,
+      tokenNeed,
+      this.routerContext(input),
+    );
     const seen = new Set<string>();
     const merged: ModelProfile[] = [];
     for (const profile of [...primary, ...relaxed]) {
@@ -265,13 +304,13 @@ export class DecisionEngine {
   ): RouterDecision {
     const tokenNeed = routingContext?.effectiveTokenEstimate ?? input.contextTokenEstimate;
     const draftRanked = this.rankCandidates(
-      this.registry.findDraftCandidates(rule, input.localOnly, tokenNeed),
+      this.registry.findDraftCandidates(rule, input.localOnly, tokenNeed, this.routerContext(input)),
       input,
       rule.taskType,
       tokenNeed,
     );
     const reviewRanked = this.rankCandidates(
-      this.registry.findReviewCandidates(rule, input.localOnly),
+      this.registry.findReviewCandidates(rule, input.localOnly, this.routerContext(input)),
       input,
       rule.taskType,
       tokenNeed,
@@ -300,9 +339,13 @@ export class DecisionEngine {
           "高风险协作任务无可用审查模型，不允许静默降级",
         );
       }
-      const primary = this.registry.findPrimaryCandidates(rule, input.localOnly);
+      const primary = this.registry.findPrimaryCandidates(
+        rule,
+        input.localOnly,
+        this.routerContext(input),
+      );
       if (primary.length === 0) {
-        throw new RouterError("NO_AVAILABLE_MODEL", "没有可用模型满足当前任务要求");
+        this.throwNoAvailableModel(rule, input);
       }
       const ranked = this.rankCandidates(primary, input, rule.taskType, tokenNeed);
       const strong = ranked.candidates.find((p) => p.defaultLevel >= 3) ?? ranked.candidates[0]!;

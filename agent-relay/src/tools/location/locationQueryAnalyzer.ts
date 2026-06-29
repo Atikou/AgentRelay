@@ -4,10 +4,11 @@ import {
   REVIEW_MODE_DEFAULT_PATH,
   STOP_WORDS,
 } from "./locationHeuristics.js";
+import { resolveKeywordPathHints } from "./locationHintConfig.js";
 import type { SearchPlan } from "./locationTypes.js";
 import { unique } from "./locationUtils.js";
 
-export function analyzeTaskQuery(goal: string, mode?: string): SearchPlan {
+export function analyzeTaskQuery(goal: string, mode?: string, workspaceRoot?: string): SearchPlan {
   const rawTokens = [...goal.matchAll(/[A-Za-z_][A-Za-z0-9_]{2,}|[\u4e00-\u9fa5]{2,}/g)].map(
     (m) => m[0],
   );
@@ -23,9 +24,10 @@ export function analyzeTaskQuery(goal: string, mode?: string): SearchPlan {
   );
   const lower = goal.toLowerCase();
   const possiblePaths = new Set<string>();
+  const pathHints = workspaceRoot ? resolveKeywordPathHints(workspaceRoot) : KEYWORD_PATH_HINTS;
   for (const k of keywords) {
     const normalized = k.replace(/([a-z])([A-Z])/g, "$1-$2").toLowerCase();
-    for (const hint of KEYWORD_PATH_HINTS) {
+    for (const hint of pathHints) {
       if (hint.match(normalized, k)) possiblePaths.add(hint.path);
     }
   }

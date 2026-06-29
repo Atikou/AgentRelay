@@ -434,7 +434,7 @@
       "post": {
         "tags": ["对话与智能体"],
         "summary": "续跑预算耗尽的 Agent Run（RunStateStore）",
-        "description": "从 `run_states` 恢复 `pendingSteps`（主要为 PlanWorkflow 的 locate/context_pack），可传更高 `budget` 继续只读预扫描。",
+        "description": "从 `run_states` 恢复 `pendingSteps`（主要为 PlanWorkflow 的 locate/context_pack），可传更高 `budget` 继续只读预扫描。续跑时 **忽略** body 的 `permissionPolicy`，以 `RunState.permissionPolicy` 为准。",
         "operationId": "resumeAgent",
         "requestBody": {
           "required": true,
@@ -1194,6 +1194,260 @@
         }
       }
     },
+    "/api/runs/{runId}/resume-permission": {
+      "post": {
+        "tags": ["编排与 Run", "安全与审计"],
+        "summary": "JIT 工具权限批准后续跑 Agent",
+        "description": "从 `PausedRunStore` 恢复快照并执行被批准的工具调用。**忽略** body 中的 `permissionPolicy`，仅以暂停快照中的策略为准。",
+        "operationId": "resumeRunAfterPermission",
+        "parameters": [
+          { "name": "runId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/ResumePermissionRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "续跑结果", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AgentResponse" } } } },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+    "/api/runs/{runId}/resume-plan-handoff": {
+      "post": {
+        "tags": ["编排与 Run", "计划与任务"],
+        "summary": "计划 handoff 批准后进入 implement 续跑",
+        "description": "用户批准 planHandoff 后从快照恢复并切换为 implement。**忽略** body 中的 `permissionPolicy`（`allow_session` 仅影响 handoff→implement 的 autoEdit 推导）。",
+        "operationId": "resumeRunAfterPlanHandoff",
+        "parameters": [
+          { "name": "runId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/ResumePlanHandoffRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "续跑结果", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AgentResponse" } } } },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+    "/api/runs/{runId}/approve": {
+      "post": {
+        "tags": ["编排与 Run", "安全与审计"],
+        "summary": "批准 Run 的待处理权限申请（JIT 快捷入口）",
+        "operationId": "approveRunPermission",
+        "parameters": [
+          { "name": "runId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/PermissionRequestRespondInput" }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "已响应权限申请", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PermissionRequestRespondResult" } } } },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+    "/api/plan-handoffs/pending": {
+      "get": {
+        "tags": ["计划与任务", "安全与审计"],
+        "summary": "列出待处理的计划→执行交接",
+        "operationId": "listPendingPlanHandoffs",
+        "parameters": [
+          { "name": "sessionId", "in": "query", "schema": { "type": "string" } },
+          { "name": "runId", "in": "query", "schema": { "type": "string", "format": "uuid" } }
+        ],
+        "responses": {
+          "200": {
+            "description": "待处理 planHandoff 列表",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "planHandoffs": {
+                      "type": "array",
+                      "items": { "$ref": "#/components/schemas/PlanHandoffPayload" }
+                    },
+                    "count": { "type": "integer" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/plan-handoffs/{handoffId}": {
+      "get": {
+        "tags": ["计划与任务"],
+        "summary": "查询单个 planHandoff",
+        "operationId": "getPlanHandoff",
+        "parameters": [
+          { "name": "handoffId", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": {
+            "description": "planHandoff 详情",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "planHandoff": { "$ref": "#/components/schemas/PlanHandoffPayload" }
+                  }
+                }
+              }
+            }
+          },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+    "/api/plan-handoffs/{handoffId}/respond": {
+      "post": {
+        "tags": ["计划与任务"],
+        "summary": "批准或拒绝 planHandoff（与工具级 permissionRequest 分离）",
+        "operationId": "respondPlanHandoff",
+        "parameters": [
+          { "name": "handoffId", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/PlanHandoffRespondInput" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "已响应",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "planHandoff": { "$ref": "#/components/schemas/PlanHandoffPayload" },
+                    "runId": { "type": "string", "format": "uuid" },
+                    "status": { "type": "string", "enum": ["approved", "rejected"] }
+                  }
+                }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+    "/api/permission-requests/pending": {
+      "get": {
+        "tags": ["安全与审计"],
+        "summary": "列出待处理权限申请",
+        "operationId": "listPendingPermissionRequests",
+        "parameters": [
+          { "name": "sessionId", "in": "query", "schema": { "type": "string" } },
+          { "name": "runId", "in": "query", "schema": { "type": "string", "format": "uuid" } }
+        ],
+        "responses": {
+          "200": {
+            "description": "待处理列表",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "permissionRequests": {
+                      "type": "array",
+                      "items": { "$ref": "#/components/schemas/PermissionRequestPayload" }
+                    },
+                    "count": { "type": "integer" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/permission-requests/{requestId}": {
+      "get": {
+        "tags": ["安全与审计"],
+        "summary": "查询单个权限申请",
+        "operationId": "getPermissionRequest",
+        "parameters": [
+          { "name": "requestId", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": {
+            "description": "权限申请详情",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "permissionRequest": { "$ref": "#/components/schemas/PermissionRequestPayload" }
+                  }
+                }
+              }
+            }
+          },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+    "/api/permission-requests/{requestId}/respond": {
+      "post": {
+        "tags": ["安全与审计"],
+        "summary": "响应权限申请（允许 / 拒绝 / 会话授权）",
+        "description": "decision 为 `allow_workspace` 时：**若申请含 shell 类权限项则返回 400**（shell 不支持长期工作区授权，请用 allow_once 或 allow_session）。",
+        "operationId": "respondPermissionRequest",
+        "parameters": [
+          { "name": "requestId", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/PermissionRequestRespondInput" }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "已响应", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PermissionRequestRespondResult" } } } },
+          "400": {
+            "description": "无效 decision；或 shell 项拒绝 allow_workspace",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ErrorBody" },
+                "examples": {
+                  "shellAllowWorkspaceRejected": {
+                    "summary": "shell 禁止长期工作区授权",
+                    "value": { "error": "shell 权限不支持长期工作区授权，请使用允许一次或本次会话" }
+                  }
+                }
+              }
+            }
+          },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
     "/api/tools": {
       "get": {
         "tags": ["工具"],
@@ -1230,7 +1484,16 @@
           }
         },
         "responses": {
-          "200": { "description": "归一化工具结果（含 ok）", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ToolRunResponse" } } } }
+          "200": { "description": "归一化工具结果（含 ok）", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ToolRunResponse" } } } },
+          "400": {
+            "description": "输入无效、策略拒绝或强制确认未满足（含 confirm:true 仍被 PermissionGuard 拦截）",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ToolRunError" }
+              }
+            }
+          },
+          "404": { "$ref": "#/components/responses/NotFound" }
         }
       }
     },
@@ -2050,7 +2313,11 @@
     "schemas": {
       "ErrorBody": {
         "type": "object",
-        "properties": { "error": { "type": "string" } },
+        "properties": {
+          "error": { "type": "string" },
+          "code": { "type": "string", "description": "如 permission_denied、invalid_input" },
+          "ok": { "type": "boolean" }
+        },
         "required": ["error"]
       },
       "Capabilities": {
@@ -2859,7 +3126,8 @@
           "autoConfirm": { "type": "boolean" },
           "permissionPolicy": {
             "type": "string",
-            "enum": ["readOnly", "confirmBeforeEdit", "autoEdit", "confirmBeforeRun", "autoRun"]
+            "enum": ["readOnly", "confirmBeforeEdit", "autoEdit", "confirmBeforeRun", "autoRun"],
+            "description": "已废弃覆盖：服务端忽略此字段，以 RunState.permissionPolicy 为准"
           },
           "sensitive": { "type": "boolean" },
           "taskType": { "type": "string", "enum": ["simple", "reasoning", "codegen", "long_context"] },
@@ -3185,6 +3453,128 @@
           "error": { "type": "string" },
           "code": { "type": "string" },
           "durationMs": { "type": "number" }
+        }
+      },
+      "ToolRunError": {
+        "type": "object",
+        "properties": {
+          "ok": { "type": "boolean", "const": false },
+          "tool": { "type": "string" },
+          "code": { "type": "string", "enum": ["permission_denied", "invalid_input", "PREVIEW_ERROR"] },
+          "category": { "type": "string" },
+          "error": { "type": "string" }
+        },
+        "required": ["ok", "error"]
+      },
+      "PermissionRequestDecision": {
+        "type": "string",
+        "enum": ["allow_once", "allow_session", "allow_project", "allow_workspace", "deny"]
+      },
+      "PermissionRequestItem": {
+        "type": "object",
+        "required": ["type", "target", "reason"],
+        "properties": {
+          "type": { "type": "string", "enum": ["read_file", "write_file", "shell", "delete_file", "network", "dangerous"] },
+          "target": { "type": "string" },
+          "reason": { "type": "string" },
+          "tool": { "type": "string" },
+          "riskTier": { "type": "string", "enum": ["low", "medium", "high", "critical"] },
+          "inputPreview": { "type": "string" },
+          "diffPreview": { "type": "string" }
+        }
+      },
+      "PermissionRequestPayload": {
+        "type": "object",
+        "properties": {
+          "schemaVersion": { "type": "integer", "const": 1 },
+          "id": { "type": "string" },
+          "runId": { "type": "string", "format": "uuid" },
+          "sessionId": { "type": "string" },
+          "status": { "type": "string", "enum": ["pending", "approved", "denied", "expired"] },
+          "title": { "type": "string" },
+          "summary": { "type": "string" },
+          "requiredPermissions": { "type": "array", "items": { "$ref": "#/components/schemas/PermissionRequestItem" } },
+          "blockedTool": {
+            "type": "object",
+            "properties": {
+              "name": { "type": "string" },
+              "input": { "type": "object", "additionalProperties": true }
+            }
+          },
+          "decision": { "$ref": "#/components/schemas/PermissionRequestDecision" },
+          "createdAt": { "type": "string", "format": "date-time" }
+        }
+      },
+      "PermissionRequestRespondInput": {
+        "type": "object",
+        "required": ["decision"],
+        "properties": {
+          "decision": { "$ref": "#/components/schemas/PermissionRequestDecision" },
+          "approvedPermissions": { "type": "array", "items": { "$ref": "#/components/schemas/PermissionRequestItem" } }
+        }
+      },
+      "PermissionRequestRespondResult": {
+        "type": "object",
+        "properties": {
+          "permissionRequest": { "$ref": "#/components/schemas/PermissionRequestPayload" },
+          "sessionGrants": { "type": "object", "additionalProperties": true },
+          "runId": { "type": "string", "format": "uuid" },
+          "status": { "type": "string", "enum": ["approved", "cancelled"] }
+        }
+      },
+      "ResumePermissionRequest": {
+        "type": "object",
+        "properties": {
+          "runId": { "type": "string", "format": "uuid" },
+          "permissionRequestId": { "type": "string" },
+          "autoConfirm": { "type": "boolean" },
+          "permissionPolicy": {
+            "type": "string",
+            "description": "已废弃：服务端忽略，以 PausedRunSnapshot 为准"
+          }
+        }
+      },
+      "ResumePlanHandoffRequest": {
+        "type": "object",
+        "properties": {
+          "runId": { "type": "string", "format": "uuid" },
+          "planHandoffId": { "type": "string" },
+          "autoConfirm": { "type": "boolean" },
+          "permissionPolicy": {
+            "type": "string",
+            "description": "已废弃：服务端忽略快照外覆盖"
+          }
+        }
+      },
+      "PlanHandoffDecision": {
+        "type": "string",
+        "enum": ["approve", "reject"]
+      },
+      "PlanHandoffPayload": {
+        "type": "object",
+        "properties": {
+          "schemaVersion": { "type": "integer", "const": 1 },
+          "id": { "type": "string" },
+          "planId": { "type": "string" },
+          "runId": { "type": "string", "format": "uuid" },
+          "sessionId": { "type": "string" },
+          "status": { "type": "string", "enum": ["pending", "approved", "rejected", "expired"] },
+          "resumeMode": { "type": "string", "const": "implement" },
+          "message": { "type": "string" },
+          "planVariant": {
+            "type": "string",
+            "enum": ["plan_only", "plan_wait_approval", "plan_then_execute"]
+          },
+          "planMarkdown": { "type": "string" },
+          "decision": { "$ref": "#/components/schemas/PlanHandoffDecision" },
+          "createdAt": { "type": "string", "format": "date-time" }
+        }
+      },
+      "PlanHandoffRespondInput": {
+        "type": "object",
+        "required": ["decision"],
+        "properties": {
+          "decision": { "$ref": "#/components/schemas/PlanHandoffDecision" }
         }
       },
       "BackgroundTask": {

@@ -82,6 +82,43 @@ test("recoverOnStartup 保留有暂停快照的 running Run", async () => {
   await rm(tmp, { recursive: true, force: true });
 });
 
+test("recoverOnStartup 保留 plan handoff 暂停 Run 为 waiting_plan_handoff", async () => {
+  const tmp = await mkdtemp(path.join(os.tmpdir(), "startup-handoff-"));
+  const ctx = new ContextManager({ dataDir: tmp, useLanceDb: false });
+  const runs = new RunStore(ctx.db);
+  const nq = new NotificationQueue(path.join(tmp, "notifications.jsonl"));
+  const pausedRunStore = new PausedRunStore(ctx.db.connection);
+  const { PlanHandoffStore } = await import("../src/policy/PlanHandoffStore.js");
+  const planHandoffStore = new PlanHandoffStore(ctx.db.connection);
+
+  const run = runs.create({ kind: "agent", status: "running", goal: "按计划执行" });
+  pausedRunStore.save({
+    runId: run.id,
+    goal: "按计划执行",
+    messages: [{ role: "user", content: "按计划执行" }],
+    steps: [],
+    modelTurns: 1,
+    mode: "plan",
+    permissionPolicy: "readOnly",
+    resumeMode: "implement",
+    createdAt: new Date().toISOString(),
+  });
+  planHandoffStore.create({
+    runId: run.id,
+    message: "是否执行？",
+    planMarkdown: "## 计划",
+    planVariant: "plan_then_execute",
+  });
+
+  const summary = recoverOnStartup({ runs, notificationQueue: nq, pausedRunStore, planHandoffStore });
+  assert.equal(summary.preservedPausedRuns, 1);
+  assert.equal(runs.get(run.id)?.status, "waiting_plan_handoff");
+  assert.equal(planHandoffStore.getPendingByRunId(run.id)?.status, "pending");
+
+  ctx.close();
+  await rm(tmp, { recursive: true, force: true });
+});
+
 let passed = 0;
 for (const t of tests) {
   await t.fn();

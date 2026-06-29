@@ -17,11 +17,7 @@ export function isPathApproved(path: string | undefined, allowedPaths: string[] 
 export function isCommandApproved(command: string | undefined, allowedCommands: string[] | undefined): boolean {
   if (!command || !allowedCommands?.length) return false;
   const normalized = command.trim();
-  return allowedCommands.some((allowed) => {
-    const pattern = allowed.trim();
-    if (pattern === normalized) return true;
-    return normalized.startsWith(pattern);
-  });
+  return allowedCommands.some((allowed) => allowed.trim() === normalized);
 }
 
 export function isToolCallGranted(input: {

@@ -74,7 +74,7 @@ export const EXPLICIT_NO_WORKFLOW_RE =
 export const EXPLICIT_NO_WORKFLOW_UNICODE_RE =
   /\u4e0d\u8981\u4f7f\u7528\u5de5\u5177|\u4e0d\u5141\u8bb8\u4f7f\u7528\u5de5\u5177|\u4e0d\u8981\u626b\u63cf|\u4e0d\u5141\u8bb8\u626b\u63cf|\u4e0d\u8981\u8bfb\u53d6\u6587\u4ef6|\u4e0d\u5141\u8bb8\u8bfb\u53d6\u6587\u4ef6/;
 export const PROJECT_SCOPE_UNICODE_RE =
-  /\u5f53\u524d\u9879\u76ee|\u9879\u76ee|\u4ee3\u7801|\u6a21\u5757|\u7ed3\u6784|\u4ed3\u5e93|\u8def\u7531|\u4e0a\u4e0b\u6587|\u5de5\u5177|\u65e5\u5fd7|\u914d\u7f6e|todolist|agent|src|docs|tests/;
+  /\u5f53\u524d\u9879\u76ee|\u9879\u76ee|\u4ee3\u7801|\u6a21\u5757|\u7ed3\u6784|\u67b6\u6784|\u4ed3\u5e93|\u8def\u7531|\u4e0a\u4e0b\u6587|\u5de5\u5177|\u65e5\u5fd7|\u914d\u7f6e|todolist|agent|src|docs|tests/;
 export const TARGET_HINT_UNICODE_RE =
   /\.[tj]sx?|src\/|\u6a21\u5757|\u6587\u4ef6|\u51fd\u6570|\u7c7b|\u5de5\u5177|\u8def\u7531|\u5faa\u73af|AgentLoop|ToolRegistry|handler/;
 export const ANALYSIS_UNICODE_RE =
@@ -191,64 +191,30 @@ export function explicitNoWorkflow(goal: string): boolean {
 
 export function hasProjectScope(goal: string): boolean {
   const text = goal.toLowerCase();
-  return (
-    /当前项目|项目|代码|模块|结构|仓库|路由|上下文|工具|日志|配置|todolist|agent|src|docs|tests/.test(
-      goal,
-    ) ||
-    PROJECT_SCOPE_UNICODE_RE.test(goal) ||
-    text.includes("codebase")
-  );
+  return PROJECT_SCOPE_UNICODE_RE.test(goal) || text.includes("codebase");
 }
 
 export function hasTargetHint(goal: string): boolean {
-  return (
-    /\.[tj]sx?|src\/|模块|文件|函数|类|工具|路由|循环|AgentLoop|ToolRegistry|handler/.test(
-      goal,
-    ) || TARGET_HINT_UNICODE_RE.test(goal)
-  );
+  return TARGET_HINT_UNICODE_RE.test(goal);
 }
 
 export function asksForAnalysis(goal: string): boolean {
   const text = goal.toLowerCase();
-  return (
-    /分析|审阅|检查|扫描|梳理|找出|定位|查看|生成.*计划|升级.*计划|review|scan|analyze/.test(
-      goal,
-    ) ||
-    ANALYSIS_UNICODE_RE.test(goal) ||
-    text.includes("plan")
-  );
+  return ANALYSIS_UNICODE_RE.test(goal) || text.includes("plan");
 }
 
 export function wantsGenerateFile(goal: string, intent?: AgentIntentType): boolean {
-  return (
-    intent === "generate_file" ||
-    /生成.*文件|创建.*文件|新增.*文件|写.*文件|generate.*file|create.*file|new file/.test(
-      goal,
-    ) ||
-    GENERATE_FILE_WORKFLOW_RE.test(goal)
-  );
+  return intent === "generate_file" || GENERATE_FILE_WORKFLOW_RE.test(goal);
 }
 
 export function wantsRefactor(goal: string, intent?: AgentIntentType): boolean {
-  return (
-    intent === "refactor" ||
-    /重构|解耦|循环引用|强依赖|架构调整|refactor/.test(goal) ||
-    REFACTOR_WORKFLOW_RE.test(goal)
-  );
+  return intent === "refactor" || REFACTOR_WORKFLOW_RE.test(goal);
 }
 
 export function wantsEdit(goal: string, intent?: AgentIntentType): boolean {
-  return (
-    intent === "edit" ||
-    /修改|更新|调整|修复|补丁|改动|编辑|fix|edit|update|patch|change/.test(goal) ||
-    EDIT_WORKFLOW_RE.test(goal)
-  );
+  return intent === "edit" || EDIT_WORKFLOW_RE.test(goal);
 }
 
 export function wantsCodeWork(goal: string): boolean {
-  return (
-    /修改|实现|修复|添加|重构|更新|编写|调整|fix|implement|refactor|add|update|patch|debug/.test(
-      goal,
-    ) || CODE_WORK_UNICODE_RE.test(goal)
-  );
+  return CODE_WORK_UNICODE_RE.test(goal);
 }

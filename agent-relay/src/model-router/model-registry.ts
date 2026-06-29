@@ -1,6 +1,7 @@
 import {
   listProfilesForRole,
   resolveRoleRequirements,
+  type ListProfilesForRoleOptions,
 } from "./model-capabilities.js";
 import type { ModelAvailabilityRegistry } from "./model-availability.js";
 import type { ModelProfile, RuleRouteResult } from "./types.js";
@@ -67,9 +68,16 @@ export class ModelRegistry {
     return this.profiles.find((p) => p.id === id);
   }
 
-  findPrimaryCandidates(rule: RuleRouteResult, localOnly?: boolean): ModelProfile[] {
+  findPrimaryCandidates(
+    rule: RuleRouteResult,
+    localOnly?: boolean,
+    routerInput?: ListProfilesForRoleOptions["routerInput"],
+  ): ModelProfile[] {
     const requirement = resolveRoleRequirements(rule, "primary");
-    const candidates = listProfilesForRole(this.listEnabled(localOnly), rule, "primary");
+    const candidates = listProfilesForRole(this.listEnabled(localOnly), rule, "primary", {
+      localOnly,
+      routerInput,
+    });
     return candidates.sort((a, b) => sortPrimary(a, b, requirement.minLevel));
   }
 
@@ -77,18 +85,28 @@ export class ModelRegistry {
     rule: RuleRouteResult,
     localOnly?: boolean,
     contextTokenEstimate?: number,
+    routerInput?: ListProfilesForRoleOptions["routerInput"],
   ): ModelProfile[] {
     const tokenNeed = contextTokenEstimate ?? 8000;
     const candidates = listProfilesForRole(this.listEnabled(localOnly), rule, "draft", {
+      localOnly,
       contextTokenEstimate: tokenNeed,
       allowDraftGeneralTypes: true,
+      routerInput,
     });
     return candidates.sort(sortDraft);
   }
 
-  findReviewCandidates(rule: RuleRouteResult, localOnly?: boolean): ModelProfile[] {
+  findReviewCandidates(
+    rule: RuleRouteResult,
+    localOnly?: boolean,
+    routerInput?: ListProfilesForRoleOptions["routerInput"],
+  ): ModelProfile[] {
     const requirement = resolveRoleRequirements(rule, "review");
-    const candidates = listProfilesForRole(this.listEnabled(localOnly), rule, "review");
+    const candidates = listProfilesForRole(this.listEnabled(localOnly), rule, "review", {
+      localOnly,
+      routerInput,
+    });
     return candidates.sort((a, b) => sortReview(a, b, requirement.minLevel));
   }
 

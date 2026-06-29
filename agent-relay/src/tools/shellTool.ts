@@ -12,6 +12,17 @@ import type { Tool } from "./types.js";
 
 const execAsync = promisify(exec);
 
+/** 拒绝通过 cd 或绝对路径逃出工作区的简单命令形态。 */
+export function assertShellCommandStaysInWorkspace(command: string): void {
+  const trimmed = command.trim();
+  if (/\bcd\s+\.\./i.test(trimmed) || /\bcd\s+[/~]/i.test(trimmed)) {
+    throw new Error("命令不得通过 cd 跳出工作区");
+  }
+  if (/^[a-zA-Z]:[\\/]/.test(trimmed) || /^\/(?!\/)/.test(trimmed)) {
+    throw new Error("命令不得使用工作区外的绝对路径");
+  }
+}
+
 function clipOutput(text: string, maxBytes: number): { text: string; truncated: boolean } {
   const buf = Buffer.from(text ?? "", "utf-8");
   if (buf.byteLength <= maxBytes) return { text: text ?? "", truncated: false };
@@ -62,6 +73,7 @@ export const shellRunTool: Tool<
 
     const cwdRel = input.cwd ?? ".";
     const cwd = resolveInsideWorkspace(ctx.workspaceRoot, cwdRel);
+    assertShellCommandStaysInWorkspace(input.command);
 
     try {
       const { stdout, stderr } = await execAsync(input.command, {

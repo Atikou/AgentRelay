@@ -1,6 +1,7 @@
 import { finalizePlan } from "../agent/taskGraph.js";
 import type { Plan, PlanStep } from "../agent/types.js";
 import type { ToolPermission } from "../core/permissions.js";
+import { requiresConfirmation } from "../core/permissions.js";
 import { buildTodoDependsOn } from "./planDagBuilder.js";
 import type { UserVisiblePlan, UserVisibleTodo } from "./types.js";
 
@@ -16,21 +17,27 @@ export class PlanCompiler {
       throw new Error("confirmedTodoIds 至少需要命中一条 UserVisibleTodo");
     }
 
-    const steps: PlanStep[] = selected.map((todo, index) => ({
-      id: todo.id,
-      title: todo.title,
-      objective: todo.goal,
-      description: todo.implementationIdea,
-      requiredPermissions: inferPermissions(todo),
-      needsConfirmation: todo.requiresUserConfirmation || todo.riskLevel !== "low",
-      acceptance: todo.acceptanceCriteria.join("；"),
-      dependsOn: buildTodoDependsOn(selected, todo),
-      requiredContext: todo.relatedFiles ?? [],
-      availableTools: inferAvailableTools(inferPermissions(todo)),
-      expectedArtifacts: todo.acceptanceCriteria,
-      priority: priorityNumber(todo.priority, index),
-      status: "pending",
-    }));
+    const steps: PlanStep[] = selected.map((todo, index) => {
+      const requiredPermissions = inferPermissions(todo);
+      return {
+        id: todo.id,
+        title: todo.title,
+        objective: todo.goal,
+        description: todo.implementationIdea,
+        requiredPermissions,
+        needsConfirmation:
+          todo.requiresUserConfirmation ||
+          todo.riskLevel !== "low" ||
+          requiresConfirmation(requiredPermissions),
+        acceptance: todo.acceptanceCriteria.join("；"),
+        dependsOn: buildTodoDependsOn(selected, todo),
+        requiredContext: todo.relatedFiles ?? [],
+        availableTools: inferAvailableTools(requiredPermissions),
+        expectedArtifacts: todo.acceptanceCriteria,
+        priority: priorityNumber(todo.priority, index),
+        status: "pending",
+      };
+    });
 
     return finalizePlan({
       goal: input.userVisiblePlan.title,
@@ -54,10 +61,21 @@ function selectTodos(todos: UserVisibleTodo[], ids: string[]): UserVisibleTodo[]
 }
 
 function inferPermissions(todo: UserVisibleTodo): ToolPermission[] {
-  if (!todo.allowAutoImplement) return ["read"];
-  if (todo.riskLevel === "high") return ["read", "write", "shell"];
-  if (todo.riskLevel === "medium") return ["read", "write"];
-  return ["read"];
+  const text = `${todo.title} ${todo.goal} ${todo.implementationIdea ?? ""}`.toLowerCase();
+  const needsShell = /\b(npm|npx|yarn|pnpm|node\s|shell|运行|执行命令|安装)\b/.test(text);
+  const needsWrite =
+    /\b(写|修改|实现|补丁|patch|覆盖|新增|创建|新建|write_file|apply_patch)\b/.test(text) ||
+    todo.riskLevel === "medium" ||
+    todo.riskLevel === "high";
+
+  const perms = new Set<ToolPermission>(["read"]);
+  if (todo.riskLevel === "high" || needsShell) perms.add("shell");
+  if (todo.riskLevel === "medium" || todo.riskLevel === "high" || needsWrite) perms.add("write");
+
+  if (!todo.allowAutoImplement && todo.riskLevel === "low" && !needsShell && !needsWrite) {
+    return ["read"];
+  }
+  return [...perms];
 }
 
 function priorityNumber(priority: UserVisibleTodo["priority"], index: number): number {

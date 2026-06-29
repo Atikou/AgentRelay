@@ -49,6 +49,9 @@ function collectPaths(steps: PlanStep[]): { readSet: string[]; writeSet: string[
 
 function toInternalStep(step: PlanStep): InternalPlanStep {
   const perms = step.requiredPermissions as ToolPermission[];
+  const riskLevel = inferRiskLevel(perms);
+  const needsApproval =
+    step.needsConfirmation === true || requiresConfirmation(perms) || riskLevel === "high";
   return {
     stepId: step.id,
     type: inferStepType(step),
@@ -58,9 +61,9 @@ function toInternalStep(step: PlanStep): InternalPlanStep {
     toolName: step.tool,
     args: step.toolInput,
     dependsOn: step.dependsOn ?? [],
-    riskLevel: inferRiskLevel(perms),
+    riskLevel,
     expectedOutput: step.expectedArtifacts?.[0] ?? step.acceptance,
-    requiresApproval: step.needsConfirmation ?? requiresConfirmation(perms),
+    requiresApproval: needsApproval,
     requiredPermissions: perms,
     priority: step.priority ?? 100,
   };

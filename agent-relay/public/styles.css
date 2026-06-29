@@ -1115,6 +1115,11 @@ body {
   color: var(--text-soft);
   margin-top: 2px;
 }
+.plan-review-actions {
+  margin: 12px 0 16px;
+  padding-top: 4px;
+  border-top: 1px dashed var(--border);
+}
 .plan-version-bar {
   display: flex;
   flex-wrap: wrap;
@@ -1274,6 +1279,30 @@ body {
 .permission-request-panel .perm-item-reason {
   color: var(--text-soft);
   margin-top: 2px;
+}
+.permission-request-panel .perm-item-risk {
+  color: var(--warn, #b8860b);
+  font-size: 12px;
+  margin-top: 4px;
+}
+.permission-request-panel .perm-item-preview {
+  margin-top: 6px;
+  font-size: 12px;
+}
+.permission-request-panel .perm-item-preview pre {
+  margin: 4px 0 0;
+  padding: 8px;
+  max-height: 160px;
+  overflow: auto;
+  background: var(--bg-soft, #f4f4f5);
+  border-radius: 6px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.permission-request-panel .perm-scroll .perm-item-reason {
+  max-height: 320px;
+  overflow: auto;
+  white-space: pre-wrap;
 }
 .permission-request-panel .perm-actions {
   display: flex;

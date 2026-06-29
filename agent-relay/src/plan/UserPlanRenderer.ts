@@ -23,6 +23,8 @@ export function buildPlanAnalysisPrompt(input: BuildPlanAnalysisPromptInput): st
   const context = input.context?.trim();
   return [
     "请进入计划报告模式，只读分析，不要修改文件，不要执行写入或安装命令。",
+    "你必须先使用 project_scan / locate_relevant_files / context_pack 等只读工具了解仓库，再输出 final。",
+    "最终回答必须放在 JSON 的 answer 字段内，且为完整 Markdown（含下方所有章节），禁止只输出标题或空 answer。",
     "请输出给用户阅读的 Markdown 计划文档，必须包含以下固定结构：",
     "# 计划模式分析结果",
     ...DEFAULT_PLAN_SECTIONS,

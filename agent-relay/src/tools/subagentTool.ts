@@ -123,11 +123,15 @@ export const dispatchSubagentTool: Tool<typeof inputSchema, DispatchSubagentOutp
     const sensitive = context.sensitive;
     const childDepth = depth + 1;
     const timeoutMs = resolveSubagentTimeoutMs(input.timeoutMs);
+    const parentIntent = context.parentAgentIntent;
+    const parentWorkflowType = context.parentAgentWorkflowType;
     const runOpts = {
       tasks,
       parentTaskId,
       timeoutMs,
       sensitive,
+      parentIntent,
+      parentWorkflowType,
       grantedPermissions: input.grantedPermissions,
       dispatchDepth: childDepth,
       arbitrateConflicts: input.arbitrateConflicts,
@@ -140,6 +144,8 @@ export const dispatchSubagentTool: Tool<typeof inputSchema, DispatchSubagentOutp
         parentTaskId,
         timeoutMs,
         sensitive,
+        parentIntent,
+        parentWorkflowType,
         grantedPermissions: input.grantedPermissions,
         dispatchDepth: childDepth,
       });

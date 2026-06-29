@@ -8,9 +8,10 @@ import { ModelRegistry } from "../src/model-router/model-registry.js";
 import { RuleRouter } from "../src/model-router/route-rules.js";
 import { SmartModelRouter } from "../src/model-router/smart-model-router.js";
 import { validateModelProfiles } from "../src/model-router/model-profiles.js";
+import { withDeclaredCapabilities } from "../src/model-router/test-profile-helpers.js";
 import type { ModelProfile } from "../src/model-router/types.js";
 
-const localDraft: ModelProfile = {
+const localDraft: ModelProfile = withDeclaredCapabilities({
   id: "local-small",
   displayName: "本地轻量",
   provider: "local",
@@ -35,9 +36,9 @@ const localDraft: ModelProfile = {
   canDraft: true,
   canReview: false,
   canFinal: true,
-};
+});
 
-const apiGeneral: ModelProfile = {
+const apiGeneral: ModelProfile = withDeclaredCapabilities({
   id: "api-general",
   displayName: "普通 API",
   provider: "api",
@@ -55,9 +56,28 @@ const apiGeneral: ModelProfile = {
   canDraft: true,
   canReview: true,
   canFinal: true,
-};
+  declaredCapabilities: {
+    text: true,
+    image: false,
+    audio: false,
+    video: false,
+    file: true,
+    code: true,
+    architecture: true,
+    toolCalling: true,
+    jsonMode: true,
+    longContext: true,
+    ocr: false,
+    uiScreenshot: false,
+    chartUnderstanding: false,
+    diagramUnderstanding: false,
+    spatialReasoning: false,
+    imageGeneration: false,
+    imageEditing: false,
+  },
+});
 
-const apiStrong: ModelProfile = {
+const apiStrong: ModelProfile = withDeclaredCapabilities({
   id: "api-strong",
   displayName: "强 API",
   provider: "api",
@@ -81,7 +101,26 @@ const apiStrong: ModelProfile = {
   canDraft: true,
   canReview: true,
   canFinal: true,
-};
+  declaredCapabilities: {
+    text: true,
+    image: true,
+    audio: false,
+    video: false,
+    file: true,
+    code: true,
+    architecture: true,
+    toolCalling: true,
+    jsonMode: true,
+    longContext: true,
+    ocr: true,
+    uiScreenshot: true,
+    chartUnderstanding: true,
+    diagramUnderstanding: true,
+    spatialReasoning: true,
+    imageGeneration: false,
+    imageEditing: false,
+  },
+});
 
 const profiles = [localDraft, apiGeneral, apiStrong];
 const registry = new ModelRegistry(profiles);
@@ -199,11 +238,15 @@ test("validateModelProfiles 缺少 canFinal 时报错", () => {
 });
 
 test("无 review 模型时文档协作降级 single_model", () => {
-  const docLocal: ModelProfile = {
+  const docLocal: ModelProfile = withDeclaredCapabilities({
     ...localDraft,
     defaultLevel: 2,
     allowedTaskTypes: ["document_qa", "simple_qa"],
-  };
+    declaredCapabilities: {
+      ...localDraft.declaredCapabilities,
+      longContext: true,
+    },
+  });
   const localOnly = new ModelRegistry([docLocal]);
   const engine = new DecisionEngine(localOnly);
   const rule = new RuleRouter().evaluate({ userInput: "写一份实现文档" });

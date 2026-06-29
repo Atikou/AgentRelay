@@ -32,9 +32,7 @@ export interface IntentRouteResult {
   workflowPlan: WorkflowPlan | null;
 }
 
-/**
- * 用户意图路由：统一入口下先识别内部意图，再映射到当前已实现的运行模式与预扫描工作流。
- */
+/** @deprecated 生产路径请使用 `EntryIntentRouter`；保留类供单元测试与规则回归。 */
 export class IntentRouter {
   route(input: IntentRouteInput = {}): IntentRouteResult {
     const explicit = input.forceRequestedMode ? parseRunModeValue(input.requestedMode) : undefined;
@@ -72,5 +70,3 @@ export class IntentRouter {
     return "answer";
   }
 }
-
-export const defaultIntentRouter = new IntentRouter();

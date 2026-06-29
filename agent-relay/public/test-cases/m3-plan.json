@@ -107,6 +107,35 @@
         "status": 404,
         "bodyHasKeys": ["error"]
       }
+    },
+    {
+      "id": "m3-plan-review-compile-activate-buttons",
+      "title": "审阅阶段内嵌编译与激活按钮",
+      "purpose": "确认计划全流程在 §② 审阅 Todo 区域展示「编译选中 Todo」「一键激活执行」等下一步操作，避免仅保留重新分析而无法继续。",
+      "method": "GET",
+      "path": "/app.js",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyContains": [
+          "plan-review-actions",
+          "plan-compile-btn-review",
+          "plan-activate-btn-review",
+          "unlockSectionsUpTo(2, 1)"
+        ]
+      }
+    },
+    {
+      "id": "m3-plan-review-actions-style",
+      "title": "审阅操作区样式登记",
+      "purpose": "确认审阅区下一步按钮有独立样式分隔，与修订报告区域区分，便于用户发现可继续执行。",
+      "method": "GET",
+      "path": "/styles.css",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyContains": [".plan-review-actions"]
+      }
     }
   ]
 }

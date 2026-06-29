@@ -13,6 +13,36 @@ export const RoutingStrategySchema = z.enum([
 ]);
 export type RoutingStrategy = z.infer<typeof RoutingStrategySchema>;
 
+export const ModelDeclaredCapabilitiesSchema = z
+  .object({
+    text: z.boolean().optional(),
+    image: z.boolean().optional(),
+    audio: z.boolean().optional(),
+    video: z.boolean().optional(),
+    file: z.boolean().optional(),
+    code: z.boolean().optional(),
+    architecture: z.boolean().optional(),
+    toolCalling: z.boolean().optional(),
+    jsonMode: z.boolean().optional(),
+    longContext: z.boolean().optional(),
+    ocr: z.boolean().optional(),
+    uiScreenshot: z.boolean().optional(),
+    chartUnderstanding: z.boolean().optional(),
+    diagramUnderstanding: z.boolean().optional(),
+    spatialReasoning: z.boolean().optional(),
+    imageGeneration: z.boolean().optional(),
+    imageEditing: z.boolean().optional(),
+  })
+  .optional();
+
+export const ModelPrivacyPolicySchema = z
+  .object({
+    local: z.boolean().optional(),
+    remote: z.boolean().optional(),
+    allowSensitive: z.boolean().optional(),
+  })
+  .optional();
+
 export const ModelRouterProfileSchema = z.object({
   displayName: z.string().optional(),
   defaultLevel: z.union([z.literal(1), z.literal(2), z.literal(3)]).optional(),
@@ -31,6 +61,9 @@ export const ModelRouterProfileSchema = z.object({
   canReview: z.boolean().optional(),
   canFinal: z.boolean().optional(),
   tags: z.array(z.string()).optional(),
+  /** Level 之外的细粒度能力声明（见 docs/模型路由Level与Capability分层设计.md）。 */
+  capabilities: ModelDeclaredCapabilitiesSchema,
+  privacy: ModelPrivacyPolicySchema,
 });
 export type ModelRouterProfileConfig = z.infer<typeof ModelRouterProfileSchema>;
 

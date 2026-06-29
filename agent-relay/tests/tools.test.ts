@@ -8,6 +8,7 @@ import os from "node:os";
 import path from "node:path";
 
 import { createDefaultRegistry, createMockRegistry, createMockTool } from "../src/tools/index.js";
+import { assertShellCommandStaysInWorkspace } from "../src/tools/shellTool.js";
 import { checkCommandRisk } from "../src/tools/risk.js";
 import { resolveInsideWorkspace, sanitizeWorkspacePathsInError } from "../src/tools/pathSafe.js";
 import { ALL_PERMISSIONS } from "../src/core/permissions.js";
@@ -813,6 +814,14 @@ test("命令风险：git reset --hard 为 dangerous", async () => {
   assert.equal(checkCommandRisk("rm -rf /").level, "dangerous");
   assert.equal(checkCommandRisk("npm install left-pad").level, "caution");
   assert.equal(checkCommandRisk("node -v").level, "safe");
+});
+
+test("shell_run 拒绝 cd 跳出工作区", async () => {
+  assert.throws(() => assertShellCommandStaysInWorkspace("cd .. && npm test"), /跳出工作区/);
+  const r = reg();
+  const res = await r.run("shell_run", { command: "cd .. && npm test" }, await ctx());
+  assert.equal(res.ok, false);
+  assert.match((res as { error: string }).error, /跳出工作区/);
 });
 
 test("shell_run 拒绝高风险命令", async () => {

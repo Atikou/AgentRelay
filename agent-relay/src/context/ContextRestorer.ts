@@ -132,7 +132,10 @@ export class ContextRestorer {
     const projectMemories = projectId
       ? this.memoryManager.listProjectMemories(projectId, 10)
       : [];
-    const recentTools = this.messages.listRecentByRole(input.sessionId, "tool", 8);
+    const recentToolsRaw = this.messages.listRecentByRole(input.sessionId, "tool", 8);
+    const recentTools = recentToolsRaw.filter(
+      (m) => evaluateContextMessageTrust(m, this.runFactsLookup).include,
+    );
     const fileSnippets = extractFileSnippetsFromToolMessages(recentTools);
     const recentToolSummaries = summarizeToolMessages(recentTools);
 

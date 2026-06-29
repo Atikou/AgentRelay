@@ -5,7 +5,9 @@
 import assert from "node:assert/strict";
 
 import type { AgentIntentType } from "../src/agent/IntentTypes.js";
-import { defaultIntentRouter } from "../src/agent/IntentRouter.js";
+import { IntentRouter } from "../src/agent/IntentRouter.js";
+
+const intentRouter = new IntentRouter();
 import { defaultWorkflowRouter } from "../src/agent/WorkflowRouter.js";
 
 const tests: Array<{ name: string; fn: () => void }> = [];
@@ -122,11 +124,11 @@ test("每个 intent 都能路由到确定工作流执行器", () => {
 
 test("IntentRouter 使用 WorkflowRouter 输出 workflowType", () => {
   assert.equal(
-    defaultIntentRouter.route({ message: "生成文件 README 草稿" }).workflowType,
+    intentRouter.route({ message: "生成文件 README 草稿" }).workflowType,
     defaultWorkflowRouter.routeIntent("generate_file").workflowType,
   );
   assert.equal(
-    defaultIntentRouter.route({ message: "运行测试验证结果" }).workflowType,
+    intentRouter.route({ message: "运行测试验证结果" }).workflowType,
     defaultWorkflowRouter.routeIntent("verify").workflowType,
   );
 });

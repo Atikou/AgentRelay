@@ -95,18 +95,6 @@ export function evaluatePermissionGuard(input: PermissionGuardInput): Permission
     return { decision: "allow", risk };
   }
 
-  if (
-    input.scopedGrants &&
-    isToolCallGranted({
-      toolName: input.toolName,
-      permission: input.permission,
-      toolInput: input.input,
-      grants: input.scopedGrants,
-    })
-  ) {
-    return { decision: "allow", risk };
-  }
-
   const forcedConfirmation = resolveForcedConfirmation(input, risk);
   if (forcedConfirmation) {
     const forcedRisk = withForcedConfirmationReason(risk, forcedConfirmation.reason);
@@ -121,6 +109,18 @@ export function evaluatePermissionGuard(input: PermissionGuardInput): Permission
         "等待确认高风险操作",
       ),
     };
+  }
+
+  if (
+    input.scopedGrants &&
+    isToolCallGranted({
+      toolName: input.toolName,
+      permission: input.permission,
+      toolInput: input.input,
+      grants: input.scopedGrants,
+    })
+  ) {
+    return { decision: "allow", risk };
   }
 
   if (input.permission === "write") {

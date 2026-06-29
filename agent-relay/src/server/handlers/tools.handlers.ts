@@ -11,8 +11,8 @@ import { buildUnifiedDiff, truncateDiff } from "../../tools/file/diff.js";
 import { hashContent } from "../../tools/file/hash.js";
 import { resolveInsideWorkspace, resolveInsideWorkspaceAsync, assertIsFile } from "../../tools/pathSafe.js";
 import { checkCommandRisk } from "../../tools/risk.js";
-import { ToolExecutionGateway } from "../../agent/ToolExecutionGateway.js";
-import { defaultWorkflowRouter } from "../../agent/WorkflowRouter.js";
+import { ToolExecutionGateway, defaultWorkflowRouteForTaskTool } from "../../agent/ToolExecutionGateway.js";
+import { buildManualToolScopedGrant } from "../../policy/permissionRequestTypes.js";
 
 export function handleToolsList(app: AppContext) {
   return { workspaceRoot: app.workspaceRoot, tools: app.registry.list() };
@@ -170,12 +170,10 @@ export async function handleToolRun(app: AppContext, body: unknown): Promise<Api
   });
 
   const gateway = new ToolExecutionGateway(app.registry);
-  const workflowRoute =
-    tool.permission === "shell"
-      ? defaultWorkflowRouter.routeIntent("run")
-      : tool.permission === "write" || tool.permission === "dangerous"
-        ? defaultWorkflowRouter.routeIntent("edit")
-        : defaultWorkflowRouter.routeIntent("answer");
+  const workflowRoute = defaultWorkflowRouteForTaskTool(tool.permission);
+  const scopedGrants = payload.confirm
+    ? buildManualToolScopedGrant(tool.name, tool.permission, parsed.data as Record<string, unknown>)
+    : undefined;
 
   const result = await gateway.run({
     toolName: name,
@@ -187,11 +185,13 @@ export async function handleToolRun(app: AppContext, body: unknown): Promise<Api
     workspaceGrantStore: app.workspaceGrantStore,
     workspaceConfigScopes: app.workspaceConfigScopesForSession(undefined),
     intent: tool.permission === "shell" ? "run" : tool.permission === "write" ? "edit" : "answer",
-    permissionPolicy: payload.confirm ? "autoEdit" : "confirmBeforeRun",
+    permissionPolicy: "confirmBeforeEdit",
     mode: "implement",
     workflowRoute,
+    scopedGrants,
+    shellPolicy: app.shellPolicy,
+    networkPolicy: app.networkPolicy,
     skipBudgetCheck: true,
-    skipPermissionCheck: payload.confirm === true,
   });
   return { status: result.outcomeClass === "execution_error" ? 400 : 200, body: result };
 }

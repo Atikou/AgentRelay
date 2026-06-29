@@ -15,6 +15,8 @@ export interface SubAgentChatContext {
   sensitive?: boolean;
   taskText?: string;
   parentTaskId?: string;
+  parentIntent?: string;
+  parentWorkflowType?: string;
 }
 
 export function buildDelegatedTaskRouterInput(
@@ -28,16 +30,37 @@ export function buildDelegatedTaskRouterInput(
   const messages = opts?.messages ?? [];
   const signals = analyzeTaskRoutingSignals(text, task.input, task.modelPolicy);
 
+  let qualityMode = signals.qualityMode;
+  let taskTypeOverride = signals.taskType;
+  const parentIntent = opts?.parentIntent ?? "";
+  const parentWorkflow = opts?.parentWorkflowType ?? "";
+  if (
+    parentIntent === "debug" ||
+    parentWorkflow.includes("debug") ||
+    parentIntent === "run" ||
+    parentWorkflow.includes("verify")
+  ) {
+    taskTypeOverride = "debug";
+    if (qualityMode === "fast") qualityMode = "balanced";
+  } else if (
+    parentIntent === "edit" ||
+    parentIntent === "refactor" ||
+    parentWorkflow.includes("edit") ||
+    parentWorkflow.includes("refactor")
+  ) {
+    taskTypeOverride = "code_edit";
+  }
+
   return {
     userInput: text,
     mode: "tool",
-    qualityMode: signals.qualityMode,
+    qualityMode,
     localOnly: opts?.sensitive === true || task.modelPolicy?.prefer === "local",
     forceSingleModel: true,
     allowCollaboration: false,
     mayUseTools: true,
     mayModifyWorkspace: task.toolPolicy?.writeAllowed ?? false,
-    taskTypeOverride: signals.taskType,
+    taskTypeOverride,
     contextTokenEstimate: signals.contextTokenEstimate,
     recentMessagesCount: messages.length > 0 ? messages.length : undefined,
   };
