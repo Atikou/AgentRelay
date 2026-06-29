@@ -478,6 +478,30 @@
           "audit": "array"
         }
       }
+    },
+    {
+      "id": "m7-workspace-path-canonical-doc",
+      "title": "架构文档记录路径 canonicalize",
+      "purpose": "确认多工作区沙箱文档说明 scope root 与目标路径会先 realpath/canonicalize，避免 Windows 短路径误判跨工作区。",
+      "method": "GET",
+      "path": "/api/docs/content?slug=架构设计",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyContains": ["canonicalize", "Windows 8.3", "跨工作区"]
+      }
+    },
+    {
+      "id": "m7-workspace-path-flow-doc",
+      "title": "执行流程记录路径规范化顺序",
+      "purpose": "确认执行流程文档把 realpath/canonicalize 放在 PathPolicy normalize 与 scope resolve 之间，便于复查路径授权边界。",
+      "method": "GET",
+      "path": "/api/docs/content?slug=执行流程",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyContains": ["PathPolicy.normalize", "realpath/canonicalize", "WorkspaceScopeManager.resolveScopeForPath"]
+      }
     }
   ]
 }

@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import fs from "node:fs";
 import path from "node:path";
 import type { DatabaseSync, SQLInputValue } from "node:sqlite";
 
@@ -134,7 +135,7 @@ export class WorkspaceGrantStore {
       sessionId: input.sessionId,
       projectId: input.projectId,
       taskId: input.taskId,
-      rootPath: path.resolve(input.rootPath),
+      rootPath: canonicalizeExistingPath(input.rootPath),
       permissions: normalizePermissions(input.permissions),
       scope: input.scope,
       createdAt: now,
@@ -316,11 +317,11 @@ export class WorkspaceScopeManager {
   private readonly configScopes: WorkspaceScope[];
 
   constructor(private readonly options: WorkspaceScopeManagerOptions) {
-    this.primaryRoot = path.resolve(options.primaryRoot);
+    this.primaryRoot = canonicalizeExistingPath(options.primaryRoot);
     this.grants = options.grants ?? new WorkspaceGrantStore();
     this.configScopes = (options.configScopes ?? []).map((scope) => ({
       id: scope.id,
-      rootPath: path.resolve(scope.rootPath),
+      rootPath: canonicalizeExistingPath(scope.rootPath),
       label: scope.label,
       kind: "config",
       permissions: scope.permissions ?? ["read"],
@@ -363,7 +364,7 @@ export class WorkspaceScopeManager {
     operation: WorkspaceScopePermission,
     input?: { sessionId?: string; projectId?: string; scopedGrants?: ScopedApprovedPermissions },
   ): WorkspaceScope | null {
-    const full = path.resolve(targetPath);
+    const full = canonicalizeExistingPath(targetPath);
     const matches = this.getScopes(input)
       .filter((scope) => scope.permissions.includes(operation))
       .filter((scope) => isInsideScope(scope.rootPath, full))
@@ -373,10 +374,19 @@ export class WorkspaceScopeManager {
 }
 
 export function isInsideScope(rootPath: string, targetPath: string): boolean {
-  const root = path.resolve(rootPath);
-  const full = path.resolve(targetPath);
+  const root = canonicalizeExistingPath(rootPath);
+  const full = canonicalizeExistingPath(targetPath);
   const rel = path.relative(root, full);
   return rel === "" || (!rel.startsWith("..") && !path.isAbsolute(rel));
+}
+
+export function canonicalizeExistingPath(inputPath: string): string {
+  const resolved = path.resolve(inputPath);
+  try {
+    return fs.realpathSync.native(resolved);
+  } catch {
+    return resolved;
+  }
 }
 
 function grantToScope(grant: WorkspaceGrant): WorkspaceScope {
@@ -422,16 +432,17 @@ export function normalizeGrantTargetToRoot(target: string): string | undefined {
   const trimmed = target.trim();
   if (!trimmed) return undefined;
   const withoutGlob = trimmed.replace(/[\\/]\*\*?$/, "");
-  return path.resolve(withoutGlob);
+  return canonicalizeExistingPath(withoutGlob);
 }
 
 function dedupeScopes(scopes: WorkspaceScope[]): WorkspaceScope[] {
   const byKey = new Map<string, WorkspaceScope>();
   for (const scope of scopes) {
-    const key = `${path.resolve(scope.rootPath).toLowerCase()}::${scope.kind}::${scope.source}`;
+    const rootPath = canonicalizeExistingPath(scope.rootPath);
+    const key = `${rootPath.toLowerCase()}::${scope.kind}::${scope.source}`;
     const existing = byKey.get(key);
     if (!existing) {
-      byKey.set(key, { ...scope, rootPath: path.resolve(scope.rootPath) });
+      byKey.set(key, { ...scope, rootPath });
       continue;
     }
     existing.permissions = [...new Set([...existing.permissions, ...scope.permissions])];
@@ -474,7 +485,7 @@ function rowToGrant(row: WorkspaceGrantRow): WorkspaceGrant {
     sessionId: row.session_id ?? undefined,
     projectId: row.project_id ?? undefined,
     taskId: row.task_id ?? undefined,
-    rootPath: path.resolve(row.root_path),
+    rootPath: canonicalizeExistingPath(row.root_path),
     permissions,
     scope: isGrantScope(row.scope) ? row.scope : "session",
     source: row.source === "config" ? "config" : "user_confirmed",

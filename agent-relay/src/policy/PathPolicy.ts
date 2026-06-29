@@ -6,6 +6,7 @@ import { classifyPathRisk, type PathRisk } from "./PathRiskClassifier.js";
 import {
   isInsideScope,
   WorkspaceScopeManager,
+  canonicalizeExistingPath,
   type WorkspaceGrantStore,
   type WorkspaceScope,
   type WorkspaceScopePermission,
@@ -94,10 +95,10 @@ export class PathPolicy {
 
   constructor(primaryRootOrOptions: string | PathPolicyOptions, scopeManager?: WorkspaceScopeManager) {
     if (typeof primaryRootOrOptions === "string") {
-      this.primaryRoot = path.resolve(primaryRootOrOptions);
+      this.primaryRoot = canonicalizeExistingPath(primaryRootOrOptions);
       this.scopeManager = scopeManager ?? new WorkspaceScopeManager({ primaryRoot: this.primaryRoot });
     } else {
-      this.primaryRoot = path.resolve(primaryRootOrOptions.primaryRoot);
+      this.primaryRoot = canonicalizeExistingPath(primaryRootOrOptions.primaryRoot);
       this.scopeManager =
         scopeManager ??
         new WorkspaceScopeManager({

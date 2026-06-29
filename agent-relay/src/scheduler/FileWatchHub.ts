@@ -1,6 +1,7 @@
 import chokidar, { type FSWatcher } from "chokidar";
 import path from "node:path";
 
+import { canonicalizeExistingPath } from "../policy/WorkspaceScopeManager.js";
 import { resolveInsideWorkspace } from "../tools/pathSafe.js";
 
 export type FileWatchEventKind = "add" | "change" | "unlink";
@@ -19,10 +20,14 @@ export class FileWatchHub {
     { watcher: FSWatcher; listeners: Set<(event: FileWatchEvent) => void> }
   >();
 
-  constructor(private readonly workspaceRoot: string) {}
+  private readonly workspaceRoot: string;
+
+  constructor(workspaceRoot: string) {
+    this.workspaceRoot = canonicalizeExistingPath(workspaceRoot);
+  }
 
   subscribe(watchPath: string, listener: (event: FileWatchEvent) => void): () => void {
-    const absDir = resolveInsideWorkspace(this.workspaceRoot, watchPath || ".");
+    const absDir = canonicalizeExistingPath(resolveInsideWorkspace(this.workspaceRoot, watchPath || "."));
     const key = absDir;
     let entry = this.roots.get(key);
     if (!entry) {

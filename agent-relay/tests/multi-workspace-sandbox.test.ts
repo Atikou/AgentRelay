@@ -5,6 +5,7 @@
 import assert from "node:assert/strict";
 import { DatabaseSync } from "node:sqlite";
 import { promises as fs } from "node:fs";
+import os from "node:os";
 import path from "node:path";
 
 import { AgentLoop, type LoopChatFn } from "../src/agent/AgentLoop.js";
@@ -65,6 +66,18 @@ test("PathPolicy：主工作区读取放行，外部读取需要确认", async (
   assert.equal(outside?.decision.needsConfirmation, true);
   assert.equal(outside?.decision.reason, "outside_workspace");
   assert.equal(outside?.audit.crossWorkspace, true);
+});
+
+test("PathPolicy：primary root 使用真实路径规范化，避免 Windows 短路径误判跨工作区", async () => {
+  const primary = await fs.mkdtemp(path.join(os.tmpdir(), "ar-primary-"));
+  await fs.writeFile(path.join(primary, "inside.txt"), "ok", "utf-8");
+
+  const policy = new PathPolicy(primary);
+  const inside = policy.prepareTool("read_file", { path: "inside.txt" });
+
+  assert.equal(inside?.decision.allowed, true);
+  assert.equal(inside?.decision.reason, "inside_primary_workspace");
+  assert.equal(inside?.audit.crossWorkspace, false);
 });
 
 test("WorkspaceGrantStore：project/workspace 授权可落盘、重启恢复并撤销", async () => {
