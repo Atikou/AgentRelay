@@ -428,6 +428,34 @@
         "status": 200,
         "bodyContains": ["timeoutMs", "120", "maxBatchConcurrency"]
       }
+    },
+    {
+      "id": "m5-subagent-dispatch-guard-module",
+      "title": "子 Agent 派发守卫独立模块",
+      "purpose": "确认 dispatch_subagent 的三结果收敛与副作用子任务门控已从 AgentLoop 抽出到独立守卫模块，便于专项测试与后续复用。",
+      "method": "GET",
+      "path": "/api/docs/content?slug=架构设计",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyContains": ["SubagentDispatchGuard", "三结果收敛", "父运行权限"]
+      }
+    },
+    {
+      "id": "m5-subagent-dispatch-guard-test-script",
+      "title": "子 Agent 派发守卫专项测试脚本",
+      "purpose": "确认 TodoList 记录 subagent-dispatch-guard 专项测试，避免架构拆分只有代码没有验收入口。",
+      "method": "GET",
+      "path": "/api/docs/content?slug=TodoList",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyContains": [
+          "test:subagent-dispatch-guard",
+          "SubagentDispatchGuard",
+          "派发守卫"
+        ]
+      }
     }
   ]
 }

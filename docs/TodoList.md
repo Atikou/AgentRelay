@@ -120,7 +120,7 @@
 
 | 项 | 状态 |
 | --- | --- |
-| 拆分 `AgentLoop` god-object | [~] `AgentSystemPromptBuilder` + `AgentWorkflowCapabilityHint` 已拆出；主循环仍 ~2.8k 行 |
+| 拆分 `AgentLoop` god-object | [~] `AgentSystemPromptBuilder` + `AgentWorkflowCapabilityHint` + `SubagentDispatchGuard` 已拆出；`test:subagent-dispatch-guard` 覆盖派发守卫；主循环仍偏大 |
 | `RunPolicyManager` 职责拆分（预算 vs 展示） | [x] 展示/权限推导 → `RunPolicyPresentation.ts` |
 | 合并 `IntentRouter` / `WorkflowPlanner` 重复正则 | [x] `intentPatterns.ts` |
 | 退役遗留 `AgentMode plan\|task` 词汇 | [x] → `TaskRunnerPermissionMode`（`AgentMode` 保留 deprecated 别名） |
@@ -203,6 +203,7 @@ npm test
 | JIT 权限 | `policy/PermissionRequestStore.ts`、`agent/PausedRunStore.ts` |
 | 主循环 | `agent/AgentLoop.ts` |
 | ReAct 协议 | `agent/AgentSystemPromptBuilder.ts` |
+| 子 Agent 派发守卫 | `agent/SubagentDispatchGuard.ts` |
 | 策略展示 | `agent/RunPolicyPresentation.ts` |
 | HTTP 路由登记 | `server/httpRouteRegistry.ts`（`HTTP_ROUTE_PATHS`） |
 | HTTP 入口 | `orchestrator/Orchestrator.ts` |
