@@ -2189,6 +2189,126 @@
           "executionMeta.intentDecisionSource": "intent_adjudicator"
         }
       }
+    },
+    {
+      "id": "m1-agent-tool-result-renderer-architecture-doc",
+      "title": "架构文档登记工具结果回灌模块",
+      "purpose": "确认 AgentLoop 工具 observation 渲染已从主循环解耦到 AgentToolResultRenderer。",
+      "method": "GET",
+      "path": "/api/docs/content?slug=%E6%9E%B6%E6%9E%84%E8%AE%BE%E8%AE%A1",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyContains": ["AgentToolResultRenderer", "AgentToolStep", "observation"]
+      }
+    },
+    {
+      "id": "m1-agent-tool-result-renderer-flow-doc",
+      "title": "执行流程文档登记 observation 渲染链路",
+      "purpose": "确认工具结果三层语义链路中记录 AgentToolResultRenderer 负责模型可见 observation。",
+      "method": "GET",
+      "path": "/api/docs/content?slug=%E6%89%A7%E8%A1%8C%E6%B5%81%E7%A8%8B",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyContains": ["工具结果三层语义", "AgentToolResultRenderer", "模型可见 observation"]
+      }
+    },
+    {
+      "id": "m1-agent-action-parser-architecture-doc",
+      "title": "架构文档登记 ReAct 动作解析模块",
+      "purpose": "确认模型 JSON 动作解析已从 AgentLoop 解耦到 AgentActionParser。",
+      "method": "GET",
+      "path": "/api/docs/content?slug=%E6%9E%B6%E6%9E%84%E8%AE%BE%E8%AE%A1",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyContains": ["AgentActionParser", "ReAct 动作解析", "final.answer"]
+      }
+    },
+    {
+      "id": "m1-agent-action-parser-flow-doc",
+      "title": "执行流程文档登记模型动作解析链路",
+      "purpose": "确认执行流程中记录 AgentActionParser 去除思考块噪声并提取 tool/final 动作。",
+      "method": "GET",
+      "path": "/api/docs/content?slug=%E6%89%A7%E8%A1%8C%E6%B5%81%E7%A8%8B",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyContains": ["AgentActionParser", "<think>", "tool", "final"]
+      }
+    },
+    {
+      "id": "m1-agent-notification-renderer-architecture-doc",
+      "title": "架构文档登记通知回灌模块",
+      "purpose": "确认后台通知回灌已从 AgentLoop 解耦到 AgentNotificationRenderer。",
+      "method": "GET",
+      "path": "/api/docs/content?slug=%E6%9E%B6%E6%9E%84%E8%AE%BE%E8%AE%A1",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyContains": ["AgentNotificationRenderer", "后台通知", "系统运行态消息"]
+      }
+    },
+    {
+      "id": "m1-agent-notification-renderer-flow-doc",
+      "title": "执行流程文档登记通知安全点回灌",
+      "purpose": "确认执行流程说明通知只作为当前任务参考信号，不改变权限策略或打断工具链。",
+      "method": "GET",
+      "path": "/api/docs/content?slug=%E6%89%A7%E8%A1%8C%E6%B5%81%E7%A8%8B",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyContains": ["AgentNotificationRenderer", "安全点", "不改变权限策略"]
+      }
+    },
+    {
+      "id": "m1-agent-run-usage-summary-architecture-doc",
+      "title": "架构文档登记 Run 用量摘要模块",
+      "purpose": "确认 run_usage_summary trace payload 构建已从 AgentLoop 解耦到 AgentRunUsageSummary。",
+      "method": "GET",
+      "path": "/api/docs/content?slug=%E6%9E%B6%E6%9E%84%E8%AE%BE%E8%AE%A1",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyContains": ["AgentRunUsageSummary", "run_usage_summary", "trace payload"]
+      }
+    },
+    {
+      "id": "m1-agent-run-usage-summary-flow-doc",
+      "title": "执行流程文档登记 Run 用量摘要收尾",
+      "purpose": "确认执行流程说明 Run 收尾时汇总模型轮次、token、费用与工具失败分类。",
+      "method": "GET",
+      "path": "/api/docs/content?slug=%E6%89%A7%E8%A1%8C%E6%B5%81%E7%A8%8B",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyContains": ["AgentRunUsageSummary", "模型轮次", "工具失败分类"]
+      }
+    },
+    {
+      "id": "m1-agent-activity-timeline-finalizer-architecture-doc",
+      "title": "架构文档登记 Timeline 收尾模块",
+      "purpose": "确认 Activity Timeline 收尾已从 AgentLoop 解耦到 AgentActivityTimelineFinalizer。",
+      "method": "GET",
+      "path": "/api/docs/content?slug=%E6%9E%B6%E6%9E%84%E8%AE%BE%E8%AE%A1",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyContains": ["AgentActivityTimelineFinalizer", "Activity Timeline 收尾", "stopReason"]
+      }
+    },
+    {
+      "id": "m1-agent-activity-timeline-finalizer-flow-doc",
+      "title": "执行流程文档登记 Timeline 收尾状态",
+      "purpose": "确认执行流程说明 Timeline 收尾会区分完成、等待授权、预算耗尽和取消等状态。",
+      "method": "GET",
+      "path": "/api/docs/content?slug=%E6%89%A7%E8%A1%8C%E6%B5%81%E7%A8%8B",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyContains": ["AgentActivityTimelineFinalizer", "等待授权", "预算耗尽", "用户取消"]
+      }
     }
   ]
 }

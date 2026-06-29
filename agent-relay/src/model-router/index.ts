@@ -99,6 +99,7 @@ export type {
   AgentRouterDecisionSummary,
   AgentPromptStrategySummary,
 } from "./agent-routing-summary.js";
+export type { LoopChatFn, LoopChatResponse } from "./agent-chat-types.js";
 export { applyPromptStrategyToMessages } from "./apply-prompt-strategy-messages.js";
 export { createModelChatFn } from "./create-model-chat.js";
 export {

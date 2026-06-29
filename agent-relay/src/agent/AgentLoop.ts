@@ -1,10 +1,10 @@
 import type { AgentNotification } from "../background/types.js";
-import { readMergeCount } from "../background/NotificationQueue.js";
 import type { NotificationQueue } from "../background/NotificationQueue.js";
 import type { ContextManager } from "../context/ContextManager.js";
 import type { ModelTaskType } from "../model/taskType.js";
-import type { ChatMessage, ChatRequest, ModelResponse } from "../model/types.js";
+import type { ChatMessage } from "../model/types.js";
 import type { AgentPromptStrategySummary, AgentRouterDecisionSummary, AgentRoutingMeta } from "../model-router/agent-routing-summary.js";
+import type { LoopChatFn, LoopChatResponse } from "../model-router/agent-chat-types.js";
 import type { ToolRegistry } from "../tools/ToolRegistry.js";
 import { DISPATCH_SUBAGENT_TOOL_NAME } from "../tools/subagentTool.js";
 import type { TraceLogger } from "../trace/TraceLogger.js";
@@ -12,14 +12,15 @@ import type { AgentStepPlan } from "../plan/types.js";
 import { assertWithinCostBudget, sumModelTurnCost } from "../util/costBudget.js";
 import { wrapUntrustedToolOutput } from "../util/injection.js";
 import { redactPreview } from "../util/redact.js";
+import { parseAction, type ToolAction } from "./AgentActionParser.js";
+import { renderNotifications } from "./AgentNotificationRenderer.js";
 import { buildAgentSystemPrompt } from "./AgentSystemPromptBuilder.js";
 import { buildWorkflowCapabilityHint } from "./AgentWorkflowCapabilityHint.js";
 import {
   assessSubagentDispatchGuard,
   assessSubagentSideEffectGuard,
-  renderDispatchSubagentFailure,
-  renderSubagentFinalConvergencePrompt,
 } from "./SubagentDispatchGuard.js";
+import { renderAgentToolResultObservation } from "./AgentToolResultRenderer.js";
 import { FailedActionMemory } from "./recovery/FailedActionMemory.js";
 import { RunToolResultCache } from "./recovery/RunToolResultCache.js";
 import {
@@ -31,9 +32,6 @@ import type { ToolOutcome } from "../tools/toolOutcome.js";
 import { resolveToolOutcome } from "../tools/toolOutcome.js";
 import {
   applyOutcomeToStep,
-  renderBlockedRecoveryMessage,
-  renderExecutionErrorMessage,
-  renderToolOutcomeMessage,
   traceStatusForOutcome,
 } from "./recovery/renderToolOutcome.js";
 import { EditAutoVerificationWorkflow } from "./EditAutoVerificationWorkflow.js";
@@ -83,7 +81,6 @@ import {
 } from "./workflowExecutionMeta.js";
 import {
   buildToolResultLayers,
-  clipModelToolJson,
 } from "../util/toolResultLayers.js";
 import type { AgentModelTurnEvent } from "./AgentModelTurn.js";
 import type { AgentTimelineService } from "./timeline/AgentTimelineService.js";
@@ -121,7 +118,7 @@ import {
   planHandoffMessageForVariant,
 } from "./planHandoffMessages.js";
 import type { AgentToolStep } from "./toolStep.js";
-import { countToolOutcomeUsage, isFailedToolStep, isSuccessfulToolStep, stepPlanTraceStatus } from "./toolStepOutcome.js";
+import { isFailedToolStep, isSuccessfulToolStep, stepPlanTraceStatus } from "./toolStepOutcome.js";
 import {
   defaultPausedRunStore,
   type PausedRunSnapshot,
@@ -151,21 +148,11 @@ import {
   buildRunStateFromAgentRun,
   type RunState,
 } from "../orchestrator/runStateTypes.js";
-
-export interface LoopChatResponse extends ModelResponse {
-  /** Smart 路由路径：本轮模型调用的决策与提示策略（首轮回传至 Agent 响应）。 */
-  routingMeta?: AgentRoutingMeta;
-}
-
-export type LoopChatFn = (
-  req: ChatRequest,
-  opts?: {
-    sensitive?: boolean;
-    taskType?: ModelTaskType;
-    spentCostUsd?: number;
-    maxCostUsd?: number;
-  },
-) => Promise<LoopChatResponse>;
+import {
+  buildRunUsageSummaryTracePayload,
+  type AgentModelTurnMetric,
+} from "./AgentRunUsageSummary.js";
+import { finalizeAgentActivityTimeline } from "./AgentActivityTimelineFinalizer.js";
 
 export interface AgentRunResult {
   answer: string;
@@ -193,19 +180,6 @@ export interface AgentRunResult {
   sessionId?: string;
   /** M6：本轮是否触发了历史压缩。 */
   compressed?: boolean;
-}
-
-interface AgentModelTurnMetric {
-  iteration: number;
-  success: boolean;
-  client?: string;
-  model?: string;
-  location?: string;
-  latencyMs: number;
-  inputTokens?: number;
-  outputTokens?: number;
-  costUsd?: number;
-  error?: string;
 }
 
 export interface AgentLoopOptions {
@@ -290,18 +264,6 @@ export interface AgentLoopOptions {
   shellPolicy?: import("../policy/ShellPolicy.js").ShellPolicy;
   networkPolicy?: import("../policy/NetworkPolicy.js").NetworkPolicy;
 }
-
-interface ToolAction {
-  action: "tool";
-  tool: string;
-  input?: Record<string, unknown>;
-  thought?: string;
-}
-interface FinalAction {
-  action: "final";
-  answer: string;
-}
-type AgentAction = ToolAction | FinalAction;
 
 /**
  * 基础 Agent 对话循环（M1）。
@@ -1152,11 +1114,17 @@ export class AgentLoop {
       }
     }
 
-    this.finalizeActivityTimeline({
-      ...input,
+    finalizeAgentActivityTimeline({
+      timeline: this.options.timeline,
+      runId: this.options.runId,
       answer,
+      reachedLimit: input.reachedLimit,
+      budgetExhausted: input.budgetExhausted,
       stopReason,
+      completionGuard: guard,
       partialSummary: input.partialSummary,
+      budgetLedger: this.budgetManager.ledgerSnapshot(),
+      maxRecoveryTurns: this.budget.maxRecoveryTurns,
     });
 
     return {
@@ -1292,7 +1260,7 @@ export class AgentLoop {
     goal: string;
     sessionId?: string;
   }): void {
-    const toolText = this.renderToolResult(input.step, input.steps);
+    const toolText = renderAgentToolResultObservation(input.step, input.steps);
     input.messages.push({
       role: "tool",
       name: input.step.tool,
@@ -1338,81 +1306,6 @@ export class AgentLoop {
           input.step.outcomeKind !== "no_results",
       });
     }
-  }
-
-  private finalizeActivityTimeline(input: {
-    answer: string;
-    reachedLimit: boolean;
-    budgetExhausted?: RunBudgetKey;
-    stopReason?: AgentStopReason;
-    completionGuard?: CompletionGuardResult;
-    partialSummary?: string;
-  }): void {
-    const tl = this.options.timeline;
-    if (!tl) return;
-    const runId = this.options.runId ?? tl.getRun()?.id ?? "";
-    const stop = input.stopReason ?? (input.reachedLimit ? "budget_exhausted" : "completed");
-    if (stop === "user_cancelled") {
-      tl.cancelRun("用户取消");
-      return;
-    }
-    if (
-      stop === "completed_partial" ||
-      stop === "recovery_partial" ||
-      stop === "misleading_completion" ||
-      stop === "blocked_by_policy" ||
-      input.completionGuard?.status === "historical_reference" ||
-      input.completionGuard?.status === "completed_partial" ||
-      input.completionGuard?.status === "misleading_completion" ||
-      input.completionGuard?.status === "blocked_by_policy"
-    ) {
-      const title =
-        stop === "misleading_completion"
-          ? "检测到虚假完成"
-          : stop === "recovery_partial"
-            ? "部分完成 · 恢复预算耗尽"
-            : "任务未完全完成";
-      const summary =
-        input.partialSummary ||
-        input.completionGuard?.reason ||
-        input.stopReason ||
-        "";
-      if (typeof tl.partialCompleteRun === "function") {
-        tl.partialCompleteRun(summary.slice(0, 800), title);
-      } else {
-        tl.failRun(title);
-      }
-      return;
-    }
-    if (stop === "awaiting_permission") {
-      const summary = input.partialSummary || input.completionGuard?.reason || "等待工具授权";
-      tl.partialCompleteRun(summary.slice(0, 800), "等待工具授权");
-      return;
-    }
-    if (stop === "completed" && !input.reachedLimit) {
-      const summary = tl.startStep({
-        runId,
-        type: "summary",
-        title: "任务完成",
-        content: input.answer.slice(0, 400),
-      });
-      tl.completeStep(summary.id, input.answer.slice(0, 500));
-      tl.completeRun(input.answer.slice(0, 800));
-      return;
-    }
-    if (input.reachedLimit) {
-      const ledger = this.budgetManager.ledgerSnapshot();
-      const summary =
-        input.partialSummary ||
-        `运行预算耗尽：${input.budgetExhausted ?? "unknown"}（恢复 ${ledger.recoveryTurns}/${this.budget.maxRecoveryTurns}）`;
-      if (typeof tl.partialCompleteRun === "function") {
-        tl.partialCompleteRun(summary.slice(0, 800), "部分完成 · 预算耗尽");
-      } else {
-        tl.failRun(summary.slice(0, 800));
-      }
-      return;
-    }
-    tl.completeRun(input.answer.slice(0, 800));
   }
 
   private async maybeRunSystemRecovery(input: {
@@ -2210,41 +2103,6 @@ export class AgentLoop {
     };
   }
 
-  private renderToolResult(step: AgentToolStep, steps?: AgentToolStep[]): string {
-    if (step.blocked) {
-      return renderBlockedRecoveryMessage(step);
-    }
-    if (step.outcomeClass === "observation_failure") {
-      const observationText = renderToolOutcomeMessage(step);
-      if (observationText) return observationText;
-    }
-    if (!step.ok) {
-      if (step.outcomeClass === "execution_error") {
-        return renderExecutionErrorMessage(step);
-      }
-      if (step.tool === DISPATCH_SUBAGENT_TOOL_NAME) {
-        return renderDispatchSubagentFailure(step);
-      }
-      if (step.error?.startsWith("未知工具：")) {
-        return [
-          `工具「${step.tool}」执行失败：${step.error}。`,
-          "这不是可用工具列表中的工具名；请只从系统提示的可用工具列表选择真实工具。",
-          "内部流程名、编排类名或子 Agent 控制器不能作为 tool 字段调用。",
-          "如果已经可以回答，请直接输出 final；如果还需要信息，请改用 project_scan、locate_relevant_files、context_pack、read_file 等真实工具。",
-        ].join("");
-      }
-      return `工具「${step.tool}」执行失败：${step.error}。请据此调整下一步。`;
-    }
-    const compacted = step.resultLayers?.modelVisible ?? step.output;
-    const wrapped = wrapUntrustedToolOutput(step.tool, compacted);
-    const body = clipModelToolJson(wrapped);
-    const base = `工具「${step.tool}」执行结果（JSON）：\n${body}`;
-    if (step.tool === DISPATCH_SUBAGENT_TOOL_NAME && steps) {
-      return renderSubagentFinalConvergencePrompt(base, steps);
-    }
-    return base;
-  }
-
   private buildSystemPrompt(extra?: string): string {
     return buildAgentSystemPrompt({
       registry: this.options.registry,
@@ -2612,45 +2470,15 @@ export class AgentLoop {
   }
 
   private writeRunUsageSummary(steps: AgentToolStep[], executionMeta: AgentExecutionMeta): void {
-    const inputTokens = sumOptional(this.modelTurnMetrics.map((m) => m.inputTokens));
-    const outputTokens = sumOptional(this.modelTurnMetrics.map((m) => m.outputTokens));
-    const costUsd = sumOptional(this.modelTurnMetrics.map((m) => m.costUsd));
-    const modelLatencyMs = this.modelTurnMetrics.reduce((sum, m) => sum + m.latencyMs, 0);
-    const modelErrors = this.modelTurnMetrics.filter((m) => !m.success);
-    const outcomeUsage = countToolOutcomeUsage(steps);
-    const failedTools = steps.filter((s) => isFailedToolStep(s));
-    this.options.trace?.write({
-      type: "run_usage_summary",
+    this.options.trace?.write(buildRunUsageSummaryTracePayload({
+      steps,
+      executionMeta,
+      modelTurnMetrics: this.modelTurnMetrics,
       runId: this.options.runId,
       sessionId: this.options.sessionId,
       taskId: this.options.taskId,
       mode: this.policy.mode,
-      status: executionMeta.stopReason,
-      reachedLimit: executionMeta.stopReason === "budget_exhausted",
-      budget: executionMeta.budget,
-      usage: executionMeta.usage,
-      modelTurns: this.modelTurnMetrics.length,
-      modelSuccesses: this.modelTurnMetrics.filter((m) => m.success).length,
-      modelErrors: modelErrors.length,
-      inputTokens,
-      outputTokens,
-      totalTokens:
-        inputTokens === undefined && outputTokens === undefined
-          ? undefined
-          : (inputTokens ?? 0) + (outputTokens ?? 0),
-      modelLatencyMs,
-      costUsd,
-      toolCalls: steps.length,
-      toolFailures: outcomeUsage.toolFailures,
-      toolObservationFailures: outcomeUsage.toolObservationFailures,
-      toolExecutionErrors: outcomeUsage.toolExecutionErrors,
-      failedTools: failedTools.length,
-      blockedTools: steps.filter((s) => s.blocked).length,
-      errors: [
-        ...modelErrors.map((m) => m.error).filter((e): e is string => Boolean(e)),
-        ...failedTools.map((s) => s.error).filter((e): e is string => Boolean(e)),
-      ].slice(0, 10),
-    });
+    }));
   }
 
   private makeToolCallId(iteration: number, tool: string): string {
@@ -2685,105 +2513,7 @@ export class AgentLoop {
   }
 }
 
-function sumOptional(values: Array<number | undefined>): number | undefined {
-  let seen = false;
-  let sum = 0;
-  for (const value of values) {
-    if (value === undefined) continue;
-    seen = true;
-    sum += value;
-  }
-  return seen ? Number(sum.toFixed(6)) : undefined;
-}
-
-/** 将安全点消费的通知格式化为可回灌给模型的系统运行态消息。 */
-export function renderNotifications(notes: AgentNotification[]): string {
-  const lines = notes.map((n) => {
-    const merged = readMergeCount(n.payload);
-    const mergeHint = merged > 1 ? ` [合并×${merged}]` : "";
-    return `- [${n.source}/${n.level}]${mergeHint} ${n.timestamp}: ${n.message}`;
-  });
-  return [
-    "系统通知（后台任务等，已在安全点注入，请勿打断当前工具链）：",
-    ...lines,
-    "请酌情纳入下一步推理；若与当前任务无关可忽略。",
-  ].join("\n");
-}
-
-/** 去掉思考块噪声；Markdown 围栏可能出现在 final.answer 中，不能在解析前剥离。 */
-export function stripModelNoise(content: string): string {
-  let s = content;
-  s = s.replace(/<think>[\s\S]*?<\/think>/gi, "");
-  s = s.replace(/<redacted_reasoning>[\s\S]*?<\/redacted_reasoning>/gi, "");
-  return s.trim();
-}
-
-/** 从模型输出中提取可执行动作；final.answer 内部允许包含 Markdown/JSON 代码块。 */
-export function parseAction(content: string): AgentAction | null {
-  const cleaned = stripModelNoise(content);
-  const direct = parseActionJson(cleaned);
-  if (direct) return direct;
-  for (const obj of extractJsonObjects(cleaned)) {
-    const action = parseActionJson(obj);
-    if (action) return action;
-  }
-  return null;
-}
-
-function parseActionJson(json: string): AgentAction | null {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(json);
-  } catch {
-    return null;
-  }
-  if (typeof parsed === "string" && parsed !== json) {
-    return parseAction(parsed);
-  }
-  if (!parsed || typeof parsed !== "object") return null;
-  const p = parsed as Record<string, unknown>;
-  if (p.action === "final" && typeof p.answer === "string") {
-    return { action: "final", answer: p.answer };
-  }
-  if (p.action === "tool" && typeof p.tool === "string") {
-    return {
-      action: "tool",
-      tool: p.tool,
-      input: (p.input as Record<string, unknown>) ?? {},
-      thought: typeof p.thought === "string" ? p.thought : undefined,
-    };
-  }
-  return null;
-}
-
-/** 扫描出所有平衡的 {...} 候选（忽略字符串内的花括号）。 */
-function extractJsonObjects(text: string): string[] {
-  const objects: string[] = [];
-  let start = -1;
-  let depth = 0;
-  let inStr = false;
-  let escaped = false;
-  for (let i = 0; i < text.length; i += 1) {
-    const ch = text[i]!;
-    if (inStr) {
-      if (escaped) escaped = false;
-      else if (ch === "\\") escaped = true;
-      else if (ch === '"') inStr = false;
-      continue;
-    }
-    if (ch === '"') inStr = true;
-    else if (ch === "{") {
-      if (depth === 0) start = i;
-      depth += 1;
-    }
-    else if (ch === "}") {
-      if (depth === 0) continue;
-      depth -= 1;
-      if (depth === 0 && start >= 0) {
-        objects.push(text.slice(start, i + 1));
-        start = -1;
-      }
-    }
-  }
-  return objects;
-}
+export { parseAction, stripModelNoise } from "./AgentActionParser.js";
+export { renderNotifications } from "./AgentNotificationRenderer.js";
+export type { AgentAction, FinalAction, ToolAction } from "./AgentActionParser.js";
+export type { LoopChatFn, LoopChatResponse } from "../model-router/agent-chat-types.js";

@@ -95,7 +95,7 @@
 - [x] `ContextManager` + FTS5 + LanceDB
 - [x] `ProjectIndex` / 语义召回 / `RunState.location`
 - [x] 上下文去污：`contextTrust` + `RunFactsLookup` + `ContextRestorer` 过滤/纠偏 + 记忆 `trustLevel`
-- [~] 上下文层与 agent 格式化解耦（`AgentSystemPromptBuilder` + `AgentWorkflowCapabilityHint` 已抽出；主循环仍 ~2.8k 行）
+- [~] 上下文层与 agent 格式化解耦（`AgentActionParser` + `AgentNotificationRenderer` + `AgentSystemPromptBuilder` + `AgentWorkflowCapabilityHint` + `AgentToolResultRenderer` + `AgentRunUsageSummary` + `AgentActivityTimelineFinalizer` 已抽出；主循环仍偏大）
 
 ### M7 安全与审计
 
@@ -120,7 +120,7 @@
 
 | 项 | 状态 |
 | --- | --- |
-| 拆分 `AgentLoop` god-object | [~] `AgentSystemPromptBuilder` + `AgentWorkflowCapabilityHint` + `SubagentDispatchGuard` 已拆出；`test:subagent-dispatch-guard` 覆盖派发守卫；主循环仍偏大 |
+| 拆分 `AgentLoop` god-object | [~] `AgentActionParser` + `AgentNotificationRenderer` + `AgentSystemPromptBuilder` + `AgentWorkflowCapabilityHint` + `AgentToolResultRenderer` + `AgentRunUsageSummary` + `AgentActivityTimelineFinalizer` + `SubagentDispatchGuard` 已拆出；`test:agent-action-parser` 覆盖 ReAct JSON 动作解析；`test:agent-notification-renderer` 覆盖安全点通知回灌；`test:agent-tool-result-renderer` 覆盖工具结果回灌；`test:agent-run-usage-summary` 覆盖 run_usage_summary；`test:agent-activity-timeline-finalizer` 覆盖 Timeline 收尾；`test:subagent-dispatch-guard` 覆盖派发守卫；主循环仍偏大 |
 | `RunPolicyManager` 职责拆分（预算 vs 展示） | [x] 展示/权限推导 → `RunPolicyPresentation.ts` |
 | 合并 `IntentRouter` / `WorkflowPlanner` 重复正则 | [x] `intentPatterns.ts` |
 | 退役遗留 `AgentMode plan\|task` 词汇 | [x] → `TaskRunnerPermissionMode`（`AgentMode` 保留 deprecated 别名） |
@@ -202,7 +202,11 @@ npm test
 | 计划交接 | `policy/PlanHandoffStore.ts` |
 | JIT 权限 | `policy/PermissionRequestStore.ts`、`agent/PausedRunStore.ts` |
 | 主循环 | `agent/AgentLoop.ts` |
+| ReAct 动作解析 | `agent/AgentActionParser.ts` |
+| 通知回灌渲染 | `agent/AgentNotificationRenderer.ts` |
 | ReAct 协议 | `agent/AgentSystemPromptBuilder.ts` |
+| 工具结果回灌 | `agent/AgentToolResultRenderer.ts` |
+| Run 用量摘要 | `agent/AgentRunUsageSummary.ts` |
 | 子 Agent 派发守卫 | `agent/SubagentDispatchGuard.ts` |
 | 策略展示 | `agent/RunPolicyPresentation.ts` |
 | HTTP 路由登记 | `server/httpRouteRegistry.ts`（`HTTP_ROUTE_PATHS`） |

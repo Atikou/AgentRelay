@@ -1,4 +1,3 @@
-import type { LoopChatFn } from "../agent/AgentLoop.js";
 import type { DelegatedTask } from "../subagent/delegatedTask.js";
 import { analyzeTaskRoutingSignals } from "../subagent/routingSignals.js";
 import { buildAgentRoutingMeta } from "./agent-routing-summary.js";
@@ -9,6 +8,7 @@ import { isModelUnavailableError } from "./model-availability.js";
 import type { SmartModelRouter } from "./smart-model-router.js";
 import { RouterError, type RouterInput } from "./types.js";
 import type { ModelChatFn } from "../model-orchestrator/types.js";
+import type { LoopChatFn } from "./agent-chat-types.js";
 import { extractLastUserMessage } from "./create-smart-single-model-chat.js";
 
 export interface SubAgentChatContext {
