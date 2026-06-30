@@ -150,14 +150,28 @@ test("v1–v24 全新 memory.db 应用迁移", () => {
   }
 });
 
-test("全新 tools.db schema version = 1", () => {
+test("全新 tools.db schema version = 2", () => {
   const dataDir = tempDataDir();
   let storage: ToolStorage | undefined;
   try {
     storage = new ToolStorage(dataDir);
     assert.equal(storage.schemaVersion, TOOLS_DB_SCHEMA_VERSION);
-    assert.equal(storage.schemaInfo.migrations.length, 1);
+    assert.equal(storage.schemaInfo.migrations.length, 2);
     assert.equal(storage.schemaInfo.migrations[0]?.name, "tool_logs_file_changes_backups");
+    assert.equal(storage.schemaInfo.migrations.at(-1)?.name, "file_changes_workspace_access");
+    const cols = storage.schemaInfo.userVersion === TOOLS_DB_SCHEMA_VERSION
+      ? new DatabaseSync(storage.dbPath)
+      : undefined;
+    if (cols) {
+      try {
+        const fileChangeCols = cols.prepare(`PRAGMA table_info(file_changes)`).all() as Array<{ name: string }>;
+        assert.ok(fileChangeCols.some((c) => c.name === "workspace_root"));
+        assert.ok(fileChangeCols.some((c) => c.name === "normalized_path"));
+        assert.ok(fileChangeCols.some((c) => c.name === "workspace_access_json"));
+      } finally {
+        cols.close();
+      }
+    }
   } finally {
     storage?.close();
     removeTempDir(dataDir);

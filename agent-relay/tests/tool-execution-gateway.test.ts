@@ -3,6 +3,8 @@
  * 运行：npx tsx tests/tool-execution-gateway.test.ts
  */
 import assert from "node:assert/strict";
+import { promises as fs } from "node:fs";
+import path from "node:path";
 
 import { ToolExecutionGateway } from "../src/agent/ToolExecutionGateway.js";
 import { createDefaultRegistry } from "../src/tools/index.js";
@@ -51,6 +53,57 @@ test("manual 路径 needsConfirmation 不自动执行 shell", async () => {
   });
   assert.equal(result.executed, false);
   assert.equal(result.outcomeKind, "permission_denied");
+});
+
+test("rollback_change enriches changeId metadata before PathPolicy and PermissionGuard", async () => {
+  const tmpRoot = path.join(process.cwd(), ".tmp-tests");
+  await fs.mkdir(tmpRoot, { recursive: true });
+  const root = await fs.mkdtemp(path.join(tmpRoot, "ar-gateway-rollback-"));
+  const primary = path.join(root, "primary");
+  const external = path.join(root, "external");
+  await fs.mkdir(primary, { recursive: true });
+  await fs.mkdir(external, { recursive: true });
+  const externalFile = path.join(external, "shared.txt");
+  await fs.writeFile(externalFile, "original", "utf-8");
+  const registry = createDefaultRegistry({ dataDir: path.join(root, "data") });
+  const gateway = new ToolExecutionGateway(registry);
+  try {
+    const write = await gateway.run({
+      toolName: "write_file",
+      input: { path: externalFile, content: "dirty", backup: true },
+      source: "manual",
+      budgetBucket: "manual",
+      workspaceRoot: primary,
+      allowedPermissions: ["read", "write"],
+      intent: "edit",
+      permissionPolicy: "autoEdit",
+      scopedGrants: { write_file: [`${external}/**`] },
+      skipBudgetCheck: true,
+    });
+    assert.equal(write.ok, true);
+    const changeId = (write.output as { changeId?: string }).changeId;
+    assert.equal(typeof changeId, "string");
+
+    const blocked = await gateway.run({
+      toolName: "rollback_change",
+      input: { changeId },
+      source: "manual",
+      budgetBucket: "manual",
+      workspaceRoot: primary,
+      allowedPermissions: ["read", "write"],
+      intent: "edit",
+      permissionPolicy: "autoEdit",
+      skipBudgetCheck: true,
+    });
+    assert.equal(blocked.executed, false);
+    assert.equal(blocked.outcomeKind, "permission_denied");
+    assert.equal(blocked.requiresUserAction, true);
+    assert.match(blocked.message, /shared\.txt/);
+    assert.equal(await fs.readFile(externalFile, "utf-8"), "dirty");
+  } finally {
+    registry.close();
+    await fs.rm(root, { recursive: true, force: true });
+  }
 });
 
 let passed = 0;

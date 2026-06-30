@@ -25,6 +25,16 @@ import {
 } from "./handlers/background.handlers.js";
 import { getConfig, metrics, modelsCatalog, modelsCheck } from "./handlers/config.handlers.js";
 import {
+  handleCompanionChat,
+  handleCompanionChatStream,
+  handleCompanionSessionCreate,
+  handleCompanionSessionMessages,
+  handleCompanionSessionsList,
+  handleCompanionSessionSummarize,
+  handleCompanionStorageStatus,
+  handleCompanionVectorStatus,
+} from "./handlers/companion.handlers.js";
+import {
   handleContextMemoriesList,
   handleContextMemoryCreate,
   handleContextMemoryDeactivate,
@@ -124,6 +134,51 @@ export function createHttpServer(app: AppContext, opts?: HttpServerOptions): Ser
         }
         if (pathname === "/api/chat" && method === "POST") {
           const result = await handleChat(app, await readBody(req, maxBodyBytes));
+          sendJson(res, result.status, result.body);
+          return;
+        }
+        if (pathname === "/api/companion/chat/stream" && method === "POST") {
+          await handleCompanionChatStream(app, await readBody(req, maxBodyBytes), res);
+          return;
+        }
+        if (pathname === "/api/companion/chat" && method === "POST") {
+          const result = await handleCompanionChat(app, await readBody(req, maxBodyBytes));
+          sendJson(res, result.status, result.body);
+          return;
+        }
+        if (pathname === "/api/companion/sessions" && method === "GET") {
+          const result = handleCompanionSessionsList(app, url);
+          sendJson(res, result.status, result.body);
+          return;
+        }
+        if (pathname === "/api/companion/sessions" && method === "POST") {
+          const result = handleCompanionSessionCreate(app, await readBody(req, maxBodyBytes));
+          sendJson(res, result.status, result.body);
+          return;
+        }
+        const companionMessagesMatch = pathname.match(/^\/api\/companion\/sessions\/([^/]+)\/messages$/);
+        if (companionMessagesMatch && method === "GET") {
+          const result = handleCompanionSessionMessages(app, decodeURIComponent(companionMessagesMatch[1]!), url);
+          sendJson(res, result.status, result.body);
+          return;
+        }
+        const companionSummarizeMatch = pathname.match(/^\/api\/companion\/sessions\/([^/]+)\/summarize$/);
+        if (companionSummarizeMatch && method === "POST") {
+          const result = await handleCompanionSessionSummarize(
+            app,
+            decodeURIComponent(companionSummarizeMatch[1]!),
+            await readBody(req, maxBodyBytes),
+          );
+          sendJson(res, result.status, result.body);
+          return;
+        }
+        if (pathname === "/api/companion/storage/status" && method === "GET") {
+          const result = handleCompanionStorageStatus(app, url);
+          sendJson(res, result.status, result.body);
+          return;
+        }
+        if (pathname === "/api/companion/vector/status" && method === "GET") {
+          const result = handleCompanionVectorStatus(app, url);
           sendJson(res, result.status, result.body);
           return;
         }

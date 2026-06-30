@@ -120,6 +120,12 @@ export function handlePermissionRequestRespond(
       body: { error: "shell 权限不支持长期工作区授权，请使用允许一次或本次会话" },
     };
   }
+  if (decision === "allow_project" && !existing.projectId) {
+    return {
+      status: 400,
+      body: { error: "allow_project requires projectId; use allow_session or allow_workspace instead" },
+    };
+  }
 
   const responded = app.permissionRequestStore.respond(id.trim(), {
     decision,
@@ -142,7 +148,7 @@ export function handlePermissionRequestRespond(
         item.operation ?? (item.type === "shell" ? "shell" : item.type === "write_file" ? "write" : "read");
       const rootPath = item.rootPath ?? item.target.replace(/[\\/]\*\*?$/, "");
       app.workspaceGrantStore.add({
-        sessionId: decision === "allow_project" ? responded.sessionId : undefined,
+        projectId: decision === "allow_project" ? responded.projectId : undefined,
         rootPath,
         permissions: [operation],
         scope: decision === "allow_project" ? "project" : "workspace",

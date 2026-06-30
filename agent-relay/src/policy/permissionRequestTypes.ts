@@ -37,6 +37,7 @@ export interface PermissionRequestPayload {
   id: string;
   runId: string;
   sessionId?: string;
+  projectId?: string;
   status: PermissionRequestStatus;
   title: string;
   summary: string;

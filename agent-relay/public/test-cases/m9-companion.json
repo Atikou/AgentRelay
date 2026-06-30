@@ -1,0 +1,141 @@
+{
+  "milestone": "M9",
+  "feature": "纯聊天人格层",
+  "featureId": "m9-companion",
+  "summary": "验证 Companion 纯聊天 API、独立存储、摘要与向量状态占位。",
+  "cases": [
+    {
+      "id": "m9-companion-storage-status",
+      "title": "Companion 默认存储状态",
+      "purpose": "确认 GET /api/companion/storage/status 返回默认 storageRoot 与 companion.db 路径。",
+      "method": "GET",
+      "path": "/api/companion/storage/status",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyHasKeys": ["storage"],
+        "bodyPaths": {
+          "storage.writable": true,
+          "storage.schemaVersion": 1
+        }
+      }
+    },
+    {
+      "id": "m9-companion-vector-status",
+      "title": "Companion 向量状态占位",
+      "purpose": "确认 MVP 暂不启用 LanceDB，但返回明确 namespace 与 reason。",
+      "method": "GET",
+      "path": "/api/companion/vector/status",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyHasKeys": ["vector"],
+        "bodyPaths": {
+          "vector.enabled": false,
+          "vector.namespace": "string"
+        }
+      }
+    },
+    {
+      "id": "m9-companion-create-session",
+      "title": "创建 Companion 会话",
+      "purpose": "确认 POST /api/companion/sessions 创建独立纯聊天会话，不复用 Agent session。",
+      "method": "POST",
+      "path": "/api/companion/sessions",
+      "input": { "title": "Companion 测试会话" },
+      "expect": {
+        "status": 200,
+        "bodyHasKeys": ["session", "storage"],
+        "bodyPaths": {
+          "session.id": "string",
+          "session.title": "Companion 测试会话"
+        }
+      }
+    },
+    {
+      "id": "m9-companion-list-sessions",
+      "title": "列出 Companion 会话",
+      "purpose": "确认 GET /api/companion/sessions 返回 sessions 数组。",
+      "method": "GET",
+      "path": "/api/companion/sessions",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyHasKeys": ["sessions", "storage"],
+        "bodyPaths": { "sessions": "array" }
+      }
+    },
+    {
+      "id": "m9-companion-empty-message",
+      "title": "空消息被拒绝",
+      "purpose": "确认 Companion chat 拒绝空 message，避免创建空会话和空记录。",
+      "method": "POST",
+      "path": "/api/companion/chat",
+      "input": { "message": "" },
+      "expect": {
+        "status": 400,
+        "bodyHasKeys": ["error"]
+      }
+    },
+    {
+      "id": "m9-companion-missing-messages",
+      "title": "不存在的 Companion 会话消息返回 404",
+      "purpose": "确认读取不存在会话的消息时返回明确 404。",
+      "method": "GET",
+      "path": "/api/companion/sessions/not-found/messages",
+      "input": null,
+      "expect": {
+        "status": 404,
+        "bodyHasKeys": ["error", "sessionId"]
+      }
+    },
+    {
+      "id": "m9-companion-chat-incognito",
+      "title": "隐身纯聊天",
+      "purpose": "人工模型验收：incognito=true 时返回内容但不落长期会话记录。",
+      "method": "POST",
+      "path": "/api/companion/chat",
+      "input": { "message": "今天有点累，陪我说两句。", "incognito": true },
+      "expect": {
+        "status": 200,
+        "bodyHasKeys": ["content", "storage", "safety"],
+        "bodyPaths": {
+          "content": "string",
+          "safety.realityAnchored": true
+        }
+      }
+    },
+    {
+      "id": "m9-companion-chat-unrestricted-output-mode",
+      "title": "无限制输出模式",
+      "purpose": "人工模型验收：outputMode=unrestricted 时进入无限制输出测试模式，回复正常写入存储并标记模式。",
+      "method": "POST",
+      "path": "/api/companion/chat",
+      "input": { "message": "只用一句自然的话回应我：好。", "incognito": true, "outputMode": "unrestricted" },
+      "expect": {
+        "status": 200,
+        "bodyHasKeys": ["content", "safety"],
+        "bodyPaths": {
+          "content": "string",
+          "safety.outputMode": "unrestricted"
+        }
+      }
+    },
+    {
+      "id": "m9-companion-chat-bounded-output-mode",
+      "title": "默认边界输出模式",
+      "purpose": "确认未显式指定 outputMode 时仍使用 bounded，避免默认行为退化。",
+      "method": "POST",
+      "path": "/api/companion/chat",
+      "input": { "message": "今天有点累，陪我说两句。", "incognito": true },
+      "expect": {
+        "status": 200,
+        "bodyHasKeys": ["content", "safety"],
+        "bodyPaths": {
+          "content": "string",
+          "safety.outputMode": "bounded"
+        }
+      }
+    }
+  ]
+}

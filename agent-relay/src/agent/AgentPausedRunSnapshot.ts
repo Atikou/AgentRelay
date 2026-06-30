@@ -126,6 +126,7 @@ export interface CreateJitPermissionRequestInput {
   step: AgentToolStep;
   runId: string;
   sessionId?: string;
+  projectId?: string;
   intent: AgentIntentType;
   executionStage: AgentExecutionStage;
   planVariant?: PlanExecutionVariant;
@@ -140,6 +141,7 @@ export function createJitPermissionRequestFromStep(
   return input.permissionRequestStore.create({
     runId: input.runId,
     sessionId: input.sessionId,
+    projectId: input.projectId,
     title: confirmation.title,
     summary: confirmation.message,
     requiredPermissions,

@@ -276,8 +276,17 @@ export function resolveToolOutcome(tool: string, output: unknown): ToolOutcome {
     const scanned = typeof record.scannedFiles === "number" ? record.scannedFiles : 0;
     const importantFiles = Array.isArray(record.importantFiles) ? record.importantFiles : [];
     const sourceRoots = Array.isArray(record.sourceRoots) ? record.sourceRoots : [];
+    const configFiles = Array.isArray(record.configFiles) ? record.configFiles : [];
+    const scripts = asRecord(record.scripts);
+    const projectType = typeof record.projectType === "string" ? record.projectType : "unknown";
     const root = typeof record.root === "string" ? record.root : ".";
-    if (scanned === 0 && importantFiles.length === 0 && sourceRoots.length === 0) {
+    const hasProjectSignals =
+      projectType !== "unknown" ||
+      importantFiles.length > 0 ||
+      sourceRoots.length > 0 ||
+      configFiles.length > 0 ||
+      Object.keys(scripts ?? {}).length > 0;
+    if (!hasProjectSignals) {
       return observationFailure("no_project_info", `未扫描到有效项目信息（root=${root}）`, {
         path: root,
         suggestedNextActions: [

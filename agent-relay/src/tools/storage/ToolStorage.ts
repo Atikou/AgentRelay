@@ -19,6 +19,11 @@ export interface FileChangeRecord {
   sessionId?: string;
   toolName: string;
   path: string;
+  workspaceRoot?: string;
+  normalizedPath?: string;
+  workspaceScopeId?: string;
+  grantId?: string;
+  workspaceAccess?: Record<string, unknown>;
   beforeHash?: string;
   afterHash?: string;
   backupPath?: string;
@@ -143,14 +148,20 @@ export class ToolStorage {
     this.db
       .prepare(
         `INSERT INTO file_changes
-         (id, session_id, tool_name, path, before_hash, after_hash, backup_path, diff, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         (id, session_id, tool_name, path, workspace_root, normalized_path, workspace_scope_id, grant_id,
+          workspace_access_json, before_hash, after_hash, backup_path, diff, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         record.id,
         record.sessionId ?? null,
         record.toolName,
         record.path,
+        record.workspaceRoot ?? null,
+        record.normalizedPath ?? null,
+        record.workspaceScopeId ?? null,
+        record.grantId ?? null,
+        stringifyJson(record.workspaceAccess),
         record.beforeHash ?? null,
         record.afterHash ?? null,
         record.backupPath ?? null,
@@ -185,7 +196,8 @@ export class ToolStorage {
   getFileChange(changeId: string): FileChangeRecord | null {
     const row = this.db
       .prepare(
-        `SELECT id, session_id, tool_name, path, before_hash, after_hash, backup_path, diff, created_at
+        `SELECT id, session_id, tool_name, path, workspace_root, normalized_path, workspace_scope_id, grant_id,
+                workspace_access_json, before_hash, after_hash, backup_path, diff, created_at
          FROM file_changes WHERE id = ?`,
       )
       .get(changeId) as
@@ -194,6 +206,11 @@ export class ToolStorage {
           session_id: string | null;
           tool_name: string;
           path: string;
+          workspace_root: string | null;
+          normalized_path: string | null;
+          workspace_scope_id: string | null;
+          grant_id: string | null;
+          workspace_access_json: string | null;
           before_hash: string | null;
           after_hash: string | null;
           backup_path: string | null;
@@ -207,6 +224,11 @@ export class ToolStorage {
       sessionId: row.session_id ?? undefined,
       toolName: row.tool_name,
       path: row.path,
+      workspaceRoot: row.workspace_root ?? undefined,
+      normalizedPath: row.normalized_path ?? undefined,
+      workspaceScopeId: row.workspace_scope_id ?? undefined,
+      grantId: row.grant_id ?? undefined,
+      workspaceAccess: parseJsonRecord(row.workspace_access_json),
       beforeHash: row.before_hash ?? undefined,
       afterHash: row.after_hash ?? undefined,
       backupPath: row.backup_path ?? undefined,
@@ -277,5 +299,26 @@ export class ToolStorage {
   async writeBackupContent(backupPath: string, content: string): Promise<void> {
     await mkdir(path.dirname(backupPath), { recursive: true });
     await writeFile(backupPath, content, "utf-8");
+  }
+}
+
+function stringifyJson(value: Record<string, unknown> | undefined): string | null {
+  if (!value) return null;
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return null;
+  }
+}
+
+function parseJsonRecord(value: string | null): Record<string, unknown> | undefined {
+  if (!value) return undefined;
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : undefined;
+  } catch {
+    return undefined;
   }
 }

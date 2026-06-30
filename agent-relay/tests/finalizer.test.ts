@@ -71,8 +71,9 @@ test("Finalizer.buildPartialAnswer 含建议工具次数与待继续步骤", () 
     goal: "只读分析当前项目结构",
   });
   assert.match(answer, /建议工具调用次数/);
-  assert.match(answer, /待继续：project_scan/);
-  assert.match(answer, /model_final_answer/);
+  assert.match(answer, /### 未完成/);
+  assert.match(answer, /- project_scan/);
+  assert.match(answer, /模型尚未输出 final 结论/);
 });
 
 test("Finalizer.buildBudgetExhaustedMeta 返回 completedSteps 与 suggestedToolCalls", () => {

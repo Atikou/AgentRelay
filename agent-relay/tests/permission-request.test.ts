@@ -15,6 +15,8 @@ import { isToolCallGranted, isCommandApproved } from "../src/policy/scopedPermis
 import { evaluatePermissionGuard } from "../src/policy/PermissionGuard.js";
 import { PausedRunStore } from "../src/agent/PausedRunStore.js";
 import { findBlockingAgentPause } from "../src/policy/permissionPauseGate.js";
+import { WorkspaceGrantStore } from "../src/policy/WorkspaceScopeManager.js";
+import { handlePermissionRequestRespond } from "../src/server/handlers/permission.handlers.js";
 
 const tests: Array<{ name: string; fn: () => void }> = [];
 function test(name: string, fn: () => void) {
@@ -52,6 +54,66 @@ test("PermissionRequestStore respond allow_session", () => {
   const responded = store.respond(created.id, { decision: "allow_session" });
   assert.equal(responded?.status, "approved");
   assert.deepEqual(responded?.approvedPermissions?.write_file, ["README.md"]);
+});
+
+function makePermissionApp(permissionRequestStore: PermissionRequestStore, workspaceGrantStore: WorkspaceGrantStore) {
+  return {
+    permissionRequestStore,
+    workspaceGrantStore,
+    sessionPermissionGrants: new SessionPermissionGrants(),
+    runs: { update() {} },
+    pausedRunStore: new PausedRunStore(),
+  } as unknown as Parameters<typeof handlePermissionRequestRespond>[0];
+}
+
+test("allow_project without projectId returns 400 and does not create grant", () => {
+  const permissionRequestStore = new PermissionRequestStore();
+  const workspaceGrantStore = new WorkspaceGrantStore();
+  const request = permissionRequestStore.create({
+    runId: "run-project-missing",
+    sessionId: "sess-project-missing",
+    title: "跨工作区写入",
+    summary: "需要项目级授权",
+    requiredPermissions: [
+      { type: "write_file", target: "C:/tmp/project-a/**", rootPath: "C:/tmp/project-a", reason: "test" },
+    ],
+  });
+  const result = handlePermissionRequestRespond(
+    makePermissionApp(permissionRequestStore, workspaceGrantStore),
+    request.id,
+    { decision: "allow_project" },
+  );
+  assert.equal(result.status, 400);
+  assert.equal(workspaceGrantStore.list({ includeExpired: true }).length, 0);
+});
+
+test("allow_project grant is visible only to the matching projectId", () => {
+  const rootPath = tempDataDir();
+  const permissionRequestStore = new PermissionRequestStore();
+  const workspaceGrantStore = new WorkspaceGrantStore();
+  try {
+    const request = permissionRequestStore.create({
+      runId: "run-project-ok",
+      sessionId: "sess-project-ok",
+      projectId: "project-a",
+      title: "跨工作区写入",
+      summary: "需要项目级授权",
+      requiredPermissions: [
+        { type: "write_file", target: `${rootPath}/**`, rootPath, reason: "test", operation: "write" },
+      ],
+    });
+    const result = handlePermissionRequestRespond(
+      makePermissionApp(permissionRequestStore, workspaceGrantStore),
+      request.id,
+      { decision: "allow_project" },
+    );
+    assert.equal(result.status, 200);
+    assert.equal(workspaceGrantStore.list({ projectId: "project-a" }).length, 1);
+    assert.equal(workspaceGrantStore.list({ projectId: "project-b" }).length, 0);
+    assert.equal(workspaceGrantStore.list().length, 0);
+  } finally {
+    removeTempDir(rootPath);
+  }
 });
 
 test("PermissionRequestStore 持久化后可跨实例读取和流转状态", () => {

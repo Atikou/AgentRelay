@@ -14,6 +14,7 @@ import {
 } from "../config/workspaceCatalog.js";
 import type { AppConfig } from "../config/types.js";
 import { ContextManager } from "../context/index.js";
+import { CompanionService } from "../companion/CompanionService.js";
 import { createModelClient } from "../model/ModelFactory.js";
 import { MetricsRegistry } from "../model/MetricsRegistry.js";
 import { createDirectChatFn, type ClientPricing } from "../model/directChat.js";
@@ -123,6 +124,7 @@ export class AppContext {
   readonly planner: Planner;
   readonly registry: ReturnType<typeof createDefaultRegistry>;
   readonly contextManager: ContextManager;
+  readonly companionService: CompanionService;
   readonly runs: RunStore;
   readonly runStateStore: RunStateStore;
   readonly projectIndex: ProjectIndex;
@@ -171,6 +173,7 @@ export class AppContext {
     planner: Planner;
     registry: ReturnType<typeof createDefaultRegistry>;
     contextManager: ContextManager;
+    companionService: CompanionService;
     runs: RunStore;
     runStateStore: RunStateStore;
     projectIndex: ProjectIndex;
@@ -219,6 +222,7 @@ export class AppContext {
     this.planner = opts.planner;
     this.registry = opts.registry;
     this.contextManager = opts.contextManager;
+    this.companionService = opts.companionService;
     this.runs = opts.runs;
     this.runStateStore = opts.runStateStore;
     this.projectIndex = opts.projectIndex;
@@ -454,6 +458,7 @@ export class AppContext {
     await this.trace.close();
     this.trace.getIndexStore()?.close();
     this.registry.close();
+    this.companionService.close();
     this.contextManager.db.close();
   }
 
@@ -578,6 +583,7 @@ export function createAppContext(): AppContext {
 
   const registry = createDefaultRegistry({ trace, dataDir, shellPolicy, networkPolicy });
   const contextManager = new ContextManager({ dataDir, useLanceDb: true });
+  const companionService = new CompanionService({ projectRoot, directChat });
   const runs = new RunStore(contextManager.db);
   const runStateStore = new RunStateStore(contextManager.db);
   const permissionRequestStore = new PermissionRequestStore(contextManager.db.connection);
@@ -823,6 +829,7 @@ export function createAppContext(): AppContext {
     planner,
     registry,
     contextManager,
+    companionService,
     runs,
     runStateStore,
     projectIndex,

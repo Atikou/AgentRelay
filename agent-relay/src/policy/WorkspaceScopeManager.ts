@@ -97,8 +97,9 @@ export class WorkspaceGrantStore {
         if (filter.sessionId && grant.sessionId && grant.sessionId !== filter.sessionId) return false;
         if (filter.sessionId && !grant.sessionId) return false;
       }
-      if (grant.scope === "project" && filter.projectId && grant.projectId && grant.projectId !== filter.projectId) {
-        return false;
+      if (grant.scope === "project") {
+        if (!filter.projectId) return false;
+        if (grant.projectId !== filter.projectId) return false;
       }
       return true;
     };
@@ -115,8 +116,10 @@ export class WorkspaceGrantStore {
       args.push(filter.sessionId);
     }
     if (filter.projectId) {
-      where.push("(project_id IS NULL OR project_id = ? OR scope != 'project')");
+      where.push("(scope != 'project' OR project_id = ?)");
       args.push(filter.projectId);
+    } else {
+      where.push("scope != 'project'");
     }
     const rows = this.db
       .prepare(
@@ -129,6 +132,9 @@ export class WorkspaceGrantStore {
   }
 
   add(input: WorkspaceGrantInput): WorkspaceGrant {
+    if (input.scope === "project" && !input.projectId) {
+      throw new Error("project workspace grant requires projectId");
+    }
     const now = new Date().toISOString();
     const grant: WorkspaceGrant = {
       id: input.id ?? randomUUID(),

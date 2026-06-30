@@ -6,6 +6,7 @@ data/notifications/
 data/scheduler/
 data/agent_data/
 data/*.db
+.agentrelay/
 *.local
 .env
 .env.*

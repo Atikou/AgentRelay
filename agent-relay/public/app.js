@@ -3958,6 +3958,249 @@ function downloadJson(filename, data) {
   URL.revokeObjectURL(url);
 }
 
+async function handleCompanion() {
+  clearWelcome();
+  const panel = document.createElement("div");
+  panel.className = "test-panel companion-panel";
+  panel.innerHTML = `
+    <div class="test-panel-head">
+      <div>
+        <h2>纯聊天 Companion</h2>
+        <p>零工具、零权限的虚拟人格聊天。这里不会调用 AgentLoop，也不会执行文件或命令。</p>
+      </div>
+      <button class="action-btn secondary companion-refresh">刷新</button>
+    </div>
+    <div class="tool-row">
+      <label class="field"><span>模型</span><select class="companion-model"><option value="__default__">自动（默认）</option></select></label>
+      <label class="field"><span>人格</span><input class="system-input companion-persona" value="default" /></label>
+      <label class="field"><span>输出</span><select class="companion-output-mode"><option value="bounded">正常模式</option><option value="unrestricted">无限制模式</option></select></label>
+      <label class="field"><span>storageRoot</span><input class="system-input companion-storage-root" placeholder=".agentrelay/companion" /></label>
+      <label class="field sensitive-field"><input type="checkbox" class="companion-incognito" /><span>隐身</span></label>
+      <label class="field sensitive-field"><input type="checkbox" class="companion-stream" checked /><span>流式</span></label>
+    </div>
+    <div class="tool-row">
+      <select class="companion-sessions" title="Companion 会话"></select>
+      <button class="action-btn secondary companion-new">新建会话</button>
+      <button class="action-btn secondary companion-load">加载会话</button>
+      <button class="action-btn secondary companion-summary">生成摘要</button>
+      <button class="action-btn secondary companion-vector">向量状态</button>
+    </div>
+    <div class="companion-status muted">读取存储状态中…</div>
+    <div class="companion-chat-log"></div>
+    <div class="tool-row">
+      <textarea class="system-input companion-input" rows="3" placeholder="只聊天：可以倾诉、闲聊、让它陪你把情绪理顺。"></textarea>
+      <button class="action-btn companion-send">发送</button>
+    </div>
+    <pre class="tool-result companion-raw" style="display:none"></pre>
+  `;
+  addMessage("system", panel);
+
+  const model = panel.querySelector(".companion-model");
+  const persona = panel.querySelector(".companion-persona");
+  const outputMode = panel.querySelector(".companion-output-mode");
+  const rootInput = panel.querySelector(".companion-storage-root");
+  const incognito = panel.querySelector(".companion-incognito");
+  const stream = panel.querySelector(".companion-stream");
+  const sessions = panel.querySelector(".companion-sessions");
+  const status = panel.querySelector(".companion-status");
+  const log = panel.querySelector(".companion-chat-log");
+  const input = panel.querySelector(".companion-input");
+  const raw = panel.querySelector(".companion-raw");
+  let activeCompanionSessionId;
+
+  function selectedStorageRoot() {
+    return rootInput.value.trim() || undefined;
+  }
+
+  function selectedClientName() {
+    return model.value && model.value !== "__default__" ? model.value : undefined;
+  }
+
+  function appendCompanionMessage(role, text, meta) {
+    const row = document.createElement("div");
+    row.className = `msg ${role === "assistant" ? "assistant" : "user"}`;
+    const bubble = document.createElement("div");
+    bubble.className = "bubble";
+    const content = document.createElement("div");
+    content.className = "companion-message-content";
+    content.textContent = text || "";
+    bubble.appendChild(content);
+    if (meta) {
+      const metaEl = document.createElement("small");
+      metaEl.className = "muted companion-message-meta";
+      metaEl.textContent = meta;
+      bubble.appendChild(metaEl);
+    }
+    row.appendChild(bubble);
+    log.appendChild(row);
+    log.scrollTop = log.scrollHeight;
+    return row;
+  }
+
+  function updateCompanionMessage(row, text, meta) {
+    const content = row.querySelector(".companion-message-content");
+    if (content) content.textContent = text || "";
+    if (meta !== undefined) {
+      let metaEl = row.querySelector(".companion-message-meta");
+      if (!metaEl) {
+        metaEl = document.createElement("small");
+        metaEl.className = "muted companion-message-meta";
+        row.querySelector(".bubble")?.appendChild(metaEl);
+      }
+      metaEl.textContent = meta;
+    }
+  }
+
+  async function loadCompanionSessions() {
+    const qs = selectedStorageRoot() ? `?storageRoot=${encodeURIComponent(selectedStorageRoot())}` : "";
+    const data = await api(`/api/companion/sessions${qs}`);
+    status.textContent = `存储：${data.storage.storageRoot} · schema v${data.storage.schemaVersion}`;
+    sessions.innerHTML = (data.sessions || [])
+      .map((s) => `<option value="${escapeHtml(s.id)}">${escapeHtml(s.title || s.id)} · ${escapeHtml(s.id.slice(0, 8))}</option>`)
+      .join("");
+    if (!activeCompanionSessionId && data.sessions?.[0]) activeCompanionSessionId = data.sessions[0].id;
+    if (activeCompanionSessionId) sessions.value = activeCompanionSessionId;
+    return data;
+  }
+
+  async function loadCompanionMessages() {
+    const id = sessions.value || activeCompanionSessionId;
+    if (!id) return;
+    const params = new URLSearchParams();
+    if (selectedStorageRoot()) params.set("storageRoot", selectedStorageRoot());
+    const data = await api(`/api/companion/sessions/${encodeURIComponent(id)}/messages?${params.toString()}`);
+    activeCompanionSessionId = data.session.id;
+    log.innerHTML = "";
+    for (const m of data.messages || []) appendCompanionMessage(m.role, m.content, m.status);
+    raw.style.display = "block";
+    raw.textContent = JSON.stringify({ summaries: data.summaries || [], storage: data.storage }, null, 2);
+  }
+
+  async function createCompanionSession() {
+    const data = await api("/api/companion/sessions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        title: "纯聊天会话",
+        storageRoot: selectedStorageRoot(),
+        personaId: persona.value.trim() || "default",
+      }),
+    });
+    activeCompanionSessionId = data.session.id;
+    await loadCompanionSessions();
+    await loadCompanionMessages();
+  }
+
+  async function sendCompanion() {
+    const message = input.value.trim();
+    if (!message) return;
+    input.value = "";
+    appendCompanionMessage("user", message);
+    const assistantRow = appendCompanionMessage("assistant", "…", "生成中");
+    const body = {
+      message,
+      sessionId: incognito.checked ? undefined : activeCompanionSessionId,
+      clientName: selectedClientName(),
+      storageRoot: selectedStorageRoot(),
+      personaId: persona.value.trim() || "default",
+      incognito: incognito.checked,
+      outputMode: outputMode.value || "bounded",
+    };
+    if (!stream.checked) {
+      const data = await api("/api/companion/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      updateCompanionMessage(
+        assistantRow,
+        data.content,
+        `mode=${data.safety.outputMode || body.outputMode} · risk=${data.safety.attachmentRisk} · anchored=${data.safety.realityAnchored}`,
+      );
+      activeCompanionSessionId = data.session?.id || activeCompanionSessionId;
+      await loadCompanionSessions();
+      return;
+    }
+    const res = await fetch("/api/companion/chat/stream", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok || !res.body) throw new Error(`请求失败：${res.status}`);
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    let content = "";
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const blocks = buffer.split("\n\n");
+      buffer = blocks.pop() || "";
+      for (const block of blocks) {
+        const event = parseSseBlock(block);
+        if (!event) continue;
+        if (event.type === "token") {
+          content += event.data.delta || "";
+          updateCompanionMessage(assistantRow, content);
+        }
+        if (event.type === "done") {
+          content = event.data.content || content;
+          updateCompanionMessage(
+            assistantRow,
+            content,
+            `mode=${event.data.safety?.outputMode || body.outputMode} · risk=${event.data.safety?.attachmentRisk || "-"} · anchored=${event.data.safety?.realityAnchored ? "yes" : "no"}`,
+          );
+          activeCompanionSessionId = event.data.session?.id || activeCompanionSessionId;
+        }
+        if (event.type === "error") {
+          throw new Error(event.data.error || "Companion 流式失败");
+        }
+      }
+    }
+    await loadCompanionSessions();
+  }
+
+  panel.querySelector(".companion-refresh").addEventListener("click", () => void loadCompanionSessions());
+  panel.querySelector(".companion-new").addEventListener("click", () => void createCompanionSession());
+  panel.querySelector(".companion-load").addEventListener("click", () => void loadCompanionMessages());
+  panel.querySelector(".companion-summary").addEventListener("click", async () => {
+    const id = sessions.value || activeCompanionSessionId;
+    if (!id) return;
+    const data = await api(`/api/companion/sessions/${encodeURIComponent(id)}/summarize`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ storageRoot: selectedStorageRoot(), force: true, outputMode: outputMode.value || "bounded" }),
+    });
+    raw.style.display = "block";
+    raw.textContent = JSON.stringify(data, null, 2);
+  });
+  panel.querySelector(".companion-vector").addEventListener("click", async () => {
+    const qs = selectedStorageRoot() ? `?storageRoot=${encodeURIComponent(selectedStorageRoot())}` : "";
+    const data = await api(`/api/companion/vector/status${qs}`);
+    raw.style.display = "block";
+    raw.textContent = JSON.stringify(data, null, 2);
+  });
+  panel.querySelector(".companion-send").addEventListener("click", () => {
+    void sendCompanion().catch((err) => addSystemError(String(err.message || err)));
+  });
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      panel.querySelector(".companion-send").click();
+    }
+  });
+
+  if (appConfig?.clients?.length) {
+    model.innerHTML = '<option value="__default__">自动（默认）</option>' +
+      appConfig.clients
+        .filter((c) => c.availability?.available !== false)
+        .map((c) => `<option value="${escapeHtml(c.name)}">${escapeHtml(c.name)} · ${escapeHtml(c.model || "")}</option>`)
+        .join("");
+  }
+  await loadCompanionSessions();
+}
+
 async function handleSecurity() {
   clearWelcome();
   const panel = document.createElement("div");
@@ -4498,6 +4741,8 @@ document.querySelector(".sidebar").addEventListener("click", async (e) => {
     await handleSecurity();
   } else if (action === "storage") {
     await handleStorage();
+  } else if (action === "companion") {
+    await handleCompanion();
   } else if (action === "scheduler") {
     await handleScheduler();
   } else if (action === "plan-workflow") {

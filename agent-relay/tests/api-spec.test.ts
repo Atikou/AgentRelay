@@ -11,6 +11,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const specPath = path.join(__dirname, "../public/api-spec.json");
 const apiDocsHtml = path.join(__dirname, "../public/api-docs.html");
 const scalarJs = path.join(__dirname, "../public/vendor/scalar-api-reference.js");
+const httpServerPath = path.join(__dirname, "../src/server/createHttpServer.ts");
 
 import { HTTP_ROUTE_PATHS } from "../src/server/httpRouteRegistry.js";
 
@@ -51,6 +52,16 @@ test("动态路径含 path 参数", async () => {
   assert.ok(spec.paths["/api/background/{taskId}"]);
   assert.ok(spec.paths["/api/scheduler/triggers/{triggerId}/pause"]);
   assert.ok(spec.paths["/api/context/sessions/{sessionId}/restore"]);
+});
+
+test("HTTP handler literal API routes are registered in RouteRegistry", async () => {
+  const source = await readFile(httpServerPath, "utf-8");
+  const literalRoutes = [...source.matchAll(/pathname === "([^"]*\/api\/[^"]*)"/g)]
+    .map((match) => match[1]!)
+    .filter((route) => route.startsWith("/api/"));
+  const registered = new Set<string>(HTTP_ROUTE_PATHS);
+  const missing = [...new Set(literalRoutes)].filter((route) => !registered.has(route));
+  assert.deepEqual(missing, []);
 });
 
 test("Agent API 规范登记 permissionPolicy", async () => {

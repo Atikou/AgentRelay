@@ -16,6 +16,7 @@ export interface ToolStepExecutorOptions {
   workspaceRoot: string;
   taskId?: string;
   sessionId?: string;
+  projectId?: string;
   requestId?: string;
   allowedPermissions?: ToolPermission[];
   projectAllowedPermissions?: ToolPermission[];
@@ -68,6 +69,7 @@ export class ToolStepExecutor implements StepExecutor {
       source: "task_runner",
       budgetBucket: this.options.budgetBucket ?? "main",
       workspaceRoot: this.options.workspaceRoot,
+      projectId: this.options.projectId,
       taskId: this.options.taskId,
       sessionId: this.options.sessionId,
       requestId: this.options.requestId,

@@ -195,6 +195,7 @@ export interface AgentLoopOptions {
   contextManager?: ContextManager;
   /** M6：已有会话 id；未提供时自动创建。 */
   sessionId?: string;
+  projectId?: string;
   /** 编排 Run id，写入 trace 与工具审计。 */
   runId?: string;
   taskId?: string;
@@ -332,6 +333,7 @@ export class AgentLoop {
     });
     return policy.prepareTool(action.tool, (action.input ?? {}) as Record<string, unknown>, {
       sessionId: this.options.sessionId,
+      projectId: this.options.projectId,
       taskId: this.options.taskId,
       scopedGrants: this.resolveScopedGrants(),
     });
@@ -833,6 +835,7 @@ export class AgentLoop {
       timeline: this.options.timeline,
       runId: this.options.runId,
       sessionId: this.options.sessionId,
+      projectId: this.options.projectId,
       taskId: this.options.taskId,
       requestId: this.options.requestId,
       trace: this.options.trace,
@@ -1180,6 +1183,7 @@ export class AgentLoop {
       step,
       runId: this.options.runId ?? "unknown-run",
       sessionId: this.options.sessionId,
+      projectId: this.options.projectId,
       intent: this.getEffectiveIntent(),
       executionStage: this.policy.executionStage,
       planVariant: this.policy.planVariant,

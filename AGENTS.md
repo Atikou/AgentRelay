@@ -47,6 +47,7 @@ plan/             三类计划、PlanService、编译/审批/执行
 policy/           PermissionGuard、PlanHandoff、PermissionRequest、Shell/Network
 tools/            ToolRegistry、沙箱、ToolStorage
 context/          ContextManager、ProjectIndex、记忆与向量检索
+companion/        纯聊天人格层（零工具、零权限、独立 companion.db）
 server/handlers/  HTTP 路由（扁平表，无 Express）
 trace/            JSONL 审计
 lifecycle/        存储用量、清理 preview/apply
@@ -70,6 +71,7 @@ subagent/         dispatch_subagent 后端
 ### 2. 分层边界
 
 - `model/` 只做厂商对话，不含任务/工具编排
+- `companion/` 是纯聊天旁路模块，不接 `AgentLoop`、`ToolRegistry`、`PermissionGuard`
 - 导入路径带 `.js` 后缀（NodeNext ESM），`strict` + `noUncheckedIndexedAccess`
 - 远程 API Key 仅环境变量 `apiKeyEnv`，**禁止**写入配置或提交仓库
 
@@ -79,7 +81,7 @@ subagent/         dispatch_subagent 后端
 
 ### 4. SQLite 迁移
 
-`memory.db` / `tools.db` 变更必须走 `src/storage/sqliteMigration.ts` 递增版本（当前 memory v17）。禁止无版本记录的散落 `CREATE TABLE`。
+`memory.db` / `tools.db` 变更必须走 `src/storage/sqliteMigration.ts` 递增版本（当前 memory v24）。禁止无版本记录的散落 `CREATE TABLE`。
 
 ### 5. 测试双轨
 

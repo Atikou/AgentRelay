@@ -160,6 +160,55 @@ test("ToolExecutionGateway：未授权外部读被阻断，授权 scope 后可�
   assert.equal((allowed.output as { content?: string }).content, "shared-lib");
 });
 
+test("rollback_change restores the original external workspace root without polluting primary", async () => {
+  const { primary, external, externalFile } = await makeSandboxes();
+  await fs.writeFile(externalFile, "original", "utf-8");
+  const dataDir = path.join(path.dirname(primary), "data");
+  const registry = createDefaultRegistry({ dataDir });
+  const gateway = new ToolExecutionGateway(registry);
+  const scopedGrants = { write_file: [`${external}/**`] };
+
+  try {
+    const write = await gateway.run({
+      toolName: "write_file",
+      input: { path: externalFile, content: "dirty", backup: true },
+      source: "manual",
+      budgetBucket: "manual",
+      workspaceRoot: primary,
+      allowedPermissions: ["read", "write"],
+      intent: "edit",
+      permissionPolicy: "autoEdit",
+      scopedGrants,
+      skipBudgetCheck: true,
+    });
+    assert.equal(write.ok, true);
+    const changeId = (write.output as { changeId?: string }).changeId;
+    assert.equal(typeof changeId, "string");
+    assert.equal(await fs.readFile(externalFile, "utf-8"), "dirty");
+    const recorded = registry.getStorage()?.getFileChange(changeId!);
+    assert.equal(recorded?.workspaceRoot, external);
+    assert.equal(recorded?.path, "shared.txt");
+
+    const rollback = await gateway.run({
+      toolName: "rollback_change",
+      input: { changeId },
+      source: "manual",
+      budgetBucket: "manual",
+      workspaceRoot: primary,
+      allowedPermissions: ["read", "write"],
+      intent: "edit",
+      permissionPolicy: "autoEdit",
+      scopedGrants,
+      skipBudgetCheck: true,
+    });
+    assert.equal(rollback.ok, true);
+    assert.equal(await fs.readFile(externalFile, "utf-8"), "original");
+    await assert.rejects(fs.readFile(path.join(primary, "shared.txt"), "utf-8"), /ENOENT/);
+  } finally {
+    registry.close();
+  }
+});
+
 test("context_pack：敏感文件只记录 redactedFiles，不把内容放入上下文包", async () => {
   const { primary } = await makeSandboxes();
   await fs.writeFile(path.join(primary, ".env"), "SECRET_TOKEN=abc", "utf-8");

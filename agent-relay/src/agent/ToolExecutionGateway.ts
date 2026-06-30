@@ -1,3 +1,5 @@
+import path from "node:path";
+
 import type { ToolPermission } from "../core/permissions.js";
 import { evaluatePermissionGuard } from "../policy/PermissionGuard.js";
 import type { ScopedApprovedPermissions } from "../policy/permissionRequestTypes.js";
@@ -35,6 +37,7 @@ export type BudgetBucket =
 
 export interface ToolExecutionContext {
   workspaceRoot: string;
+  projectId?: string;
   sessionId?: string;
   taskId?: string;
   requestId?: string;
@@ -98,6 +101,7 @@ export class ToolExecutionGateway {
   constructor(private readonly registry: ToolRegistry) {}
 
   evaluate(input: ToolExecutionEvaluateInput): ToolExecutionEvaluation {
+    const toolInput = this.prepareToolInput(input.toolName, input.input ?? {});
     const tool = this.registry.get(input.toolName);
     if (!tool) {
       return {
@@ -113,8 +117,9 @@ export class ToolExecutionGateway {
       grants: input.workspaceGrantStore,
       configScopes: input.workspaceConfigScopes,
     });
-    const pathAccess = pathPolicy.prepareTool(input.toolName, input.input ?? {}, {
+    const pathAccess = pathPolicy.prepareTool(input.toolName, toolInput, {
       sessionId: input.sessionId,
+      projectId: input.projectId,
       taskId: input.taskId,
       scopedGrants: input.scopedGrants,
     });
@@ -162,7 +167,7 @@ export class ToolExecutionGateway {
         permissionPolicy: input.permissionPolicy,
         toolName: tool.name,
         permission: tool.permission,
-        input: input.input ?? {},
+        input: toolInput,
         allowedPermissions: input.allowedPermissions,
         scopedGrants: input.scopedGrants,
         shellPolicy: input.shellPolicy,
@@ -217,7 +222,8 @@ export class ToolExecutionGateway {
   }
 
   async run(input: ToolExecutionRunInput): Promise<ToolRunResult> {
-    const evaluation = this.evaluate(input);
+    const toolInput = this.prepareToolInput(input.toolName, input.input ?? {});
+    const evaluation = this.evaluate({ ...input, input: toolInput });
     if (evaluation.blocked) {
       return blockedToolRunResult(input.toolName, evaluation);
     }
@@ -231,28 +237,30 @@ export class ToolExecutionGateway {
     }
 
     const pathAccess = evaluation.pathAccess;
-      return this.registry.run(input.toolName, pathAccess?.input ?? input.input ?? {}, {
-        workspaceRoot: pathAccess?.workspaceRoot ?? input.workspaceRoot,
+    return this.registry.run(input.toolName, pathAccess?.input ?? toolInput, {
+      workspaceRoot: pathAccess?.workspaceRoot ?? input.workspaceRoot,
       taskId: input.taskId,
       sessionId: input.sessionId,
       requestId: input.requestId,
       toolCallId: input.toolCallId,
-        signal: input.signal,
-        allowedPermissions: input.allowedPermissions,
-        workspaceAccess: pathAccess?.audit as unknown as Record<string, unknown> | undefined,
-        ...input.registryExtras,
-      });
+      signal: input.signal,
+      allowedPermissions: input.allowedPermissions,
+      workspaceAccess: pathAccess?.audit as unknown as Record<string, unknown> | undefined,
+      ...input.registryExtras,
+    });
   }
 
   /** AgentLoop 已通过 executeToolStep 完成门禁后，仅经网关调用 registry。 */
   async invokeRegistry(input: ToolExecutionRunInput): Promise<ToolRunResult> {
+    const toolInput = this.prepareToolInput(input.toolName, input.input ?? {});
     const pathPolicy = new PathPolicy({
       primaryRoot: input.workspaceRoot,
       grants: input.workspaceGrantStore,
       configScopes: input.workspaceConfigScopes,
     });
-    const pathAccess = pathPolicy.prepareTool(input.toolName, input.input ?? {}, {
+    const pathAccess = pathPolicy.prepareTool(input.toolName, toolInput, {
       sessionId: input.sessionId,
+      projectId: input.projectId,
       taskId: input.taskId,
       scopedGrants: input.scopedGrants,
     });
@@ -267,7 +275,7 @@ export class ToolExecutionGateway {
           : `路径策略拒绝访问：${pathAccess.decision.reason}`,
       });
     }
-    return this.registry.run(input.toolName, pathAccess?.input ?? input.input ?? {}, {
+    return this.registry.run(input.toolName, pathAccess?.input ?? toolInput, {
       workspaceRoot: pathAccess?.workspaceRoot ?? input.workspaceRoot,
       taskId: input.taskId,
       sessionId: input.sessionId,
@@ -278,6 +286,23 @@ export class ToolExecutionGateway {
       workspaceAccess: pathAccess?.audit as unknown as Record<string, unknown> | undefined,
       ...input.registryExtras,
     });
+  }
+
+  private prepareToolInput(toolName: string, input: Record<string, unknown>): Record<string, unknown> {
+    if (toolName !== "rollback_change") return input;
+    const changeId = input.changeId;
+    if (typeof changeId !== "string" || !changeId.trim()) return input;
+    const change = this.registry.getStorage()?.getFileChange(changeId);
+    if (!change) return input;
+    const rollbackPath =
+      change.normalizedPath ??
+      (change.workspaceRoot ? path.resolve(change.workspaceRoot, change.path) : change.path);
+    return {
+      ...input,
+      path: rollbackPath,
+      rollbackWorkspaceRoot: change.workspaceRoot,
+      rollbackNormalizedPath: change.normalizedPath,
+    };
   }
 }
 

@@ -100,6 +100,27 @@ test("测试台默认自动工作流入口与权限策略", async () => {
   assert.ok(js.includes("PERMISSION_POLICY_KEY"));
 });
 
+test("测试台提供纯聊天 Companion 入口", async () => {
+  const html = await readFile(path.join(publicDir, "index.html"), "utf-8");
+  const js = await readFile(path.join(publicDir, "app.js"), "utf-8");
+  assert.ok(html.includes('data-action="companion"'));
+  assert.ok(html.includes("纯聊天"));
+  assert.ok(js.includes("async function handleCompanion()"));
+  assert.ok(js.includes("/api/companion/chat"));
+  assert.ok(js.includes("/api/companion/sessions"));
+  assert.ok(js.includes("companion-output-mode"));
+  assert.ok(js.includes("outputMode"));
+  assert.ok(js.includes("unrestricted"));
+});
+
+test("Companion 消息更新不依赖脆弱 bubble 子元素选择器", async () => {
+  const js = await readFile(path.join(publicDir, "app.js"), "utf-8");
+  assert.ok(js.includes("companion-message-content"));
+  assert.ok(js.includes("companion-message-meta"));
+  assert.ok(js.includes("function updateCompanionMessage"));
+  assert.ok(!js.includes('querySelector(".bubble div").textContent'));
+});
+
 test("M1 自动工作流 UI 用例覆盖结构化面板紧凑显示", async () => {
   const raw = await readFile(path.join(publicDir, "test-cases/m1-auto-workflow-ui.json"), "utf-8");
   const page = JSON.parse(raw) as { cases: Array<{ id: string; purpose?: string }> };

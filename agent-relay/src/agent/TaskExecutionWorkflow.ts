@@ -27,6 +27,7 @@ export interface TaskExecutionWorkflowRunInput {
   permissionPolicy?: UserPermissionPolicy;
   taskId?: string;
   sessionId?: string;
+  projectId?: string;
   runId?: string;
   onUpdate?: (plan: Plan) => void;
   executor?: StepExecutor;
@@ -107,6 +108,7 @@ export class TaskExecutionWorkflow {
       workspaceRoot: this.options.workspaceRoot,
       taskId: input.taskId,
       sessionId: input.sessionId,
+      projectId: input.projectId,
       requestId: input.runId,
       projectAllowedPermissions: this.options.projectAllowedPermissions,
       requireToolBinding: input.requireToolBinding,

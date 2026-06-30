@@ -1,6 +1,7 @@
 import type { SqliteMigration } from "./sqliteMigration.js";
+import { addColumnIfMissing } from "./sqliteMigration.js";
 
-export const TOOLS_DB_SCHEMA_VERSION = 1;
+export const TOOLS_DB_SCHEMA_VERSION = 2;
 
 export const TOOLS_DB_MIGRATIONS: readonly SqliteMigration[] = [
   {
@@ -50,6 +51,17 @@ export const TOOLS_DB_MIGRATIONS: readonly SqliteMigration[] = [
           created_at TEXT NOT NULL
         );
       `);
+    },
+  },
+  {
+    version: 2,
+    name: "file_changes_workspace_access",
+    up(db) {
+      addColumnIfMissing(db, "file_changes", "workspace_root", "workspace_root TEXT");
+      addColumnIfMissing(db, "file_changes", "normalized_path", "normalized_path TEXT");
+      addColumnIfMissing(db, "file_changes", "workspace_scope_id", "workspace_scope_id TEXT");
+      addColumnIfMissing(db, "file_changes", "grant_id", "grant_id TEXT");
+      addColumnIfMissing(db, "file_changes", "workspace_access_json", "workspace_access_json TEXT");
     },
   },
 ];

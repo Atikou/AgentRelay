@@ -1,3 +1,5 @@
+import path from "node:path";
+
 import { MODE_PERMISSIONS } from "../core/permissions.js";
 import type { ToolRegistry } from "../tools/ToolRegistry.js";
 import type { ToolStorage } from "../tools/storage/ToolStorage.js";
@@ -38,12 +40,17 @@ export async function rollbackFileChangesForRun(opts: {
   const gateway = new ToolExecutionGateway(opts.registry);
 
   for (const changeId of [...changeIds].reverse()) {
+    const change = opts.storage.getFileChange(changeId);
+    const rollbackRoot = change?.workspaceRoot ?? opts.workspaceRoot;
+    const rollbackPath =
+      change?.normalizedPath ??
+      (change?.workspaceRoot ? path.resolve(change.workspaceRoot, change.path) : change?.path);
     const result = await gateway.run({
       toolName: "rollback_change",
-      input: { changeId },
+      input: rollbackPath ? { changeId, path: rollbackPath } : { changeId },
       source: "rollback",
       budgetBucket: "rollback",
-      workspaceRoot: opts.workspaceRoot,
+      workspaceRoot: rollbackRoot,
       sessionId: opts.sessionId,
       requestId: opts.runId,
       taskId: opts.taskId,

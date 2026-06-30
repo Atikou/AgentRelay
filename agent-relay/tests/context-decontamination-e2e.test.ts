@@ -11,6 +11,7 @@ import { randomUUID } from "node:crypto";
 import { AgentLoop } from "../src/agent/AgentLoop.js";
 import { resolveRunPolicy } from "../src/agent/RunPolicy.js";
 import { ContextManager } from "../src/context/ContextManager.js";
+import { MEMORY_DB_SCHEMA_VERSION } from "../src/context/memoryDbMigrations.js";
 import { backfillMessageEnvelopes } from "../src/context/messageEnvelopeBackfill.js";
 import { InMemoryVectorStore } from "../src/context/VectorStore.js";
 import { createDefaultRegistry } from "../src/tools/index.js";
@@ -105,7 +106,7 @@ test("backfill 将遗留 JSON final 标为 raw_model_final", async () => {
     vectorStore: new InMemoryVectorStore(),
   });
   try {
-    assert.equal(mgr.db.schemaVersion, 21);
+    assert.equal(mgr.db.schemaVersion, MEMORY_DB_SCHEMA_VERSION);
     const session = mgr.createSession("迁移测试");
     const msgId = randomUUID();
     mgr.db.connection

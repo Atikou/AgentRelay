@@ -107,6 +107,13 @@
       "order": 13
     },
     {
+      "featureId": "m9-companion",
+      "milestone": "M9",
+      "title": "纯聊天人格层",
+      "file": "m9-companion.json",
+      "order": 13.5
+    },
+    {
       "featureId": "m10-storage-lifecycle",
       "milestone": "M7",
       "title": "数据生命周期与清理",

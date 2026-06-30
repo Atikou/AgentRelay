@@ -18,6 +18,7 @@
     { "name": "配置与模型", "description": "Profile、路由策略与模型连通性" },
     { "name": "模型与指标", "description": "模型路由日志、能力矩阵、运行统计与离线评测" },
     { "name": "对话与智能体", "description": "单次对话与 ReAct 自主循环" },
+    { "name": "纯聊天", "description": "Companion 纯聊天人格层：零工具、零权限、独立存储" },
     { "name": "计划与任务", "description": "计划生成与任务状态机" },
     { "name": "工具", "description": "内置工具注册表与直接调用" },
     { "name": "后台与通知", "description": "M4 后台命令与通知队列" },
@@ -35,7 +36,7 @@
     },
     {
       "name": "Agent 能力",
-      "tags": ["对话与智能体", "计划与任务", "工具", "子 Agent"]
+      "tags": ["对话与智能体", "纯聊天", "计划与任务", "工具", "子 Agent"]
     },
     {
       "name": "编排与状态",
@@ -399,6 +400,130 @@
           },
           "400": { "$ref": "#/components/responses/BadRequest" },
           "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+    "/api/companion/chat": {
+      "post": {
+        "tags": ["纯聊天"],
+        "summary": "Companion 纯聊天",
+        "operationId": "companionChat",
+        "description": "零工具、零权限的虚拟人格聊天；每条消息即时保存到 companion.db，incognito=true 时不落长期记录。",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/CompanionChatRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "聊天回复", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CompanionChatResponse" } } } },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+    "/api/companion/chat/stream": {
+      "post": {
+        "tags": ["纯聊天"],
+        "summary": "Companion 纯聊天 SSE",
+        "operationId": "companionChatStream",
+        "description": "事件：run_start、token、done、error；assistant draft 会增量保存，完成后更新为 completed。",
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CompanionChatRequest" } } }
+        },
+        "responses": {
+          "200": { "description": "SSE 事件流", "content": { "text/event-stream": { "schema": { "type": "string" } } } },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+    "/api/companion/sessions": {
+      "get": {
+        "tags": ["纯聊天"],
+        "summary": "列出 Companion 会话",
+        "operationId": "listCompanionSessions",
+        "parameters": [{ "name": "storageRoot", "in": "query", "schema": { "type": "string" } }],
+        "responses": {
+          "200": { "description": "会话列表", "content": { "application/json": { "schema": { "type": "object", "additionalProperties": true } } } }
+        }
+      },
+      "post": {
+        "tags": ["纯聊天"],
+        "summary": "创建 Companion 会话",
+        "operationId": "createCompanionSession",
+        "requestBody": {
+          "content": { "application/json": { "schema": { "type": "object", "properties": { "title": { "type": "string" }, "storageRoot": { "type": "string" }, "personaId": { "type": "string" } } } } }
+        },
+        "responses": {
+          "200": { "description": "新会话", "content": { "application/json": { "schema": { "type": "object", "additionalProperties": true } } } }
+        }
+      }
+    },
+    "/api/companion/sessions/{sessionId}/messages": {
+      "get": {
+        "tags": ["纯聊天"],
+        "summary": "读取 Companion 会话消息",
+        "operationId": "listCompanionMessages",
+        "parameters": [
+          { "$ref": "#/components/parameters/sessionId" },
+          { "name": "storageRoot", "in": "query", "schema": { "type": "string" } },
+          { "name": "limit", "in": "query", "schema": { "type": "integer", "default": 100 } }
+        ],
+        "responses": {
+          "200": { "description": "消息列表", "content": { "application/json": { "schema": { "type": "object", "additionalProperties": true } } } },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+    "/api/companion/sessions/{sessionId}/summarize": {
+      "post": {
+        "tags": ["纯聊天"],
+        "summary": "手动触发 Companion 历史摘要",
+        "operationId": "summarizeCompanionSession",
+        "parameters": [{ "$ref": "#/components/parameters/sessionId" }],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "storageRoot": { "type": "string" },
+                  "force": { "type": "boolean" },
+                  "outputMode": { "type": "string", "enum": ["bounded", "unrestricted"] }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "摘要状态", "content": { "application/json": { "schema": { "type": "object", "additionalProperties": true } } } },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+    "/api/companion/storage/status": {
+      "get": {
+        "tags": ["纯聊天"],
+        "summary": "Companion 存储状态",
+        "operationId": "getCompanionStorageStatus",
+        "parameters": [{ "name": "storageRoot", "in": "query", "schema": { "type": "string" } }],
+        "responses": {
+          "200": { "description": "存储状态", "content": { "application/json": { "schema": { "type": "object", "additionalProperties": true } } } }
+        }
+      }
+    },
+    "/api/companion/vector/status": {
+      "get": {
+        "tags": ["纯聊天"],
+        "summary": "Companion 向量索引状态",
+        "operationId": "getCompanionVectorStatus",
+        "parameters": [{ "name": "storageRoot", "in": "query", "schema": { "type": "string" } }],
+        "responses": {
+          "200": { "description": "向量索引状态", "content": { "application/json": { "schema": { "type": "object", "additionalProperties": true } } } }
         }
       }
     },
@@ -1808,6 +1933,24 @@
         }
       }
     },
+    "/api/subagent/schedule": {
+      "get": {
+        "tags": ["SubAgent"],
+        "summary": "Get subagent schedule status",
+        "operationId": "getSubAgentSchedule",
+        "responses": {
+          "200": {
+            "description": "Subagent schedule status",
+            "content": {
+              "application/json": {
+                "schema": { "type": "object", "additionalProperties": true }
+              }
+            }
+          },
+          "503": { "description": "Subagent coordinator is not enabled" }
+        }
+      }
+    },
     "/api/subagent/cancel": {
       "post": {
         "tags": ["子 Agent"],
@@ -2467,6 +2610,52 @@
           "location": { "type": "string" },
           "latencyMs": { "type": "number" },
           "usage": { "type": "object", "additionalProperties": true }
+        }
+      },
+      "CompanionChatRequest": {
+        "type": "object",
+        "required": ["message"],
+        "properties": {
+          "message": { "type": "string" },
+          "sessionId": { "type": "string" },
+          "clientName": { "type": "string" },
+          "storageRoot": { "type": "string", "description": "Companion 应用数据目录；默认 .agentrelay/companion" },
+          "personaId": { "type": "string" },
+          "incognito": { "type": "boolean" },
+          "outputMode": {
+            "type": "string",
+            "enum": ["bounded", "unrestricted"],
+            "description": "bounded=正常模式；unrestricted=无限制输出测试模式。unrestricted 会写入存储并标记 companionMode=unrestricted，正常模式不会把 unrestricted 历史注入上下文"
+          }
+        }
+      },
+      "CompanionMessage": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "sessionId": { "type": "string" },
+          "role": { "type": "string", "enum": ["user", "assistant", "system_summary"] },
+          "content": { "type": "string" },
+          "status": { "type": "string", "enum": ["streaming", "completed", "interrupted", "deleted"] }
+        }
+      },
+      "CompanionChatResponse": {
+        "type": "object",
+        "properties": {
+          "session": { "type": "object", "additionalProperties": true },
+          "userMessage": { "$ref": "#/components/schemas/CompanionMessage" },
+          "assistantMessage": { "$ref": "#/components/schemas/CompanionMessage" },
+          "content": { "type": "string" },
+          "storage": { "type": "object", "additionalProperties": true },
+          "safety": {
+            "type": "object",
+            "additionalProperties": true,
+            "properties": {
+              "outputMode": { "type": "string", "enum": ["bounded", "unrestricted"] }
+            }
+          },
+          "summaryStatus": { "type": "object", "additionalProperties": true },
+          "vector": { "type": "object", "additionalProperties": true }
         }
       },
       "RouterDecision": {

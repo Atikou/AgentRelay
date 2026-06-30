@@ -7,6 +7,7 @@ import assert from "node:assert/strict";
 import { inferRequiredSideEffectsFromGoal } from "../src/agent/completion/TaskCompletionContract.js";
 import {
   evaluateTaskBoundary,
+  workflowDirectlyAllowsSideEffects,
   workflowSatisfiesSideEffects,
 } from "../src/agent/routing/TaskBoundaryDecision.js";
 import { extractMessageContinuationSignals } from "../src/agent/routing/MessageSignalExtractor.js";
@@ -36,8 +37,9 @@ test("问答 goal 无 write/shell 副作用", () => {
   assert.deepEqual(inferRequiredSideEffectsFromGoal("依赖是全局的还是项目的"), []);
 });
 
-test("generateFileWorkflow 不允许 shell", () => {
-  assert.equal(workflowSatisfiesSideEffects("generateFileWorkflow", ["shell"]), false);
+test("generateFileWorkflow 直接能力不含 shell，但 soft workflow 可升级满足", () => {
+  assert.equal(workflowDirectlyAllowsSideEffects("generateFileWorkflow", ["shell"]), false);
+  assert.equal(workflowSatisfiesSideEffects("generateFileWorkflow", ["shell"]), true);
   assert.equal(workflowSatisfiesSideEffects("runWorkflow", ["shell"]), true);
 });
 

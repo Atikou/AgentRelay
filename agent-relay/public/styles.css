@@ -1475,6 +1475,24 @@ textarea#message-input::placeholder {
   width: 100%;
   font-size: 13.5px;
 }
+.companion-panel {
+  width: 100%;
+}
+.companion-chat-log {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 220px;
+  max-height: 420px;
+  overflow: auto;
+  padding: 10px 0;
+}
+.companion-chat-log .msg {
+  max-width: 100%;
+}
+.companion-status {
+  margin: 8px 0;
+}
 .tool-panel .tool-row {
   display: flex;
   gap: 10px;

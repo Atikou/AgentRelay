@@ -651,6 +651,8 @@
         }
       }
     },
+    {
+      "id": "m1-agent-capability-before-budget-doc",
       "title": "文档：能力策略优先于预算检查",
       "purpose": "确认执行流程文档约定 workflow 安全边界、capability_disabled 与 budget_exhausted 分离，review 模式不得因 maxShellCalls=0 误报预算耗尽。",
       "method": "GET",
@@ -1863,7 +1865,7 @@
       }
     },
     {
-      "id": "m1-agent-resume-permission-missing-run",
+      "id": "m1-agent-resume-permission-path-missing-run",
       "title": "权限续跑缺失 run 返回 404",
       "purpose": "确认 /api/runs/:runId/resume-permission 在找不到运行记录时返回明确错误，不会重新喊话或创建新的执行 Run。",
       "method": "POST",

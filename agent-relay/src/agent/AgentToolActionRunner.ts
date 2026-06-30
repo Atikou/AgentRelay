@@ -34,6 +34,7 @@ export interface AgentToolActionRunContext {
   timeline?: AgentTimelineService;
   runId?: string;
   sessionId?: string;
+  projectId?: string;
   taskId?: string;
   requestId?: string;
   trace?: TraceLogger;
@@ -340,6 +341,7 @@ export async function runAgentToolAction(
     source: "agent_loop",
     budgetBucket: input.isRecovery ? "recovery" : input.isPreflight ? "preflight" : "main",
     workspaceRoot: pathAccess?.workspaceRoot ?? ctx.workspaceRoot,
+    projectId: ctx.projectId,
     allowedPermissions: ctx.allowedPermissions,
     scopedGrants: ctx.resolveScopedGrants(),
     workspaceGrantStore: ctx.workspaceGrantStore,

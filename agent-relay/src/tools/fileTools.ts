@@ -40,6 +40,19 @@ function relPath(workspaceRoot: string, abs: string): string {
   return path.relative(workspaceRoot, abs).replace(/\\/g, "/") || ".";
 }
 
+function readWorkspaceAccessString(ctx: ToolContext, key: string): string | undefined {
+  const value = ctx.workspaceAccess?.[key];
+  return typeof value === "string" && value.trim() ? value : undefined;
+}
+
+function normalizedChangePath(ctx: ToolContext, relativePath: string): string {
+  try {
+    return resolveInsideWorkspace(ctx.workspaceRoot, relativePath);
+  } catch {
+    return path.resolve(ctx.workspaceRoot, relativePath);
+  }
+}
+
 function truncateOutput(text: string, maxBytes: number): { text: string; truncated: boolean } {
   const buf = Buffer.from(text, "utf-8");
   if (buf.byteLength <= maxBytes) return { text, truncated: false };
@@ -82,6 +95,11 @@ async function recordChange(
     sessionId: ctx.sessionId,
     toolName,
     path: relativePath,
+    workspaceRoot: ctx.workspaceRoot,
+    normalizedPath: normalizedChangePath(ctx, relativePath),
+    workspaceScopeId: readWorkspaceAccessString(ctx, "workspaceScopeId"),
+    grantId: readWorkspaceAccessString(ctx, "grantId"),
+    workspaceAccess: ctx.workspaceAccess,
     beforeHash: opts.beforeHash,
     afterHash: opts.afterHash,
     backupPath: opts.backupPath,
@@ -688,22 +706,24 @@ export const rollbackChangeTool: Tool<
       throw new Error(`未找到 changeId：${input.changeId}`);
     }
 
-    const full = path.join(ctx.workspaceRoot, change.path);
+    const restoreRoot = change.workspaceRoot ?? ctx.workspaceRoot;
+    const rollbackCtx: ToolContext = { ...ctx, workspaceRoot: restoreRoot };
+    const full = resolveInsideWorkspace(restoreRoot, change.path);
     let currentContent = "";
     try {
       currentContent = await fs.readFile(full, "utf-8");
       const currentHash = hashContent(currentContent);
-      await backupOneFile(ctx, change.path, currentHash, "rollback_pre_restore");
+      await backupOneFile(rollbackCtx, change.path, currentHash, "rollback_pre_restore");
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
     }
 
     const backupContent = await ctx.storage.readBackupContent(change.backupPath);
-    await ctx.storage.restoreFromBackupPath(ctx.workspaceRoot, change.path, change.backupPath);
+    await ctx.storage.restoreFromBackupPath(restoreRoot, change.path, change.backupPath);
 
     const rollbackDiff = buildUnifiedDiff(currentContent, backupContent, change.path);
     const newChangeId = randomUUID();
-    await recordChange(ctx, "rollback_change", change.path, {
+    await recordChange(rollbackCtx, "rollback_change", change.path, {
       changeId: newChangeId,
       beforeHash: currentContent ? hashContent(currentContent) : undefined,
       afterHash: hashContent(backupContent),

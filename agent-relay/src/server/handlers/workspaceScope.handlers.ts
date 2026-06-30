@@ -10,6 +10,8 @@ import {
 
 export function handleWorkspaceScopesList(app: AppContext, url: URL): ApiResult {
   const sessionId = url.searchParams.get("sessionId") ?? undefined;
+  const session = sessionId ? app.contextManager.getSession(sessionId) : null;
+  const projectId = url.searchParams.get("projectId") ?? session?.projectId ?? session?.workspaceKey ?? undefined;
   const workspaceRoot = app.resolveWorkspaceRootForSession(sessionId);
   const manager = new WorkspaceScopeManager({
     primaryRoot: workspaceRoot,
@@ -19,12 +21,14 @@ export function handleWorkspaceScopesList(app: AppContext, url: URL): ApiResult 
   });
   const scopes = manager.getScopes({
     sessionId,
+    projectId,
     scopedGrants: app.sessionPermissionGrants.get(sessionId),
   });
   return {
     status: 200,
     body: {
       sessionId,
+      projectId,
       primaryRoot: workspaceRoot,
       scopes,
     },
@@ -40,6 +44,9 @@ export function handleWorkspaceScopeCreate(app: AppContext, body: unknown): ApiR
   const scope = parseGrantScope(payload.scope) ?? "session";
   const sessionId = typeof payload.sessionId === "string" ? payload.sessionId : undefined;
   const projectId = typeof payload.projectId === "string" ? payload.projectId : undefined;
+  if (scope === "project" && !projectId) {
+    return { status: 400, body: { error: "project scope requires projectId" } };
+  }
   const expiresAt = typeof payload.expiresAt === "string" ? payload.expiresAt : undefined;
   const grant = app.workspaceGrantStore.add({
     sessionId,

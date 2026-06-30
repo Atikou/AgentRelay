@@ -180,11 +180,11 @@ export class Orchestrator {
 
 
 
-  ensureSession(sessionId: string | undefined, title: string, workspaceKey?: string): string {
+  ensureSession(sessionId: string | undefined, title: string, workspaceKey?: string, projectId?: string): string {
 
     if (sessionId && this.deps.contextManager.getSession(sessionId)) return sessionId;
 
-    return this.deps.contextManager.createSession(title, undefined, workspaceKey).id;
+    return this.deps.contextManager.createSession(title, projectId, workspaceKey).id;
 
   }
 
@@ -194,6 +194,11 @@ export class Orchestrator {
 
   private workspaceConfigScopesForSession(sessionId?: string) {
     return this.deps.resolveWorkspaceConfigScopes?.(sessionId) ?? [];
+  }
+
+  private projectIdForSession(sessionId?: string, fallback?: string): string {
+    const session = sessionId ? this.deps.contextManager.getSession(sessionId) : null;
+    return session?.projectId ?? session?.workspaceKey ?? fallback ?? "default";
   }
 
   private workspaceForRun(runId: string): string {
@@ -509,6 +514,7 @@ export class Orchestrator {
         permissionPolicy: payload.permissionPolicy,
         taskId: task.id,
         sessionId,
+        projectId: this.projectIdForSession(sessionId),
         runId: run.id,
         requireToolBinding: true,
         executionMode,
@@ -849,6 +855,7 @@ export class Orchestrator {
       notificationQueue: this.deps.notificationQueue,
       contextManager: sessionId ? this.deps.contextManager : undefined,
       sessionId,
+      projectId: this.projectIdForSession(sessionId),
       runId,
       taskId: task.id,
       requestId: runId,
@@ -991,6 +998,7 @@ export class Orchestrator {
       notificationQueue: this.deps.notificationQueue,
       contextManager: sessionId ? this.deps.contextManager : undefined,
       sessionId,
+      projectId: this.projectIdForSession(sessionId),
       runId,
       taskId: task.id,
       requestId: runId,
@@ -1118,6 +1126,7 @@ export class Orchestrator {
       notificationQueue: this.deps.notificationQueue,
       contextManager: sessionId ? this.deps.contextManager : undefined,
       sessionId,
+      projectId: this.projectIdForSession(sessionId),
       runId,
       taskId: task.id,
       requestId: runId,
@@ -1369,6 +1378,7 @@ export class Orchestrator {
 
       requestId: run.id,
       sessionId: input.sessionId,
+      projectId: this.projectIdForSession(input.sessionId),
       workspaceGrantStore: this.deps.workspaceGrantStore,
       workspaceConfigScopes: this.workspaceConfigScopesForSession(input.sessionId),
 
@@ -1683,6 +1693,8 @@ export class Orchestrator {
       permissionPolicy?: string;
       budget?: Partial<RunBudget>;
       sessionId?: string;
+      projectId?: string;
+      workspaceKey?: string;
       persist?: boolean;
       skipPlanHandoff?: boolean;
     };
@@ -1719,7 +1731,12 @@ export class Orchestrator {
     });
 
     const persist = payload.persist !== false;
-    const sessionId = persist ? this.ensureSession(payload.sessionId, "智能体会话") : undefined;
+    const requestedProjectId = typeof payload.projectId === "string" ? payload.projectId.trim() || undefined : undefined;
+    const requestedWorkspaceKey = typeof payload.workspaceKey === "string" ? payload.workspaceKey.trim() || undefined : undefined;
+    const sessionId = persist
+      ? this.ensureSession(payload.sessionId, "智能体会话", requestedWorkspaceKey, requestedProjectId)
+      : undefined;
+    const projectId = this.projectIdForSession(sessionId, requestedProjectId ?? requestedWorkspaceKey);
     const pauseGate = findBlockingAgentPause({
       sessionId,
       planHandoffStore: this.deps.planHandoffStore,
@@ -1789,6 +1806,7 @@ export class Orchestrator {
       notificationQueue: this.deps.notificationQueue,
       contextManager: persist ? this.deps.contextManager : undefined,
       sessionId,
+      projectId,
       runId: run.id,
       taskId: task.id,
       requestId: run.id,
@@ -2107,6 +2125,7 @@ export class Orchestrator {
         autoConfirm: payload.autoConfirm ?? false,
         taskId,
         sessionId,
+        projectId: this.projectIdForSession(sessionId),
         runId: run.id,
         onUpdate: (updated) => this.persistTaskPlan(taskId, updated),
         action: payload.action,

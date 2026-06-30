@@ -108,11 +108,26 @@
 - [x] Scheduler cron/interval/event
 - [x] scheduler journal 与 lifecycle purge 关联（`CleanupPlanner` TTL 压紧 + `session_purge` 触发 `compactSchedulerJournalFile`）
 
+### M9 纯聊天人格层
+
+- [x] `src/companion/` 旁路模块：不接 `AgentLoop`、`ToolRegistry`、`PermissionGuard`、workflow 或 capability escalation
+- [x] `CompanionService`：纯聊天编排，复用 `directChat`，支持普通与 SSE 流式聊天
+- [x] `CompanionStorage`：独立 `companion.db` v1，默认 `.agentrelay/companion/`，支持自定义 `storageRoot`
+- [x] 逐条落盘：用户消息立即保存，assistant draft 流式更新，完成/中断状态可恢复
+- [x] 摘要先行：久远消息可生成 summary，摘要只压缩上下文注入，不删除原始记录
+- [x] 情感边界守卫：依恋风险、现实锚定、虚拟身份透明、温暖风格检查
+- [x] 输出模式分层：`bounded` 正常模式；`unrestricted` 无限制作答测试模式正常落库并标记 `companionMode=unrestricted`
+- [x] 模式上下文隔离：无限制模式可读取正常历史，正常模式不会读取无限制消息或无限制摘要
+- [x] 测试台“纯聊天”入口与 `m9-companion.json` public test cases
+- [~] 向量召回：接口与 namespace 已就位，LanceDB 写入暂未接入
+- [ ] 多人格编辑器、记忆候选审核、桌面端 exe、TTS/STT
+
 ### 未开始 / 远期
 
 - [ ] 多模态附件 / OCR
 - [ ] policy 在线编辑 UI
 - [ ] 桌面端 / STT / TTS 接入
+- [ ] Companion 长期记忆编辑器与真实向量召回（规划见 `docs/纯聊天人格层.md`）
 
 ---
 
@@ -120,13 +135,13 @@
 
 | 项 | 状态 |
 | --- | --- |
-| 拆分 `AgentLoop` god-object | [x] `run()` 已薄编排：`AgentRunBootstrap`（会话/预扫描）+ `AgentReactLoopRunner`（ReAct 主循环）；其余见下行 |
+| 拆分 `AgentLoop` god-object | [x] 主 run 循环已薄编排：`AgentRunBootstrap`（会话/预扫描）+ `AgentReactLoopRunner`（ReAct 主循环）；仍保留工具管道上下文、JIT pause、workflow write 等后续薄化项 |
 | （已拆模块） | `AgentActionParser` + `AgentNotificationRenderer` + `AgentSystemPromptBuilder` + `AgentWorkflowCapabilityHint` + `AgentToolResultRenderer` + `AgentRunUsageSummary` + `AgentExecutionMetaBuilder` + `AgentPausedRunSnapshot` + `AgentToolStepBlockBuilder` + `AgentCapabilityEscalationOrchestrator` + `AgentToolStepPipeline` + `AgentToolActionRunner` + `AgentToolActivityTracker` + `AgentRunBootstrap` + `AgentReactLoopRunner` + `AgentRunFinalizer` + `AgentActivityTimelineFinalizer` + `SubagentDispatchGuard` |
 | `RunPolicyManager` 职责拆分（预算 vs 展示） | [x] 展示/权限推导 → `RunPolicyPresentation.ts` |
 | 合并 `IntentRouter` / `WorkflowPlanner` 重复正则 | [x] `intentPatterns.ts` |
 | 退役遗留 `AgentMode plan\|task` 词汇 | [x] → `TaskRunnerPermissionMode`（`AgentMode` 保留 deprecated 别名） |
 | `locationTools` 项目专属启发式外置 | [x] 可选 `.agentrelay/location-hints.json` + `locationHintConfig.ts` |
-| `api-spec.json` 与 handler 自动同步 | [x] `httpRouteRegistry.ts` + `api-spec.test`；含 `plan-handoffs` 三路径 |
+| `api-spec.json` 与 handler 防漂移 | [x] `httpRouteRegistry.ts` + `api-spec.test` 静态漂移检查；含 `plan-handoffs` 与 `subagent/schedule` 路径（非 codegen） |
 
 ---
 
@@ -143,6 +158,8 @@ npm test
 ```
 
 常用专项：`test:entry-intent-router`、`test:plan-handoff`、`test:loop`。
+
+Companion 专项：`test:companion-storage`、`test:companion-service`、`test:companion-boundary`、`test:companion-emotion-boundary`、`test:companion-reality-anchor`、`test:companion-output-mode`。
 
 ---
 
@@ -171,6 +188,7 @@ npm test
 - [ ] **安全**：高风险默认确认、脱敏、trace 回放
 - [ ] **子 Agent**：并行派生、结果回收
 - [ ] **后台/调度**：任务与 cron 可观测
+- [ ] **纯聊天 Companion**：零工具聊天、逐条落盘、摘要、情感边界、测试台可用
 
 ### 架构纠偏（产品体验）
 
@@ -223,3 +241,4 @@ npm test
 | scheduler journal 压紧 | `lifecycle/schedulerJournalCompact.ts` |
 | HTTP 路由登记 | `server/httpRouteRegistry.ts`（`HTTP_ROUTE_PATHS`） |
 | HTTP 入口 | `orchestrator/Orchestrator.ts` |
+| 纯聊天人格层 | `companion/CompanionService.ts`、`companion/CompanionStorage.ts`、`server/handlers/companion.handlers.ts` |

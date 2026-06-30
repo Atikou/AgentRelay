@@ -15,6 +15,7 @@ import {
 export interface CreatePermissionRequestInput {
   runId: string;
   sessionId?: string;
+  projectId?: string;
   title: string;
   summary: string;
   requiredPermissions: PermissionRequestItem[];
@@ -74,6 +75,7 @@ export class PermissionRequestStore {
       id: randomUUID(),
       runId: input.runId,
       sessionId: input.sessionId,
+      projectId: input.projectId,
       status: "pending",
       title: input.title,
       summary: input.summary,

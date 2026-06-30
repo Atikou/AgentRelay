@@ -323,7 +323,22 @@ function pathSpecsForTool(toolName: string, input: Record<string, unknown>): Pat
 }
 
 function normalizePathForAccess(primaryRoot: string, target: string): string {
+  const workspaceRelativeAlias = windowsWorkspaceRelativeAlias(primaryRoot, target);
+  if (workspaceRelativeAlias) return path.resolve(primaryRoot, workspaceRelativeAlias);
   return path.isAbsolute(target) ? path.resolve(target) : path.resolve(primaryRoot, target);
+}
+
+function windowsWorkspaceRelativeAlias(primaryRoot: string, target: string): string | undefined {
+  if (!isWindowsRootPath(primaryRoot)) return undefined;
+  const normalized = target.trim().replace(/\\/g, "/");
+  if (!/^\/(?!\/)/.test(normalized)) return undefined;
+  const relative = normalized.replace(/^\/+/, "");
+  if (!relative || /^[A-Za-z]:\//.test(relative)) return undefined;
+  return relative;
+}
+
+function isWindowsRootPath(rootPath: string): boolean {
+  return /^[A-Za-z]:[\\/]/.test(path.resolve(rootPath)) || /^\\\\/.test(path.resolve(rootPath));
 }
 
 function resolveRealPathForAccess(targetPath: string): string | undefined {
