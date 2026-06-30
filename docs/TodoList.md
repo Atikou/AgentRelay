@@ -106,7 +106,7 @@
 ### M8 调度
 
 - [x] Scheduler cron/interval/event
-- [~] scheduler journal 与 lifecycle purge 关联（`CleanupPlanner.compactSchedulerJournal` 已接线；`cleanup.autoEnabled` 默认 **true**）
+- [~] scheduler journal 与 lifecycle purge 关联（`CleanupPlanner.compactSchedulerJournal` + `data-lifecycle.test.ts` 已覆盖；`cleanup.autoEnabled` 默认 **true**）
 
 ### 未开始 / 远期
 
@@ -120,7 +120,8 @@
 
 | 项 | 状态 |
 | --- | --- |
-| 拆分 `AgentLoop` god-object | [~] `AgentActionParser` + `AgentNotificationRenderer` + `AgentSystemPromptBuilder` + `AgentWorkflowCapabilityHint` + `AgentToolResultRenderer` + `AgentRunUsageSummary` + `AgentActivityTimelineFinalizer` + `SubagentDispatchGuard` 已拆出；`test:agent-action-parser` 覆盖 ReAct JSON 动作解析；`test:agent-notification-renderer` 覆盖安全点通知回灌；`test:agent-tool-result-renderer` 覆盖工具结果回灌；`test:agent-run-usage-summary` 覆盖 run_usage_summary；`test:agent-activity-timeline-finalizer` 覆盖 Timeline 收尾；`test:subagent-dispatch-guard` 覆盖派发守卫；主循环仍偏大 |
+| 拆分 `AgentLoop` god-object | [x] `run()` 已薄编排：`AgentRunBootstrap`（会话/预扫描）+ `AgentReactLoopRunner`（ReAct 主循环）；其余见下行 |
+| （已拆模块） | `AgentActionParser` + `AgentNotificationRenderer` + `AgentSystemPromptBuilder` + `AgentWorkflowCapabilityHint` + `AgentToolResultRenderer` + `AgentRunUsageSummary` + `AgentExecutionMetaBuilder` + `AgentPausedRunSnapshot` + `AgentToolStepBlockBuilder` + `AgentCapabilityEscalationOrchestrator` + `AgentToolStepPipeline` + `AgentToolActionRunner` + `AgentToolActivityTracker` + `AgentRunBootstrap` + `AgentReactLoopRunner` + `AgentRunFinalizer` + `AgentActivityTimelineFinalizer` + `SubagentDispatchGuard` |
 | `RunPolicyManager` 职责拆分（预算 vs 展示） | [x] 展示/权限推导 → `RunPolicyPresentation.ts` |
 | 合并 `IntentRouter` / `WorkflowPlanner` 重复正则 | [x] `intentPatterns.ts` |
 | 退役遗留 `AgentMode plan\|task` 词汇 | [x] → `TaskRunnerPermissionMode`（`AgentMode` 保留 deprecated 别名） |
@@ -200,13 +201,22 @@ npm test
 | 延续检测 | `agent/routing/ContinuationDetector.ts` |
 | UI 状态 | `agent/presentation/ExecutionStatePresenter.ts` |
 | 计划交接 | `policy/PlanHandoffStore.ts` |
-| JIT 权限 | `policy/PermissionRequestStore.ts`、`agent/PausedRunStore.ts` |
+| JIT 权限 | `policy/PermissionRequestStore.ts`、`agent/PausedRunStore.ts`、`agent/AgentPausedRunSnapshot.ts` |
 | 主循环 | `agent/AgentLoop.ts` |
 | ReAct 动作解析 | `agent/AgentActionParser.ts` |
 | 通知回灌渲染 | `agent/AgentNotificationRenderer.ts` |
 | ReAct 协议 | `agent/AgentSystemPromptBuilder.ts` |
 | 工具结果回灌 | `agent/AgentToolResultRenderer.ts` |
 | Run 用量摘要 | `agent/AgentRunUsageSummary.ts` |
+| executionMeta 构建 | `agent/AgentExecutionMetaBuilder.ts` |
+| JIT 暂停快照 | `agent/AgentPausedRunSnapshot.ts` |
+| 工具阻塞步骤构建 | `agent/AgentToolStepBlockBuilder.ts` |
+| 能力升级编排 | `agent/AgentCapabilityEscalationOrchestrator.ts` |
+| 工具执行管道 | `agent/AgentToolStepPipeline.ts` |
+| 工具实际执行 | `agent/AgentToolActionRunner.ts`、`agent/AgentToolActivityTracker.ts` |
+| Run 启动 | `agent/AgentRunBootstrap.ts` |
+| ReAct 主循环 | `agent/AgentReactLoopRunner.ts` |
+| Run 收尾 | `agent/AgentRunFinalizer.ts` |
 | 子 Agent 派发守卫 | `agent/SubagentDispatchGuard.ts` |
 | 策略展示 | `agent/RunPolicyPresentation.ts` |
 | HTTP 路由登记 | `server/httpRouteRegistry.ts`（`HTTP_ROUTE_PATHS`） |

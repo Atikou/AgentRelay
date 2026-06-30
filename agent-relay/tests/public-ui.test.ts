@@ -164,6 +164,82 @@ test("计划全流程审阅阶段展示编译与激活按钮", async () => {
   assert.ok(css.includes(".plan-review-actions"));
 });
 
+test("AgentExecutionMetaBuilder 已登记为独立模块", async () => {
+  const js = await readFile(path.join(publicDir, "../src/agent/AgentLoop.ts"), "utf-8").catch(() => "");
+  const arch = await readFile(path.join(docsDir, "架构设计.md"), "utf-8");
+  const pkg = await readFile(path.join(publicDir, "../package.json"), "utf-8");
+  assert.ok(js.includes("buildAgentExecutionMeta"));
+  assert.ok(arch.includes("AgentExecutionMetaBuilder"));
+  assert.ok(pkg.includes("test:agent-execution-meta-builder"));
+});
+
+test("AgentPausedRunSnapshot 已登记为独立模块", async () => {
+  const js = await readFile(path.join(publicDir, "../src/agent/AgentLoop.ts"), "utf-8").catch(() => "");
+  const flow = await readFile(path.join(docsDir, "执行流程.md"), "utf-8");
+  const pkg = await readFile(path.join(publicDir, "../package.json"), "utf-8");
+  assert.ok(js.includes("buildPausedRunSnapshot"));
+  assert.ok(js.includes("createJitPermissionRequestFromStep"));
+  assert.ok(flow.includes("AgentPausedRunSnapshot"));
+  assert.ok(pkg.includes("test:agent-paused-run-snapshot"));
+});
+
+test("AgentToolStepBlockBuilder 与 CapabilityEscalationOrchestrator 已登记", async () => {
+  const js = await readFile(path.join(publicDir, "../src/agent/AgentLoop.ts"), "utf-8").catch(() => "");
+  const arch = await readFile(path.join(docsDir, "架构设计.md"), "utf-8");
+  const pkg = await readFile(path.join(publicDir, "../package.json"), "utf-8");
+  assert.ok(js.includes("buildWorkflowBlockedToolStep"));
+  assert.ok(js.includes("applyCapabilityEscalationBeforeTool"));
+  assert.ok(arch.includes("AgentToolStepBlockBuilder"));
+  assert.ok(arch.includes("AgentCapabilityEscalationOrchestrator"));
+  assert.ok(pkg.includes("test:agent-tool-step-block-builder"));
+  assert.ok(pkg.includes("test:agent-capability-escalation-orchestrator"));
+});
+
+test("AgentToolStepPipeline 已登记为独立模块", async () => {
+  const js = await readFile(path.join(publicDir, "../src/agent/AgentLoop.ts"), "utf-8").catch(() => "");
+  const flow = await readFile(path.join(docsDir, "执行流程.md"), "utf-8");
+  const pkg = await readFile(path.join(publicDir, "../package.json"), "utf-8");
+  assert.ok(js.includes("executeAgentToolStepPipeline"));
+  assert.ok(flow.includes("AgentToolStepPipeline"));
+  assert.ok(pkg.includes("test:agent-tool-step-pipeline"));
+});
+
+test("AgentToolActionRunner 已登记为独立模块", async () => {
+  const js = await readFile(path.join(publicDir, "../src/agent/AgentLoop.ts"), "utf-8").catch(() => "");
+  const flow = await readFile(path.join(docsDir, "执行流程.md"), "utf-8");
+  const pkg = await readFile(path.join(publicDir, "../package.json"), "utf-8");
+  assert.ok(js.includes("runAgentToolAction"));
+  assert.ok(flow.includes("AgentToolActionRunner"));
+  assert.ok(pkg.includes("test:agent-tool-action-runner"));
+});
+
+test("AgentRunFinalizer 已登记为独立模块", async () => {
+  const js = await readFile(path.join(publicDir, "../src/agent/AgentLoop.ts"), "utf-8").catch(() => "");
+  const flow = await readFile(path.join(docsDir, "执行流程.md"), "utf-8");
+  const pkg = await readFile(path.join(publicDir, "../package.json"), "utf-8");
+  assert.ok(js.includes("finalizeAgentRun"));
+  assert.ok(flow.includes("AgentRunFinalizer"));
+  assert.ok(pkg.includes("test:agent-run-finalizer"));
+});
+
+test("AgentRunBootstrap 已登记为独立模块", async () => {
+  const js = await readFile(path.join(publicDir, "../src/agent/AgentLoop.ts"), "utf-8").catch(() => "");
+  const flow = await readFile(path.join(docsDir, "执行流程.md"), "utf-8");
+  const pkg = await readFile(path.join(publicDir, "../package.json"), "utf-8");
+  assert.ok(js.includes("bootstrapAgentRunSession"));
+  assert.ok(flow.includes("AgentRunBootstrap"));
+  assert.ok(pkg.includes("test:agent-run-bootstrap"));
+});
+
+test("AgentReactLoopRunner 已登记为独立模块", async () => {
+  const js = await readFile(path.join(publicDir, "../src/agent/AgentLoop.ts"), "utf-8").catch(() => "");
+  const flow = await readFile(path.join(docsDir, "执行流程.md"), "utf-8");
+  const pkg = await readFile(path.join(publicDir, "../package.json"), "utf-8");
+  assert.ok(js.includes("runAgentReactLoop"));
+  assert.ok(flow.includes("AgentReactLoopRunner"));
+  assert.ok(pkg.includes("test:agent-react-loop-runner"));
+});
+
 test("app.js 时间显示经 parseTimestamp 转本地时区", async () => {
   const js = await readFile(path.join(publicDir, "app.js"), "utf-8");
   assert.ok(js.includes("function parseTimestamp(value)"));

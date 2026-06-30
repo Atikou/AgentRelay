@@ -2309,6 +2309,198 @@
         "status": 200,
         "bodyContains": ["AgentActivityTimelineFinalizer", "等待授权", "预算耗尽", "用户取消"]
       }
+    },
+    {
+      "id": "m1-agent-execution-meta-builder-architecture-doc",
+      "title": "架构文档登记 executionMeta 构建模块",
+      "purpose": "确认 executionMeta 组装已从 AgentLoop 解耦到 AgentExecutionMetaBuilder，便于独立测试 userFacing 与预算 enrich。",
+      "method": "GET",
+      "path": "/api/docs/content?slug=%E6%9E%B6%E6%9E%84%E8%AE%BE%E8%AE%A1",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyContains": ["AgentExecutionMetaBuilder", "executionMeta", "userFacingLabel"]
+      }
+    },
+    {
+      "id": "m1-agent-execution-meta-builder-test-script",
+      "title": "package.json 登记 executionMeta 构建测试",
+      "purpose": "确认 AgentExecutionMetaBuilder 有独立 npm script，防止 executionMeta 回归与 AgentLoop 再次耦合。",
+      "method": "GET",
+      "path": "/package.json",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyContains": ["test:agent-execution-meta-builder"]
+      }
+    },
+    {
+      "id": "m1-agent-paused-run-snapshot-architecture-doc",
+      "title": "架构文档登记 JIT 暂停快照模块",
+      "purpose": "确认 JIT 暂停/续跑快照已从 AgentLoop 解耦到 AgentPausedRunSnapshot，便于独立测试 runtimeState 与 permissionRequest。",
+      "method": "GET",
+      "path": "/api/docs/content?slug=%E6%89%A7%E8%A1%8C%E6%B5%81%E7%A8%8B",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyContains": ["AgentPausedRunSnapshot", "PausedRunSnapshot.runtimeState", "permissionRequest"]
+      }
+    },
+    {
+      "id": "m1-agent-paused-run-snapshot-test-script",
+      "title": "package.json 登记 JIT 暂停快照测试",
+      "purpose": "确认 AgentPausedRunSnapshot 有独立 npm script，防止 JIT 暂停续跑回归与 AgentLoop 再次耦合。",
+      "method": "GET",
+      "path": "/package.json",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyContains": ["test:agent-paused-run-snapshot"]
+      }
+    },
+    {
+      "id": "m1-agent-tool-step-block-builder-architecture-doc",
+      "title": "架构文档登记工具阻塞步骤构建模块",
+      "purpose": "确认 workflow/permission/budget/path 四类阻塞 AgentToolStep 已从 AgentLoop 解耦到 AgentToolStepBlockBuilder。",
+      "method": "GET",
+      "path": "/api/docs/content?slug=%E6%9E%B6%E6%9E%84%E8%AE%BE%E8%AE%A1",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyContains": ["AgentToolStepBlockBuilder", "blockedReasonKind"]
+      }
+    },
+    {
+      "id": "m1-agent-capability-escalation-orchestrator-test-script",
+      "title": "package.json 登记能力升级编排测试",
+      "purpose": "确认 soft workflow escalation 编排有独立 npm script，防止 reconcile 逻辑回归与 AgentLoop 再次耦合。",
+      "method": "GET",
+      "path": "/package.json",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyContains": ["test:agent-capability-escalation-orchestrator"]
+      }
+    },
+    {
+      "id": "m1-agent-tool-step-pipeline-architecture-doc",
+      "title": "架构文档登记工具执行管道模块",
+      "purpose": "确认 executeToolStep 门禁链已从 AgentLoop 解耦到 AgentToolStepPipeline，便于独立测试 workflow/permission/budget 分支。",
+      "method": "GET",
+      "path": "/api/docs/content?slug=%E6%89%A7%E8%A1%8C%E6%B5%81%E7%A8%8B",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyContains": ["AgentToolStepPipeline", "executeAgentToolStepPipeline"]
+      }
+    },
+    {
+      "id": "m1-agent-tool-step-pipeline-test-script",
+      "title": "package.json 登记工具执行管道测试",
+      "purpose": "确认 AgentToolStepPipeline 有独立 npm script，防止 executeToolStep 门禁回归与 AgentLoop 再次耦合。",
+      "method": "GET",
+      "path": "/package.json",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyContains": ["test:agent-tool-step-pipeline"]
+      }
+    },
+    {
+      "id": "m1-agent-tool-action-runner-architecture-doc",
+      "title": "架构文档登记工具实际执行模块",
+      "purpose": "确认 runToolAction 实际执行已从 AgentLoop 解耦到 AgentToolActionRunner，便于独立测试缓存与子 Agent 门控。",
+      "method": "GET",
+      "path": "/api/docs/content?slug=%E6%89%A7%E8%A1%8C%E6%B5%81%E7%A8%8B",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyContains": ["AgentToolActionRunner", "runAgentToolAction", "AgentToolActivityTracker"]
+      }
+    },
+    {
+      "id": "m1-agent-tool-action-runner-test-script",
+      "title": "package.json 登记工具实际执行测试",
+      "purpose": "确认 AgentToolActionRunner 有独立 npm script，防止 runToolAction 回归与 AgentLoop 再次耦合。",
+      "method": "GET",
+      "path": "/package.json",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyContains": ["test:agent-tool-action-runner"]
+      }
+    },
+    {
+      "id": "m1-agent-run-finalizer-architecture-doc",
+      "title": "架构文档登记 Run 收尾模块",
+      "purpose": "确认 finishRun 收尾已从 AgentLoop 解耦到 AgentRunFinalizer，便于独立测试 executionMeta 与 Timeline 收尾。",
+      "method": "GET",
+      "path": "/api/docs/content?slug=%E6%89%A7%E8%A1%8C%E6%B5%81%E7%A8%8B",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyContains": ["AgentRunFinalizer", "finalizeAgentRun"]
+      }
+    },
+    {
+      "id": "m1-agent-run-finalizer-test-script",
+      "title": "package.json 登记 Run 收尾测试",
+      "purpose": "确认 AgentRunFinalizer 有独立 npm script，防止 finishRun 回归与 AgentLoop 再次耦合。",
+      "method": "GET",
+      "path": "/package.json",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyContains": ["test:agent-run-finalizer"]
+      }
+    },
+    {
+      "id": "m1-agent-run-bootstrap-architecture-doc",
+      "title": "架构文档登记 Run 启动模块",
+      "purpose": "确认 run() 会话初始化与工作流预扫描已从 AgentLoop 解耦到 AgentRunBootstrap。",
+      "method": "GET",
+      "path": "/api/docs/content?slug=%E6%89%A7%E8%A1%8C%E6%B5%81%E7%A8%8B",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyContains": ["AgentRunBootstrap", "bootstrapAgentRunSession"]
+      }
+    },
+    {
+      "id": "m1-agent-run-bootstrap-test-script",
+      "title": "package.json 登记 Run 启动测试",
+      "purpose": "确认 AgentRunBootstrap 有独立 npm script，防止会话初始化逻辑回归进 AgentLoop。",
+      "method": "GET",
+      "path": "/package.json",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyContains": ["test:agent-run-bootstrap"]
+      }
+    },
+    {
+      "id": "m1-agent-react-loop-runner-architecture-doc",
+      "title": "架构文档登记 ReAct 主循环模块",
+      "purpose": "确认模型轮次与 parseAction 主循环已从 AgentLoop 解耦到 AgentReactLoopRunner。",
+      "method": "GET",
+      "path": "/api/docs/content?slug=%E6%89%A7%E8%A1%8C%E6%B5%81%E7%A8%8B",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyContains": ["AgentReactLoopRunner", "runAgentReactLoop"]
+      }
+    },
+    {
+      "id": "m1-agent-react-loop-runner-test-script",
+      "title": "package.json 登记 ReAct 主循环测试",
+      "purpose": "确认 AgentReactLoopRunner 有独立 npm script，防止 ReAct while 循环回归进 AgentLoop。",
+      "method": "GET",
+      "path": "/package.json",
+      "input": null,
+      "expect": {
+        "status": 200,
+        "bodyContains": ["test:agent-react-loop-runner"]
+      }
     }
   ]
 }
