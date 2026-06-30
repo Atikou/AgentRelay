@@ -15,7 +15,7 @@
 | P2 | `AIIntentClassifier` 结构化意图 + 双轨 diff 日志 | [x] |
 | P3 | `LegacyIntentFallback` 仅兜底，缩小关键词主路径 | [x] |
 | P4 | UI 完全隐藏 mode，仅 `userFacingLabel` + 权限策略 | [x] |
-| P5 | 收敛 `mode` / `intent` / `workflowType` 词汇 | [~] 映射表见 `docs/架构设计.md` §3；`RunPolicy` 仍保留 entry/effective 双轨观测字段 |
+| P5 | 收敛 `mode` / `intent` / `workflowType` 词汇 | [x] `RunPolicyVocabulary.ts` SSOT + UI 非 dev 隐藏；`executionMeta` 保留审计字段 |
 | P6 | 清理遗留路由规则与重复正则 | [x] `intentPatterns.ts` SSOT；`defaultIntentRouter` 已移除；Workflow 检测复用导出正则 |
 
 ### P0 验收（会话连续性）
@@ -77,7 +77,7 @@
 - [x] Plan analyze / compile / approve / execute API
 - [x] `TaskRunner` 状态机 + resume
 - [x] planHandoff（循环内 plan → execute）
-- [~] 计划模型进一步收敛（`PlanService.createDraftFromPlanner` / `createExecutableDraftFromPlanner` 已统一落盘入口；Planner 仍输出 legacy `Plan`）
+- [x] 计划模型收敛（`PlanService` 统一落盘；`fallbackToPlanOnUncertainty` 经 `createDraftFromPlanner`；Planner legacy `Plan` 仅作模型 IO）
 
 ### M4 后台与通知
 
@@ -95,7 +95,7 @@
 - [x] `ContextManager` + FTS5 + LanceDB
 - [x] `ProjectIndex` / 语义召回 / `RunState.location`
 - [x] 上下文去污：`contextTrust` + `RunFactsLookup` + `ContextRestorer` 过滤/纠偏 + 记忆 `trustLevel`
-- [~] 上下文层与 agent 格式化解耦（`AgentActionParser` + `AgentNotificationRenderer` + `AgentSystemPromptBuilder` + `AgentWorkflowCapabilityHint` + `AgentToolResultRenderer` + `AgentRunUsageSummary` + `AgentActivityTimelineFinalizer` 已抽出；主循环仍偏大）
+- [x] 上下文层与 agent 格式化解耦（`AgentActionParser` / `AgentNotificationRenderer` / `AgentSystemPromptBuilder` / `AgentWorkflowCapabilityHint` / `AgentToolResultRenderer` / `AgentRunUsageSummary` / `AgentRunBootstrap` / `AgentReactLoopRunner` / `AgentRunFinalizer` 等已抽出；`AgentLoop.run()` 薄编排）
 
 ### M7 安全与审计
 
@@ -106,7 +106,7 @@
 ### M8 调度
 
 - [x] Scheduler cron/interval/event
-- [~] scheduler journal 与 lifecycle purge 关联（`CleanupPlanner.compactSchedulerJournal` + `data-lifecycle.test.ts` 已覆盖；`cleanup.autoEnabled` 默认 **true**）
+- [x] scheduler journal 与 lifecycle purge 关联（`CleanupPlanner` TTL 压紧 + `session_purge` 触发 `compactSchedulerJournalFile`）
 
 ### 未开始 / 远期
 
@@ -219,5 +219,7 @@ npm test
 | Run 收尾 | `agent/AgentRunFinalizer.ts` |
 | 子 Agent 派发守卫 | `agent/SubagentDispatchGuard.ts` |
 | 策略展示 | `agent/RunPolicyPresentation.ts` |
+| 词汇收敛（P5） | `agent/RunPolicyVocabulary.ts` |
+| scheduler journal 压紧 | `lifecycle/schedulerJournalCompact.ts` |
 | HTTP 路由登记 | `server/httpRouteRegistry.ts`（`HTTP_ROUTE_PATHS`） |
 | HTTP 入口 | `orchestrator/Orchestrator.ts` |

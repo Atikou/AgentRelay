@@ -68,7 +68,7 @@ let ctx: ContextManager;
 let runs: RunStore;
 let runStateStore: RunStateStore;
 
-test("Orchestrator fallbackToPlanOnUncertainty 返回 revisedPlan", async () => {
+test("Orchestrator fallbackToPlanOnUncertainty 经 PlanService 落盘草案", async () => {
   const registry = createDefaultRegistry({ dataDir });
   const revised = PlanSchema.parse({
     goal: "修订计划",
@@ -120,10 +120,17 @@ test("Orchestrator fallbackToPlanOnUncertainty 返回 revisedPlan", async () => 
   assert.equal(result.status, 200);
   const body = result.body as {
     plan: { steps: Array<{ status: string }> };
-    modeFallback?: { revisedPlan?: { goal: string }; planRunId?: string };
+    modeFallback?: {
+      planId?: string;
+      version?: number;
+      previewMarkdown?: string;
+      planRunId?: string;
+    };
   };
   assert.equal(body.plan.steps[0]!.status, "blocked");
-  assert.equal(body.modeFallback?.revisedPlan?.goal, "修订计划");
+  assert.ok(body.modeFallback?.planId);
+  assert.equal(body.modeFallback?.version, 1);
+  assert.match(body.modeFallback?.previewMarkdown ?? "", /修订计划|先只读排查/);
   assert.ok(body.modeFallback?.planRunId);
   registry.close();
 });

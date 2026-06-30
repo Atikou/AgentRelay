@@ -1974,21 +1974,35 @@ export class Orchestrator {
 
     try {
       const context = buildPlanFallbackContext(input.executedPlan, uncertainty.reasons);
-      const revisedPlan = await activePlanner.generatePlan(input.planGoal, context);
+      const draft = await this.deps.planService.createDraftFromPlanner({
+        goal: input.planGoal,
+        context,
+        sessionId: input.sessionId,
+        requestId: planRun.id,
+        planner: activePlanner,
+      });
       this.deps.runs.update(planRun.id, {
         status: "completed",
-        resultJson: JSON.stringify({ goal: revisedPlan.goal, stepCount: revisedPlan.steps.length }),
+        resultJson: JSON.stringify({
+          planId: draft.planId,
+          version: draft.version,
+          planHash: draft.planHash,
+        }),
       });
       this.deps.trace?.write({
         type: "task_fallback_plan_end",
         runId: input.taskRunId,
         planRunId: planRun.id,
         status: "completed",
+        planId: draft.planId,
+        version: draft.version,
       });
       return {
         triggered: true,
         reasons: uncertainty.reasons,
-        revisedPlan,
+        planId: draft.planId,
+        version: draft.version,
+        previewMarkdown: draft.previewMarkdown,
         planRunId: planRun.id,
       };
     } catch (error) {

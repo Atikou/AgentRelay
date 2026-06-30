@@ -360,7 +360,21 @@ test("隐私清除重写 trace 并清理 tools/routing", async () => {
   const runIds = [run.id];
   mgr.deleteSession(session.id);
 
+  const schedulerJournalFile = path.join(dataDir, "scheduler", "scheduler-journal.jsonl");
+  mkdirSync(path.dirname(schedulerJournalFile), { recursive: true });
+  const old = new Date(Date.now() - 20 * 24 * 60 * 60 * 1000).toISOString();
+  const recent = new Date().toISOString();
+  writeFileSync(
+    schedulerJournalFile,
+    [
+      JSON.stringify({ op: "upsert", time: old, trigger: { id: "t-purge", updatedAt: old } }),
+      JSON.stringify({ op: "upsert", time: recent, trigger: { id: "t-purge", updatedAt: recent } }),
+    ].join("\n") + "\n",
+    "utf-8",
+  );
+
   const policy = loadLifecyclePolicy(dataDir);
+  policy.cleanup.autoEnabled = true;
   const result = purgeSessionPrivacy(
     {
       dataDir,
@@ -369,6 +383,7 @@ test("隐私清除重写 trace 并清理 tools/routing", async () => {
       toolsDbPath: path.join(dataDir, "agent_data", "tools.db"),
       traceCatalog: { tracesDir, index },
       notificationFile: path.join(dataDir, "notifications", "notifications.jsonl"),
+      schedulerJournalFile,
       policy,
     },
     session.id,
@@ -376,6 +391,9 @@ test("隐私清除重写 trace 并清理 tools/routing", async () => {
   );
 
   assert.equal(result.mode, "purge");
+  assert.ok(result.schedulerJournalBytesFreed >= 0);
+  const journalLines = readFileSync(schedulerJournalFile, "utf-8").trim().split("\n").filter(Boolean);
+  assert.equal(journalLines.length, 1);
   assert.ok(result.trace.eventsRemoved >= 1);
   const segText = readFileSync(segAbs, "utf-8");
   assert.ok(!segText.includes(session.id));

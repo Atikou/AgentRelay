@@ -4,7 +4,11 @@ import type { Plan } from "../agent/types.js";
 export interface ModeFallbackResult {
   triggered: true;
   reasons: string[];
+  /** @deprecated 使用 planId/version；Planner legacy Plan 不再直接回传 API */
   revisedPlan?: Plan;
+  planId?: string;
+  version?: number;
+  previewMarkdown?: string;
   planRunId?: string;
   error?: string;
 }

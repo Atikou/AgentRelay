@@ -240,6 +240,13 @@ test("AgentReactLoopRunner 已登记为独立模块", async () => {
   assert.ok(pkg.includes("test:agent-react-loop-runner"));
 });
 
+test("RunPolicyVocabulary 已登记为 P5 词汇收敛模块", async () => {
+  const arch = await readFile(path.join(docsDir, "架构设计.md"), "utf-8");
+  const pkg = await readFile(path.join(publicDir, "../package.json"), "utf-8");
+  assert.ok(arch.includes("RunPolicyVocabulary"));
+  assert.ok(pkg.includes("test:run-policy-vocabulary"));
+});
+
 test("app.js 时间显示经 parseTimestamp 转本地时区", async () => {
   const js = await readFile(path.join(publicDir, "app.js"), "utf-8");
   assert.ok(js.includes("function parseTimestamp(value)"));

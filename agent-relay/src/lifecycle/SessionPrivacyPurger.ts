@@ -7,6 +7,7 @@ import { writeTombstone } from "./CleanupJournal.js";
 import { cleanupSessionArtifacts } from "./SessionArtifactCleaner.js";
 import { purgeSessionFromTraceSegments } from "./TraceSegmentPurger.js";
 import { runSqliteMaintenance } from "./sqliteMaintenance.js";
+import { compactSchedulerJournalFile } from "./schedulerJournalCompact.js";
 import type { LifecyclePolicy } from "./types.js";
 import type { TraceCatalog } from "../trace/traceCatalog.js";
 
@@ -18,6 +19,7 @@ export interface SessionPurgeResult {
   tools: { toolLogsRemoved: number; fileChangesRemoved: number };
   routing: { routeLogsRemoved: number; callLogsRemoved: number; collaborationRunsRemoved: number; fallbackLogsRemoved: number };
   notifications: { linesRemoved: number };
+  schedulerJournalBytesFreed: number;
   artifactsBytesFreed: number;
   vacuumed: boolean;
 }
@@ -29,6 +31,7 @@ export interface SessionPrivacyPurgerDeps {
   toolsDbPath?: string;
   traceCatalog: TraceCatalog;
   notificationFile: string;
+  schedulerJournalFile?: string;
   policy: LifecyclePolicy;
 }
 
@@ -46,6 +49,10 @@ export function purgeSessionPrivacy(
   const tools = purgeToolsDb(deps.toolsDbPath, sessionId);
   const routing = purgeRoutingTables(deps.memoryDb, sessionId);
   const notifications = purgeNotificationsJournal(deps.notificationFile, sessionId, runIds);
+  const schedulerJournalBytesFreed =
+    deps.schedulerJournalFile && deps.policy.cleanup.autoEnabled
+      ? compactSchedulerJournalFile(deps.schedulerJournalFile)
+      : 0;
 
   const artifacts = cleanupSessionArtifacts({
     dataDir: deps.dataDir,
@@ -73,6 +80,7 @@ export function purgeSessionPrivacy(
     tools,
     routing,
     notifications,
+    schedulerJournalBytesFreed,
     artifactsBytesFreed: artifacts.bytesFreed,
     vacuumed,
   };

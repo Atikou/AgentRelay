@@ -199,6 +199,7 @@ export class DataLifecycleService {
         toolsDbPath: this.deps.toolsDbPath,
         traceCatalog: this.deps.traceCatalog,
         notificationFile: this.deps.notificationFile,
+        schedulerJournalFile: this.deps.schedulerJournalFile,
         policy: this.policy,
       },
       sessionId,

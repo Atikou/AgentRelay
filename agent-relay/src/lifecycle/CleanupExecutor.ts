@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 
 import type { DatabaseManager } from "../context/DatabaseManager.js";
 import { atomicWriteFile, fileAgeDays, safeDeleteDirectory, safeDeleteFile } from "./fsUtils.js";
+import { compactSchedulerJournalFile } from "./schedulerJournalCompact.js";
 import {
   estimateDbRowBytes,
   parseDbRowCleanupKind,
@@ -131,7 +132,7 @@ export class CleanupExecutor {
         return action.bytes;
       case "compact_jsonl":
         return action.category === "scheduler"
-          ? this.compactSchedulerJournal(action.path)
+          ? compactSchedulerJournalFile(action.path)
           : this.compactNotifications(action.path);
       case "delete_db_rows":
         return this.deleteDbRows(action);
@@ -215,35 +216,6 @@ export class CleanupExecutor {
     }
 
     atomicWriteFile(filePath, kept.length > 0 ? `${kept.join("\n")}\n` : "");
-    return removedBytes;
-  }
-
-  private compactSchedulerJournal(filePath: string): number {
-    const text = readFileSync(filePath, "utf-8");
-    const lines = text.split("\n").filter(Boolean);
-    const triggers = new Map<string, string>();
-    for (const line of lines) {
-      try {
-        const parsed = JSON.parse(line) as {
-          op?: string;
-          id?: string;
-          trigger?: { id?: string };
-        };
-        if (parsed.op === "delete" && typeof parsed.id === "string") {
-          triggers.delete(parsed.id);
-          continue;
-        }
-        if (parsed.op === "upsert" && parsed.trigger?.id) {
-          triggers.set(parsed.trigger.id, line);
-        }
-      } catch {
-        continue;
-      }
-    }
-    const kept = [...triggers.values()];
-    const next = kept.length > 0 ? `${kept.join("\n")}\n` : "";
-    const removedBytes = Math.max(0, Buffer.byteLength(text, "utf-8") - Buffer.byteLength(next, "utf-8"));
-    atomicWriteFile(filePath, next);
     return removedBytes;
   }
 }
